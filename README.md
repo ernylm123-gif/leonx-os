@@ -4,7 +4,7 @@ LEONX Metal'in **iç kullanımına özel** proje, CAD analiz, metraj ve teklif y
 
 > Firma: **LEONX METAL** · [leonxmetal.com](https://www.leonxmetal.com)
 
-## Durum — Faz 1 ve Faz 2A tamamlandı
+## Durum — Faz 1, 2A ve 3 tamamlandı
 
 Bu sürüm yalnızca arayüzü ve uygulama iskeletini içerir. Veritabanı (Supabase), CAD analiz motoru ve
 yapay zekâ entegrasyonu **henüz yoktur**. Uygulamada sahte müşteri, fiyat veya metraj verisi bulunmaz;
@@ -14,11 +14,44 @@ geliştirilmemiş eylemler devre dışıdır ve hangi aşamada geleceği belirti
 | --- | --- | --- |
 | 1 | Arayüz ve yazılım altyapısı | ✅ |
 | 2A | Güvenli web dağıtım hazırlığı (Vercel, mobil uyumluluk) | ✅ |
-| 2 | Veritabanı, kimlik doğrulama, kayıtlar | Planlandı |
-| 3 | DWG / DXF analiz motoru | Planlandı |
-| 4 | Otomatik metraj ve fiyatlandırma | Planlandı |
-| 5 | Teklif hazırlama ve PDF çıktıları | Planlandı |
-| 6 | LEONX AI entegrasyonu | Planlandı |
+| 3 | Kurumsal arayüz, orijinal logo, açık/koyu/sistem teması | ✅ |
+| Sıradaki | Veritabanı, kimlik doğrulama, kayıtlar | Planlandı |
+| — | DWG / DXF analiz motoru | Planlandı |
+| — | Otomatik metraj ve fiyatlandırma | Planlandı |
+| — | Teklif hazırlama ve PDF çıktıları | Planlandı |
+| — | LEONX AI entegrasyonu | Planlandı |
+
+Gelecek aşamalar uygulamada numara yerine adla anılır (ör. "Veritabanı aşaması").
+
+## Marka ve logo
+
+`public/branding/leonx-logo.png`, LEONX Metal'in **orijinal logo dosyasıdır** ve değiştirilmeden saklanır.
+Arayüzde kullanılan diğer dosyalar bu görselden **yalnızca kırpma ve yeniden boyutlandırma** ile üretilmiştir;
+LX sembolü, LEONX yazısı, metalik görünüm, renkler ve oranlar yeniden çizilmemiştir.
+
+| Dosya | İçerik | Kullanım |
+| --- | --- | --- |
+| `branding/leonx-logo.png` | Orijinal logo (1254×1254) | Kaynak dosya |
+| `branding/leonx-lockup.png` | LX sembolü + LEONX yazısı | Kenar çubuğu, mobil menü, Ayarlar |
+| `branding/leonx-symbol.png` | Yalnızca LX sembolü | Daraltılmış menü, telefon üst çubuğu, LEONX AI |
+| `branding/leonx-wordmark.png` | Yalnızca LEONX yazısı | Tablet üst çubuğu |
+| `icons/*.png` | LX sembolü, kare tuvale ortalanmış | Favicon, iOS/Android ana ekran simgeleri |
+
+Logonun zemin rengi düz `#F6F6F6`'dır. Bu zemin kaldırılmaz; logo her iki temada da aynı renkte bir
+"plaka" içinde gösterilir. Kare simgelerde eklenen kenar payı da aynı `#F6F6F6` rengindedir.
+
+## Tema
+
+Ayarlar → Görünüm'de **Sistem / Açık / Koyu** seçilebilir; üst çubuktaki düğme de bu üç seçenek arasında geçiş yapar.
+
+- Varsayılan **Sistem**'dir: cihazın açık/koyu ayarı (`prefers-color-scheme`) izlenir ve iPadOS, iOS,
+  Android, Windows veya macOS'ta tema değiştiğinde uygulama sayfa yenilenmeden güncellenir.
+- Seçim tarayıcıda (`localStorage`, `leonx-os:preferences`) saklanır.
+- `public/theme-init.js`, React yüklenmeden önce temayı uygular; açılışta yanlış tema görünmez. CSP'ye uyum
+  için satır içi değil, ayrı dosyadır.
+- Tüm renkler `src/index.css` içindeki CSS değişkenlerinden gelir (`--canvas`, `--surface`, `--ink`, `--line` vb.).
+  Koyu tema yalnızca bu değişkenleri `[data-theme='dark']` altında yeniden tanımlar.
+- "Hareketleri azalt" tercihi ve cihazın hareket azaltma ayarı animasyonları en aza indirir.
 
 ## ⚠️ Güvenlik uyarısı — üretimde özel veri işlemeye hazır değildir
 
@@ -169,22 +202,25 @@ npm run check      # TypeScript kontrolü + production build
 ```
 vercel.json                Vercel build, SPA yönlendirme ve güvenlik başlıkları
 public/
+  theme-init.js            İlk boyamadan önce temayı uygular
+  branding/                Orijinal LEONX logosu ve ondan kırpılan sürümler
   manifest.webmanifest     Ana ekrana ekleme bilgileri
   icons/                   iOS ve Android uygulama simgeleri
   robots.txt               Arama motoru dizinlemesini engeller
 src/
   App.tsx                  Rota tanımları (modüller ihtiyaç anında yüklenir)
   main.tsx                 Giriş noktası
-  index.css                Tasarım belirteçleri (antrasit, titanyum, fırçalanmış gümüş) ve fontlar
+  index.css                Tema belirteçleri (açık/koyu), bileşen sınıfları ve fontlar
   config/
     navigation.ts          Menü öğeleri, gruplar ve modül durumları
     company.ts             Firma bilgisi, sürüm, entegrasyon durumu, yol haritası
-  context/preferences.tsx  Arayüz tercihleri (cihazda saklanır)
+  context/preferences.tsx  Tema ve arayüz tercihleri (cihazda saklanır)
+  lib/useOverlay.ts        Menü/arama katmanları: Escape, kaydırma kilidi, odak yönetimi
   layouts/AppLayout.tsx    Ana yerleşim ve sayfa geçişleri
   components/
-    brand/                 LEONX amblemi ve logo
-    layout/                Kenar çubuğu, üst çubuk, mobil çekmece, alt sekme çubuğu, komut paleti
-    ui/                    Panel, PageHeader, EmptyState, Button, Toggle, StatusPill vb.
+    brand/                 Orijinal LEONX logosunun gösterimi
+    layout/                Kenar çubuğu, üst çubuk, mobil çekmece, alt navigasyon, komut paleti, tema düğmesi
+    ui/                    Panel, PageHeader, EmptyState, Button, Toggle, SegmentedControl, StatusPill vb.
   pages/                   Dashboard, Projeler, CAD Analiz, Metraj, Teklifler,
                            Firmalar, LEONX AI, Raporlar, Ayarlar, 404
 ```

@@ -2,118 +2,225 @@
 @import '@fontsource-variable/inter';
 @import '@fontsource-variable/jetbrains-mono';
 
+/* Koyu tema, html[data-theme="dark"] ile etkinleşir (bkz. public/theme-init.js) */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
 /* ------------------------------------------------------------------
-   LEONX OS — Tasarım belirteçleri
-   Antrasit · Titanyum · Fırçalanmış gümüş · Beyaz
+   LEONX OS — Tema belirteçleri
+   Tüm renkler CSS değişkenlerinden gelir; açık ve koyu tema yalnızca
+   bu değişkenleri değiştirir.
 ------------------------------------------------------------------- */
-@theme {
+:root {
+  --canvas: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f0f2f4;
+  --surface-3: #e7eaed;
+  --line: #e0e4e8;
+  --line-strong: #cdd3d9;
+  --ink: #20242a;
+  --ink-2: #3b424b;
+  --muted: #68717d;
+  --subtle: #8a929c;
+  --titanium: #707985;
+  --silver: #b8c0c9;
+  --anthracite: #252a31;
+
+  --primary: #252a31;
+  --primary-hover: #343a43;
+  --primary-ink: #ffffff;
+
+  --ok: #2f7d4f;
+  --ok-soft: rgb(47 125 79 / 0.09);
+  --warn: #8f5d0f;
+  --warn-soft: rgb(212 166 74 / 0.14);
+  --warn-line: rgb(176 128 40 / 0.28);
+
+  --overlay: rgb(21 24 28 / 0.32);
+  --focus: #707985;
+
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.04);
+  --shadow-hover: 0 1px 2px rgb(16 24 40 / 0.05), 0 10px 24px -12px rgb(16 24 40 / 0.16);
+  --shadow-raised: 0 24px 48px -16px rgb(16 24 40 / 0.22), 0 2px 6px rgb(16 24 40 / 0.06);
+  --sheen: rgb(255 255 255 / 0.9);
+
+  /* Logo plakası: orijinal logo görselinin zemin rengi (#F6F6F6) */
+  --plate: #f6f6f6;
+  --plate-line: #e3e6e9;
+}
+
+[data-theme='dark'] {
+  --canvas: #15181c;
+  --surface: #20242a;
+  --surface-2: #292e35;
+  --surface-3: #313740;
+  --line: #38404a;
+  --line-strong: #48515c;
+  --ink: #f4f6f8;
+  --ink-2: #d7dce2;
+  --muted: #adb5bf;
+  --subtle: #858f9a;
+  --titanium: #9aa3ae;
+  --silver: #b8c0c9;
+  --anthracite: #252a31;
+
+  --primary: #e8ebee;
+  --primary-hover: #ffffff;
+  --primary-ink: #15181c;
+
+  --ok: #7cc89b;
+  --ok-soft: rgb(124 200 155 / 0.1);
+  --warn: #dcb062;
+  --warn-soft: rgb(220 176 98 / 0.1);
+  --warn-line: rgb(220 176 98 / 0.26);
+
+  --overlay: rgb(0 0 0 / 0.55);
+  --focus: #b8c0c9;
+
+  --shadow-card: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-hover: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 12px 28px -14px rgb(0 0 0 / 0.7);
+  --shadow-raised: 0 28px 56px -18px rgb(0 0 0 / 0.75), 0 0 0 1px rgb(255 255 255 / 0.04);
+  --sheen: rgb(255 255 255 / 0.06);
+
+  --plate: #f6f6f6;
+  --plate-line: #48515c;
+}
+
+@theme inline {
   --font-sans: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --color-anthracite-950: #0c0d10;
-  --color-anthracite-900: #121418;
-  --color-anthracite-850: #171a1f;
-  --color-anthracite-800: #1d2026;
-  --color-anthracite-750: #23272e;
-  --color-anthracite-700: #2b3038;
-  --color-anthracite-600: #3a4049;
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-titanium: var(--titanium);
+  --color-silver: var(--silver);
+  --color-anthracite: var(--anthracite);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-ink: var(--primary-ink);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-line: var(--warn-line);
+  --color-overlay: var(--overlay);
+  --color-plate: var(--plate);
+  --color-plate-line: var(--plate-line);
 
-  --color-titanium-600: #5d636c;
-  --color-titanium-500: #767c86;
-  --color-titanium-400: #8f959e;
-  --color-titanium-300: #a9aeb5;
-
-  --color-silver-300: #c3c7cc;
-  --color-silver-200: #d7dade;
-  --color-silver-100: #e8eaed;
-  --color-silver-50: #f4f5f7;
-
-  --color-signal-amber: #d4a64a;
-  --color-signal-green: #6fbf8e;
-  --color-signal-red: #d9776e;
-
-  --shadow-panel: 0 1px 0 0 rgb(255 255 255 / 0.04) inset, 0 20px 40px -24px rgb(0 0 0 / 0.6);
+  --shadow-card: var(--shadow-card);
+  --shadow-hover: var(--shadow-hover);
+  --shadow-raised: var(--shadow-raised);
 }
 
 @layer base {
   html {
-    color-scheme: dark;
     -webkit-tap-highlight-color: transparent;
-    /* iOS Safari'nin yatay çevirmede metni kendiliğinden büyütmesini engeller */
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    background-color: var(--canvas);
   }
 
   body {
-    @apply bg-anthracite-950 font-sans text-silver-100 antialiased;
-    background-image:
-      radial-gradient(1200px 600px at 85% -10%, rgb(169 174 181 / 0.07), transparent 60%),
-      radial-gradient(900px 500px at -10% 110%, rgb(118 124 134 / 0.06), transparent 60%);
-    /* iOS Safari "fixed" arka planı desteklemez; kaydırmada titremeyi önlemek için yalnızca geniş ekranlarda */
-    background-attachment: scroll;
+    @apply bg-canvas font-sans text-ink antialiased;
+    font-feature-settings: 'cv11', 'ss01';
     min-height: 100vh;
     min-height: 100dvh;
-    /* Yatay iPhone'da çentik / kenar güvenli alanları */
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
   }
 
-  @media (min-width: 1024px) and (hover: hover) {
-    body {
-      background-attachment: fixed;
-    }
-  }
-
   ::selection {
-    background: rgb(195 199 204 / 0.25);
+    background: rgb(112 121 133 / 0.22);
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-silver-300);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
-    border-radius: 6px;
+    border-radius: 8px;
   }
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--color-anthracite-600) transparent;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+
+  /* Tema değişiminde kısa, yumuşak renk geçişi */
+  html[data-theme-transition] *,
+  html[data-theme-transition] *::before,
+  html[data-theme-transition] *::after {
+    transition:
+      background-color 280ms ease,
+      border-color 280ms ease,
+      color 200ms ease,
+      fill 200ms ease,
+      box-shadow 280ms ease !important;
+  }
+
+  /* Hareket azaltma: kullanıcı tercihi veya işletim sistemi ayarı */
+  html[data-reduce-motion] *,
+  html[data-reduce-motion] *::before,
+  html[data-reduce-motion] *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
 @layer components {
-  /* Fırçalanmış gümüş yüzey */
-  .brushed-silver {
-    background-color: #c9cdd2;
+  /* Fırçalanmış titanyum yüzey — simge karoları ve vurgu çizgileri */
+  .brushed {
+    background-color: #c6ccd2;
     background-image:
-      repeating-linear-gradient(90deg, rgb(255 255 255 / 0.08) 0 1px, transparent 1px 3px),
-      linear-gradient(135deg, #f1f2f4 0%, #b9bec4 38%, #e4e6e9 62%, #a7acb3 100%);
+      repeating-linear-gradient(90deg, rgb(255 255 255 / 0.1) 0 1px, transparent 1px 3px),
+      linear-gradient(135deg, #f3f4f6 0%, #c3c9d0 40%, #eceef1 62%, #a9b0b8 100%);
   }
 
-  /* Fırçalanmış gümüş metin */
-  .text-brushed {
-    background-image: linear-gradient(100deg, #f6f7f8 0%, #b4b9c0 35%, #eef0f2 55%, #9aa0a8 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+  /* Kart */
+  .card {
+    @apply rounded-2xl border border-line bg-surface shadow-card;
   }
 
-  /* Antrasit panel */
-  .panel {
-    @apply rounded-2xl border border-white/[0.06] bg-anthracite-850/80 backdrop-blur-sm;
-    box-shadow: var(--shadow-panel);
-  }
-
-  /* İnce metal çizgi (ayırıcı) */
-  .hairline {
-    background-image: linear-gradient(90deg, transparent, rgb(195 199 204 / 0.35), transparent);
-    height: 1px;
-  }
-
-  /* Teknik çizim ızgarası (CAD alanları için) */
+  /* Teknik çizim ızgarası (CAD alanları) */
   .blueprint-grid {
     background-image:
-      linear-gradient(rgb(169 174 181 / 0.06) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(169 174 181 / 0.06) 1px, transparent 1px);
-    background-size: 24px 24px;
+      linear-gradient(color-mix(in srgb, var(--titanium) 12%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--titanium) 12%, transparent) 1px, transparent 1px),
+      linear-gradient(color-mix(in srgb, var(--titanium) 6%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--titanium) 6%, transparent) 1px, transparent 1px);
+    background-size:
+      96px 96px,
+      96px 96px,
+      24px 24px,
+      24px 24px;
+  }
+
+  /* Cetvel çizgisi — mühendislik başlıklarının altındaki ölçek işaretleri */
+  .ruler {
+    height: 6px;
+    background-image:
+      linear-gradient(90deg, var(--line-strong) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size:
+      48px 6px,
+      8px 3px;
+    background-repeat: repeat-x;
+    background-position:
+      0 0,
+      0 0;
   }
 }

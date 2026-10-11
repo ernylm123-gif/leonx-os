@@ -16,6 +16,10 @@ export type ModuleStatus = 'ready' | 'planned'
 export interface NavItem {
   path: string
   label: string
+  /** Dar alanlarda (telefon alt navigasyonu) kullanılan kısa ad */
+  shortLabel?: string
+  /** Modül kodu — teknik başlıklarda gösterilir */
+  code: string
   /** Kısa açıklama — menü ipuçları ve komut paletinde kullanılır */
   description: string
   icon: LucideIcon
@@ -36,6 +40,7 @@ export const NAV_GROUPS: Record<NavItem['group'], string> = {
 export const NAV_ITEMS: NavItem[] = [
   {
     path: '/',
+    code: 'M00',
     label: 'Dashboard',
     description: 'Genel bakış ve sistem durumu',
     icon: LayoutDashboard,
@@ -45,6 +50,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     path: '/projeler',
+    code: 'M01',
     label: 'Projeler',
     description: 'Alüminyum, PVC, kapı, korkuluk, cephe ve metal imalat projeleri',
     icon: FolderKanban,
@@ -54,7 +60,9 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     path: '/cad-analiz',
+    code: 'M02',
     label: 'CAD Analiz',
+    shortLabel: 'CAD',
     description: 'DWG / DXF çizim analizi',
     icon: ScanLine,
     group: 'muhendislik',
@@ -63,6 +71,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     path: '/metraj',
+    code: 'M03',
     label: 'Metraj',
     description: 'Otomatik metraj ve malzeme listeleri',
     icon: Ruler,
@@ -71,6 +80,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     path: '/teklifler',
+    code: 'M04',
     label: 'Teklifler',
     description: 'Fiyatlandırma ve teklif hazırlama',
     icon: FileText,
@@ -80,6 +90,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     path: '/firmalar',
+    code: 'M05',
     label: 'Firmalar',
     description: 'Müşteri, tedarikçi ve iş ortakları',
     icon: Building2,
@@ -88,6 +99,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     path: '/leonx-ai',
+    code: 'M06',
     label: 'LEONX AI',
     description: 'Yapay zekâ destekli asistan',
     icon: Bot,
@@ -96,6 +108,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     path: '/raporlar',
+    code: 'M07',
     label: 'Raporlar',
     description: 'Proje, teklif ve üretim raporları',
     icon: BarChart3,
@@ -104,6 +117,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     path: '/ayarlar',
+    code: 'M08',
     label: 'Ayarlar',
     description: 'Arayüz tercihleri ve sistem bilgisi',
     icon: Settings,

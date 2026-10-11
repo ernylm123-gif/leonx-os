@@ -13,11 +13,11 @@ export function PlannedNotice({ children, className }: PlannedNoticeProps) {
     <div
       role="note"
       className={cn(
-        'flex items-start gap-3 rounded-xl border border-signal-amber/20 bg-signal-amber/[0.06] px-4 py-3 text-sm text-silver-200',
+        'flex items-start gap-3 rounded-xl border border-warn-line bg-warn-soft px-4 py-3 text-sm text-ink-2',
         className,
       )}
     >
-      <Info className="mt-0.5 h-4 w-4 shrink-0 text-signal-amber" aria-hidden="true" />
+      <Info className="mt-0.5 h-4 w-4 shrink-0 text-warn" aria-hidden="true" />
       <div className="leading-relaxed">{children}</div>
     </div>
   )
