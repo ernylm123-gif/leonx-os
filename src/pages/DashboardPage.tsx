@@ -42,22 +42,22 @@ export function DashboardPage() {
             <div className="mt-3 font-mono text-3xl font-medium text-titanium-600" aria-label="Veri yok">
               —
             </div>
-            <div className="mt-3 flex items-center gap-1.5 text-[11px] text-titanium-500">
-              <CircleSlash className="h-3 w-3 shrink-0" aria-hidden="true" />
-              <span className="truncate">Veri kaynağı bağlı değil</span>
+            <div className="mt-3 flex items-start gap-1.5 text-[11px] text-titanium-500">
+              <CircleSlash className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+              <span className="leading-snug">Veri kaynağı bağlı değil</span>
             </div>
           </motion.div>
         ))}
       </section>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-3">
+      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
         <Panel
           title="Modüller"
           subtitle="Tüm modüllerin arayüzü hazır; iş mantığı aşamalı olarak eklenecek"
           icon={Layers}
           className="xl:col-span-2"
         >
-          <ul className="grid gap-3 sm:grid-cols-2">
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {modules.map((m) => (
               <li key={m.path}>
                 <Link

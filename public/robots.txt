@@ -1,0 +1,3 @@
+# LEONX OS yalnızca LEONX Metal iç kullanımı içindir.
+User-agent: *
+Disallow: /

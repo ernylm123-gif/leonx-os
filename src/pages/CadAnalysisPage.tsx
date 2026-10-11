@@ -29,7 +29,7 @@ export function CadAnalysisPage() {
         alan, motor eklendiğinde kullanılacak çalışma alanının yerleşimidir.
       </PlannedNotice>
 
-      <div className="grid gap-6 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <section
           aria-label="Çizim çalışma alanı"
           className="panel blueprint-grid relative flex min-h-[320px] flex-col items-center justify-center overflow-hidden p-8 text-center xl:col-span-2"

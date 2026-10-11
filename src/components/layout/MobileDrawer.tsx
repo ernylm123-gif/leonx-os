@@ -36,7 +36,7 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
             onClick={onClose}
           />
           <motion.aside
-            className="absolute inset-y-0 left-0 flex w-[min(86vw,320px)] flex-col border-r border-white/[0.08] bg-anthracite-900 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+            className="absolute inset-y-0 left-0 flex w-[min(86vw,320px)] flex-col border-r border-white/[0.08] bg-anthracite-900 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
             initial={{ x: '-100%' }}
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}

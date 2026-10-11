@@ -1,12 +1,14 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
 
 /* ------------------------------------------------------------------
    LEONX OS — Tasarım belirteçleri
    Antrasit · Titanyum · Fırçalanmış gümüş · Beyaz
 ------------------------------------------------------------------- */
 @theme {
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --color-anthracite-950: #0c0d10;
   --color-anthracite-900: #121418;
@@ -37,6 +39,9 @@
   html {
     color-scheme: dark;
     -webkit-tap-highlight-color: transparent;
+    /* iOS Safari'nin yatay çevirmede metni kendiliğinden büyütmesini engeller */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   body {
@@ -44,8 +49,19 @@
     background-image:
       radial-gradient(1200px 600px at 85% -10%, rgb(169 174 181 / 0.07), transparent 60%),
       radial-gradient(900px 500px at -10% 110%, rgb(118 124 134 / 0.06), transparent 60%);
-    background-attachment: fixed;
+    /* iOS Safari "fixed" arka planı desteklemez; kaydırmada titremeyi önlemek için yalnızca geniş ekranlarda */
+    background-attachment: scroll;
+    min-height: 100vh;
     min-height: 100dvh;
+    /* Yatay iPhone'da çentik / kenar güvenli alanları */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  @media (min-width: 1024px) and (hover: hover) {
+    body {
+      background-attachment: fixed;
+    }
   }
 
   ::selection {
