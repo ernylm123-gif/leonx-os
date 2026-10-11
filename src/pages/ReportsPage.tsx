@@ -26,7 +26,7 @@ export function ReportsPage() {
         Raporlar, ilgili modüller veri üretmeye başladığında oluşturulabilecek. Şu anda raporlanacak kayıt yoktur.
       </PlannedNotice>
 
-      <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {REPORTS.map(({ icon: Icon, title, description, source }) => (
           <li key={title} className="panel flex flex-col p-5">
             <div className="flex items-start justify-between gap-3">

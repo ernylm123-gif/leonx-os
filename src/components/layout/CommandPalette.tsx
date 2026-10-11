@@ -60,7 +60,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   return (
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-[60] flex items-start justify-center px-4 pt-[12vh]" role="dialog" aria-modal="true" aria-label="Modül arama">
+        <div className="fixed inset-0 z-[60] flex items-start justify-center px-4 pt-[max(12vh,env(safe-area-inset-top))]" role="dialog" aria-modal="true" aria-label="Modül arama">
           <motion.div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             initial={{ opacity: 0 }}
@@ -83,7 +83,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Modül adı yazın…"
-                className="h-14 flex-1 bg-transparent text-sm text-silver-50 placeholder:text-titanium-500 focus:outline-none"
+                className="h-14 min-w-0 flex-1 bg-transparent text-base text-silver-50 placeholder:text-titanium-500 focus:outline-none"
                 aria-label="Modül ara"
                 role="combobox"
                 aria-expanded="true"

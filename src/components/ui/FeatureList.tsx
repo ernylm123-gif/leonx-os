@@ -9,7 +9,7 @@ export interface Feature {
 /** Bir modülde planlanan yetenekleri listeler. Bunlar çalışan özellikler değil, yol haritasıdır. */
 export function FeatureList({ items }: { items: Feature[] }) {
   return (
-    <ul className="grid gap-3 sm:grid-cols-2">
+    <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       {items.map(({ icon: Icon, title, description }) => (
         <li key={title} className="flex gap-3 rounded-xl border border-white/[0.05] bg-white/[0.02] p-4">
           <Icon className="mt-0.5 h-4 w-4 shrink-0 text-titanium-300" strokeWidth={1.75} aria-hidden="true" />

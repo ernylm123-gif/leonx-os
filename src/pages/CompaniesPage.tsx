@@ -28,7 +28,7 @@ export function CompaniesPage() {
 
       <PlannedNotice className="mb-6">Firma kayıtları veritabanı bağlantısıyla (Faz 2) birlikte etkinleşecek.</PlannedNotice>
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-3">
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {TYPES.map(({ icon: Icon, label }) => (
           <div key={label} className="panel flex items-center gap-3 p-4">
             <Icon className="h-5 w-5 text-titanium-300" strokeWidth={1.75} aria-hidden="true" />
