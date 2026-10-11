@@ -1,0 +1,103 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------
+   LEONX OS — Tasarım belirteçleri
+   Antrasit · Titanyum · Fırçalanmış gümüş · Beyaz
+------------------------------------------------------------------- */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-anthracite-950: #0c0d10;
+  --color-anthracite-900: #121418;
+  --color-anthracite-850: #171a1f;
+  --color-anthracite-800: #1d2026;
+  --color-anthracite-750: #23272e;
+  --color-anthracite-700: #2b3038;
+  --color-anthracite-600: #3a4049;
+
+  --color-titanium-600: #5d636c;
+  --color-titanium-500: #767c86;
+  --color-titanium-400: #8f959e;
+  --color-titanium-300: #a9aeb5;
+
+  --color-silver-300: #c3c7cc;
+  --color-silver-200: #d7dade;
+  --color-silver-100: #e8eaed;
+  --color-silver-50: #f4f5f7;
+
+  --color-signal-amber: #d4a64a;
+  --color-signal-green: #6fbf8e;
+  --color-signal-red: #d9776e;
+
+  --shadow-panel: 0 1px 0 0 rgb(255 255 255 / 0.04) inset, 0 20px 40px -24px rgb(0 0 0 / 0.6);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-anthracite-950 font-sans text-silver-100 antialiased;
+    background-image:
+      radial-gradient(1200px 600px at 85% -10%, rgb(169 174 181 / 0.07), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, rgb(118 124 134 / 0.06), transparent 60%);
+    background-attachment: fixed;
+    min-height: 100dvh;
+  }
+
+  ::selection {
+    background: rgb(195 199 204 / 0.25);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-silver-300);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-anthracite-600) transparent;
+  }
+}
+
+@layer components {
+  /* Fırçalanmış gümüş yüzey */
+  .brushed-silver {
+    background-color: #c9cdd2;
+    background-image:
+      repeating-linear-gradient(90deg, rgb(255 255 255 / 0.08) 0 1px, transparent 1px 3px),
+      linear-gradient(135deg, #f1f2f4 0%, #b9bec4 38%, #e4e6e9 62%, #a7acb3 100%);
+  }
+
+  /* Fırçalanmış gümüş metin */
+  .text-brushed {
+    background-image: linear-gradient(100deg, #f6f7f8 0%, #b4b9c0 35%, #eef0f2 55%, #9aa0a8 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Antrasit panel */
+  .panel {
+    @apply rounded-2xl border border-white/[0.06] bg-anthracite-850/80 backdrop-blur-sm;
+    box-shadow: var(--shadow-panel);
+  }
+
+  /* İnce metal çizgi (ayırıcı) */
+  .hairline {
+    background-image: linear-gradient(90deg, transparent, rgb(195 199 204 / 0.35), transparent);
+    height: 1px;
+  }
+
+  /* Teknik çizim ızgarası (CAD alanları için) */
+  .blueprint-grid {
+    background-image:
+      linear-gradient(rgb(169 174 181 / 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(169 174 181 / 0.06) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+}
