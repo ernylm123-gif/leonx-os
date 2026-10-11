@@ -1,11 +1,11 @@
-import { Building2, Contact, Handshake, Plus, Truck, UserRound } from 'lucide-react'
+import { Building2, Contact, Handshake, History, Plus, Truck, UserRound } from 'lucide-react'
+import { PlannedAction } from '@/components/ui/Button'
 import { DataTableShell } from '@/components/ui/DataTableShell'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { FeatureList } from '@/components/ui/FeatureList'
+import { RoadmapPanel } from '@/components/ui/FeatureList'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { Panel } from '@/components/ui/Panel'
-import { PlannedAction } from '@/components/ui/Button'
 import { PlannedNotice } from '@/components/ui/PlannedNotice'
+import { MILESTONE } from '@/config/company'
 
 const COLUMNS = ['Firma', 'Tür', 'Yetkili', 'Telefon', 'E-posta', 'Şehir']
 const TYPES = [
@@ -19,26 +19,32 @@ export function CompaniesPage() {
     <>
       <PageHeader
         icon={Building2}
+        code="M05"
         eyebrow="Ticari"
         title="Firmalar"
         description="Müşteri, tedarikçi ve iş ortağı kayıtlarının, yetkili kişileri ve proje geçmişiyle birlikte yönetimi."
         status="planned"
-        actions={<PlannedAction icon={Plus} label="Firma ekle" phase="Faz 2" />}
+        actions={<PlannedAction icon={Plus} label="Firma ekle" phase={MILESTONE.data} />}
       />
 
-      <PlannedNotice className="mb-6">Firma kayıtları veritabanı bağlantısıyla (Faz 2) birlikte etkinleşecek.</PlannedNotice>
+      <PlannedNotice className="mb-6">Firma kayıtları veritabanı bağlantısıyla birlikte etkinleşecek.</PlannedNotice>
 
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {TYPES.map(({ icon: Icon, label }) => (
-          <div key={label} className="panel flex items-center gap-3 p-4">
-            <Icon className="h-5 w-5 text-titanium-300" strokeWidth={1.75} aria-hidden="true" />
-            <span className="text-sm font-medium text-silver-100">{label}</span>
-            <span className="ml-auto font-mono text-sm text-titanium-600">—</span>
+          <div key={label} className="card flex min-w-0 items-center gap-3 p-4">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-line bg-surface-2">
+              <Icon className="h-[18px] w-[18px] text-titanium" strokeWidth={1.75} aria-hidden="true" />
+            </span>
+            <span className="truncate text-sm font-medium text-ink">{label}</span>
+            <span className="ml-auto font-mono text-sm text-subtle" aria-label="Veri yok">
+              —
+            </span>
           </div>
         ))}
       </div>
 
       <DataTableShell
+        caption="Firma listesi"
         columns={COLUMNS}
         empty={
           <EmptyState
@@ -49,14 +55,12 @@ export function CompaniesPage() {
         }
       />
 
-      <Panel title="Planlanan yetenekler" subtitle="Bu modül için yol haritası" className="mt-6">
-        <FeatureList
-          items={[
-            { icon: Contact, title: 'Yetkili kişiler', description: 'Her firma için birden fazla iletişim kişisi.' },
-            { icon: Building2, title: 'Firma geçmişi', description: 'Firmaya ait projeler, teklifler ve yazışmalar.' },
-          ]}
-        />
-      </Panel>
+      <RoadmapPanel
+        items={[
+          { icon: Contact, title: 'Yetkili kişiler', description: 'Her firma için birden fazla iletişim kişisi.' },
+          { icon: History, title: 'Firma geçmişi', description: 'Firmaya ait projeler, teklifler ve yazışmalar.' },
+        ]}
+      />
     </>
   )
 }

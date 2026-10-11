@@ -1,49 +1,51 @@
-import { useId } from 'react'
 import { cn } from '@/lib/cn'
 
-interface LeonxMarkProps {
-  className?: string
-}
+/*
+ * LEONX Metal orijinal logosu.
+ * Görseller public/branding/leonx-logo.png dosyasından yalnızca kırpılarak ve
+ * yeniden boyutlandırılarak üretilmiştir; şekil, renk ve oranlar değiştirilmemiştir.
+ * Logonun kendi zemin rengi (#F6F6F6) korunur ve "plaka" içinde gösterilir;
+ * böylece koyu temada da orijinal görünüm bozulmaz.
+ */
 
-/** LEONX OS amblemi — fırçalanmış gümüş "L" profil kesiti. */
-export function LeonxMark({ className }: LeonxMarkProps) {
-  const id = useId()
+const LOCKUP = { src: '/branding/leonx-lockup.png', width: 480, height: 326 }
+const SYMBOL = { src: '/branding/leonx-symbol.png', width: 192, height: 134 }
+const WORDMARK = { src: '/branding/leonx-wordmark.png', width: 640, height: 86 }
+
+const plate = 'overflow-hidden rounded-xl border border-plate-line bg-plate'
+
+/** LX sembolü + LEONX yazısı (tam logo). */
+export function LeonxLockup({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 40 40" className={cn('h-9 w-9 shrink-0', className)} aria-hidden="true">
-      <defs>
-        <linearGradient id={`${id}-metal`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#f6f7f8" />
-          <stop offset="0.45" stopColor="#a6abb2" />
-          <stop offset="0.7" stopColor="#e6e8eb" />
-          <stop offset="1" stopColor="#8d939b" />
-        </linearGradient>
-        <linearGradient id={`${id}-base`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#2b3038" />
-          <stop offset="1" stopColor="#15171b" />
-        </linearGradient>
-      </defs>
-      <rect x="0.5" y="0.5" width="39" height="39" rx="10" fill={`url(#${id}-base)`} stroke="rgb(255 255 255 / 0.08)" />
-      <path d="M11 9h5v17h13v5H11z" fill={`url(#${id}-metal)`} />
-      <path d="M20 9h9l-4.5 7.5z" fill={`url(#${id}-metal)`} opacity="0.7" />
-    </svg>
+    <div className={cn(plate, 'px-4 py-2.5', className)}>
+      <img
+        {...LOCKUP}
+        alt="LEONX"
+        decoding="async"
+        draggable={false}
+        className="mx-auto h-auto w-full max-w-[148px] select-none"
+      />
+    </div>
   )
 }
 
-interface LeonxLogoProps {
-  compact?: boolean
-  className?: string
+/** Yalnızca LX sembolü — daraltılmış menü ve mobil üst çubuk için. */
+export function LeonxSymbol({ className, size = 40 }: { className?: string; size?: number }) {
+  return (
+    <div
+      className={cn(plate, 'grid shrink-0 place-items-center', className)}
+      style={{ width: size, height: size, padding: Math.round(size * 0.12) }}
+    >
+      <img {...SYMBOL} alt="LEONX" decoding="async" draggable={false} className="h-auto w-full select-none" />
+    </div>
+  )
 }
 
-export function LeonxLogo({ compact = false, className }: LeonxLogoProps) {
+/** Yalnızca LEONX yazısı — tablet üst çubuğu için. */
+export function LeonxWordmark({ className }: { className?: string }) {
   return (
-    <div className={cn('flex items-center gap-3', className)}>
-      <LeonxMark />
-      {!compact && (
-        <div className="leading-none">
-          <div className="text-brushed text-[15px] font-bold tracking-[0.28em]">LEONX</div>
-          <div className="mt-1 text-[10px] font-medium tracking-[0.34em] text-titanium-400">OS · METAL</div>
-        </div>
-      )}
+    <div className={cn(plate, 'flex items-center px-3 py-2', className)}>
+      <img {...WORDMARK} alt="LEONX" decoding="async" draggable={false} className="h-3.5 w-auto select-none" />
     </div>
   )
 }

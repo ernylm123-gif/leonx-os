@@ -3,11 +3,11 @@ import { cn } from '@/lib/cn'
 
 type Tone = 'ready' | 'planned' | 'offline' | 'neutral'
 
-const TONES: Record<Tone, { dot: string; text: string }> = {
-  ready: { dot: 'bg-signal-green', text: 'text-signal-green' },
-  planned: { dot: 'bg-signal-amber', text: 'text-signal-amber' },
-  offline: { dot: 'bg-titanium-500', text: 'text-titanium-300' },
-  neutral: { dot: 'bg-silver-300', text: 'text-silver-200' },
+const TONES: Record<Tone, { wrap: string; dot: string }> = {
+  ready: { wrap: 'border-ok/25 bg-ok-soft text-ok', dot: 'bg-ok' },
+  planned: { wrap: 'border-warn-line bg-warn-soft text-warn', dot: 'bg-warn' },
+  offline: { wrap: 'border-line bg-surface-2 text-muted', dot: 'bg-subtle' },
+  neutral: { wrap: 'border-line bg-surface text-ink-2', dot: 'bg-titanium' },
 }
 
 interface StatusPillProps {
@@ -21,8 +21,8 @@ export function StatusPill({ tone, children, className }: StatusPillProps) {
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border border-white/[0.07] bg-white/[0.03] px-2.5 py-1 text-[11px] font-medium whitespace-nowrap',
-        t.text,
+        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-[3px] text-[11px] font-medium whitespace-nowrap',
+        t.wrap,
         className,
       )}
     >

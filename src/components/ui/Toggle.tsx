@@ -11,9 +11,9 @@ interface ToggleProps {
 export function Toggle({ id, checked, onChange, label, description }: ToggleProps) {
   return (
     <div className="flex items-start justify-between gap-4">
-      <label htmlFor={id} className="cursor-pointer">
-        <span className="block text-sm font-medium text-silver-100">{label}</span>
-        {description && <span className="mt-0.5 block text-xs text-titanium-400">{description}</span>}
+      <label htmlFor={id} className="min-w-0 cursor-pointer">
+        <span className="block text-sm font-medium text-ink">{label}</span>
+        {description && <span className="mt-0.5 block text-xs leading-relaxed text-muted">{description}</span>}
       </label>
       <button
         id={id}
@@ -22,14 +22,14 @@ export function Toggle({ id, checked, onChange, label, description }: ToggleProp
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={cn(
-          'relative h-6 w-11 shrink-0 rounded-full border transition-colors',
-          checked ? 'brushed-silver border-white/30' : 'border-white/10 bg-anthracite-700',
+          'relative mt-0.5 h-7 w-12 shrink-0 rounded-full border transition-colors duration-200',
+          checked ? 'border-primary bg-primary' : 'border-line-strong bg-surface-3',
         )}
       >
         <span
           className={cn(
-            'absolute top-0.5 left-0.5 h-[18px] w-[18px] rounded-full shadow transition-transform',
-            checked ? 'translate-x-5 bg-anthracite-900' : 'bg-titanium-400',
+            'absolute top-[3px] left-[3px] h-5 w-5 rounded-full shadow-sm transition-transform duration-200',
+            checked ? 'translate-x-5 bg-primary-ink' : 'bg-surface',
           )}
         />
       </button>

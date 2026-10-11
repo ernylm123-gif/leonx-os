@@ -1,26 +1,50 @@
-import { Building, ExternalLink, Info, PlugZap, RotateCcw, Settings, SlidersHorizontal } from 'lucide-react'
+import { Building, ExternalLink, Info, Monitor, Moon, Palette, PlugZap, RotateCcw, Settings, SlidersHorizontal, Sun } from 'lucide-react'
+import { LeonxLockup } from '@/components/brand/LeonxLogo'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Panel } from '@/components/ui/Panel'
+import { SegmentedControl } from '@/components/ui/SegmentedControl'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { Toggle } from '@/components/ui/Toggle'
 import { APP, COMPANY, INTEGRATIONS } from '@/config/company'
-import { usePreferences } from '@/context/preferences'
+import { usePreferences, type ThemePreference } from '@/context/preferences'
+
+const THEME_OPTIONS = [
+  { value: 'system' as const, label: 'Sistem', icon: Monitor },
+  { value: 'light' as const, label: 'Açık', icon: Sun },
+  { value: 'dark' as const, label: 'Koyu', icon: Moon },
+]
 
 export function SettingsPage() {
-  const { preferences, setPreference, resetPreferences } = usePreferences()
+  const { preferences, resolvedTheme, setPreference, resetPreferences } = usePreferences()
 
   return (
     <>
       <PageHeader
         icon={Settings}
+        code="M08"
         eyebrow="Sistem"
         title="Ayarlar"
-        description="Arayüz tercihleri, firma bilgisi ve entegrasyon durumu. Arayüz tercihleri bu cihazda saklanır."
+        description="Görünüm ve arayüz tercihleri, firma bilgisi ve entegrasyon durumu. Tercihler bu cihazın tarayıcısında saklanır."
         status="ready"
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Panel title="Görünüm" subtitle="Tema seçimi anında uygulanır" icon={Palette}>
+          <SegmentedControl<ThemePreference>
+            name="Tema"
+            value={preferences.theme}
+            options={THEME_OPTIONS}
+            onChange={(v) => setPreference('theme', v)}
+            layoutId="theme-segment"
+          />
+          <p className="mt-3 text-xs leading-relaxed text-muted" aria-live="polite">
+            {preferences.theme === 'system'
+              ? `Cihazınızın teması izleniyor — şu anda ${resolvedTheme === 'dark' ? 'koyu' : 'açık'}. iPad, iPhone, Android, Windows veya macOS'ta tema değiştiğinde LEONX OS da otomatik değişir.`
+              : `${resolvedTheme === 'dark' ? 'Koyu' : 'Açık'} tema sabitlendi; cihaz teması değişse de korunur.`}
+          </p>
+        </Panel>
+
         <Panel
           title="Arayüz tercihleri"
           subtitle="Bu cihazın tarayıcısında saklanır"
@@ -39,11 +63,11 @@ export function SettingsPage() {
               checked={preferences.sidebarCollapsed}
               onChange={(v) => setPreference('sidebarCollapsed', v)}
             />
-            <div className="hairline opacity-40" />
+            <div className="h-px bg-line" />
             <Toggle
               id="pref-motion"
               label="Hareketleri azalt"
-              description="Sayfa geçişi ve menü animasyonlarını kapatır."
+              description="Sayfa geçişi, menü ve tema animasyonlarını en aza indirir. Cihazın 'Hareketi Azalt' ayarı da otomatik uygulanır."
               checked={preferences.reduceMotion}
               onChange={(v) => setPreference('reduceMotion', v)}
             />
@@ -51,33 +75,36 @@ export function SettingsPage() {
         </Panel>
 
         <Panel title="Firma" subtitle="Yazılım yalnızca bu firmanın iç kullanımı içindir" icon={Building}>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 text-sm">
-            <dt className="text-titanium-400">Firma</dt>
-            <dd className="font-semibold tracking-[0.12em] text-silver-50">{COMPANY.name}</dd>
-            <dt className="text-titanium-400">Web</dt>
-            <dd>
-              <a
-                href={COMPANY.website}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-silver-200 underline decoration-white/20 underline-offset-4 hover:text-silver-50"
-              >
-                {COMPANY.websiteLabel}
-                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-              </a>
-            </dd>
-            <dt className="text-titanium-400">Faaliyet</dt>
-            <dd className="text-silver-200">{COMPANY.disciplines.join(' · ')}</dd>
-          </dl>
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+            <LeonxLockup className="w-full max-w-[180px] shrink-0" />
+            <dl className="grid min-w-0 grid-cols-[auto_1fr] gap-x-5 gap-y-2.5 text-sm">
+              <dt className="text-muted">Firma</dt>
+              <dd className="font-semibold tracking-[0.1em] text-ink">{COMPANY.name}</dd>
+              <dt className="text-muted">Web</dt>
+              <dd>
+                <a
+                  href={COMPANY.website}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-ink-2 underline decoration-line-strong underline-offset-4 hover:text-ink"
+                >
+                  {COMPANY.websiteLabel}
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                </a>
+              </dd>
+              <dt className="text-muted">Faaliyet</dt>
+              <dd className="text-ink-2">{COMPANY.disciplines.join(' · ')}</dd>
+            </dl>
+          </div>
         </Panel>
 
         <Panel title="Entegrasyonlar" subtitle="Harici servis bağlantıları" icon={PlugZap}>
-          <ul className="flex flex-col gap-3">
+          <ul className="flex flex-col divide-y divide-line">
             {INTEGRATIONS.map((s) => (
-              <li key={s.key} className="flex items-center justify-between gap-3 text-sm">
+              <li key={s.key} className="flex items-center justify-between gap-3 py-3 text-sm first:pt-0 last:pb-0">
                 <span className="min-w-0">
-                  <span className="block truncate text-silver-200">{s.label}</span>
-                  <span className="text-[11px] text-titanium-500">Planlanan: {s.phase}</span>
+                  <span className="block truncate text-ink-2">{s.label}</span>
+                  <span className="text-[11px] text-subtle">Planlanan: {s.milestone}</span>
                 </span>
                 <StatusPill tone="offline">Bağlı değil</StatusPill>
               </li>
@@ -85,14 +112,18 @@ export function SettingsPage() {
           </ul>
         </Panel>
 
-        <Panel title="Sürüm bilgisi" icon={Info}>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 text-sm">
-            <dt className="text-titanium-400">Uygulama</dt>
-            <dd className="text-silver-100">{APP.name}</dd>
-            <dt className="text-titanium-400">Sürüm</dt>
-            <dd className="font-mono text-silver-100">v{APP.version}</dd>
-            <dt className="text-titanium-400">Aşama</dt>
-            <dd className="text-silver-100">{APP.stage}</dd>
+        <Panel title="Sürüm bilgisi" icon={Info} className="lg:col-span-2">
+          <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-3">
+            {[
+              ['Uygulama', APP.name],
+              ['Sürüm', `v${APP.version}`],
+              ['Aşama', APP.stage],
+            ].map(([k, v]) => (
+              <div key={k} className="rounded-xl border border-line bg-surface-2/60 px-4 py-3">
+                <dt className="text-xs text-muted">{k}</dt>
+                <dd className="mt-1 font-medium text-ink">{v}</dd>
+              </div>
+            ))}
           </dl>
         </Panel>
       </div>

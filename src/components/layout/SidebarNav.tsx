@@ -15,17 +15,17 @@ const groups = Object.keys(NAV_GROUPS) as NavItem['group'][]
 
 export function SidebarNav({ collapsed = false, onNavigate, layoutId }: SidebarNavProps) {
   return (
-    <nav aria-label="Ana menü" className="flex flex-col gap-6">
+    <nav aria-label="Ana menü" className="flex flex-col gap-5">
       {groups.map((group) => (
         <div key={group}>
           {collapsed ? (
-            <div className="mx-auto mb-2 h-px w-6 bg-white/10" aria-hidden="true" />
+            <div className="mx-auto mb-2 h-px w-6 bg-line" aria-hidden="true" />
           ) : (
-            <div className="mb-2 px-3 text-[10px] font-semibold tracking-[0.22em] text-titanium-500 uppercase">
+            <div className="mb-1.5 px-3 text-[10.5px] font-semibold tracking-[0.18em] text-subtle uppercase">
               {NAV_GROUPS[group]}
             </div>
           )}
-          <ul className="flex flex-col gap-1">
+          <ul className="flex flex-col gap-0.5">
             {NAV_ITEMS.filter((i) => i.group === group).map((item) => (
               <li key={item.path}>
                 <NavLink
@@ -33,11 +33,12 @@ export function SidebarNav({ collapsed = false, onNavigate, layoutId }: SidebarN
                   end={item.path === '/'}
                   onClick={onNavigate}
                   title={collapsed ? item.label : undefined}
+                  aria-label={collapsed ? item.label : undefined}
                   className={({ isActive }) =>
                     cn(
-                      'group relative flex h-10 items-center gap-3 rounded-xl text-sm font-medium transition-colors',
+                      'group relative flex h-10 items-center gap-3 rounded-xl text-[13.5px] font-medium transition-colors duration-150',
                       collapsed ? 'justify-center px-0' : 'px-3',
-                      isActive ? 'text-silver-50' : 'text-titanium-400 hover:bg-white/[0.04] hover:text-silver-100',
+                      isActive ? 'text-ink' : 'text-muted hover:bg-surface-2 hover:text-ink',
                     )
                   }
                 >
@@ -46,24 +47,34 @@ export function SidebarNav({ collapsed = false, onNavigate, layoutId }: SidebarN
                       {isActive && (
                         <motion.span
                           layoutId={layoutId}
-                          className="absolute inset-0 rounded-xl border border-white/[0.08] bg-gradient-to-r from-white/[0.09] to-white/[0.02]"
-                          transition={{ type: 'spring', stiffness: 420, damping: 36 }}
+                          className="absolute inset-0 rounded-xl border border-line bg-surface-2"
+                          transition={{ type: 'spring', stiffness: 460, damping: 38 }}
                         >
-                          <span className="brushed-silver absolute top-2 bottom-2 left-0 w-[3px] rounded-full" />
+                          <span className="brushed absolute top-2.5 bottom-2.5 left-0 w-[3px] rounded-full" />
                         </motion.span>
                       )}
                       <item.icon
-                        className={cn('relative h-[18px] w-[18px] shrink-0', isActive && 'text-silver-50')}
+                        className={cn(
+                          'relative h-[18px] w-[18px] shrink-0 transition-colors',
+                          isActive ? 'text-ink' : 'text-titanium group-hover:text-ink',
+                        )}
                         strokeWidth={1.75}
                         aria-hidden="true"
                       />
                       {!collapsed && <span className="relative truncate">{item.label}</span>}
-                      {!collapsed && item.status === 'planned' && (
-                        <span
-                          className="relative ml-auto h-1.5 w-1.5 rounded-full bg-signal-amber/70"
-                          title="Geliştirme aşamasında"
-                          aria-label="Geliştirme aşamasında"
-                        />
+                      {!collapsed && (
+                        <span className="relative ml-auto flex items-center gap-2">
+                          {item.status === 'planned' && (
+                            <span
+                              className="h-1.5 w-1.5 rounded-full bg-warn/70"
+                              title="Geliştirme aşamasında"
+                              aria-label="Geliştirme aşamasında"
+                            />
+                          )}
+                          <span className="font-mono text-[10px] text-subtle opacity-0 transition-opacity group-hover:opacity-100">
+                            {item.code}
+                          </span>
+                        </span>
                       )}
                     </>
                   )}
