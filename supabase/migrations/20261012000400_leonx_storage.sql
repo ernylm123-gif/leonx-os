@@ -7,7 +7,8 @@
 -- hem de klasörün mevcut bir projeye ait olmasını denetler.
 --
 -- Boyut sınırı 50 MB (Supabase Free planındaki dosya başına üst sınır).
--- Tekrar çalıştırılabilir: bucket varsa yalnızca ayarları güncellenir.
+-- Tekrar çalıştırılabilir: bucket varsa yalnızca ayarları güncellenir;
+-- politikalar yoksa oluşturulur, varsa ALTER POLICY ile güncellenir (silme yok).
 -- =====================================================================
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
@@ -52,31 +53,35 @@ $$;
 revoke all on function public.storage_path_belongs_to_project(text) from public, anon;
 grant execute on function public.storage_path_belongs_to_project(text) to authenticated;
 
-drop policy if exists leonx_project_files_select on storage.objects;
-create policy leonx_project_files_select on storage.objects
-  for select to authenticated
-  using (bucket_id = 'project-files' and (select public.is_owner()));
+-- Politika tanımlama yardımcısı: politika yoksa oluşturur, varsa ALTER POLICY ile
+-- günceller. Silme yapılmaz; tekrar çalıştırmak güvenlidir.
+create or replace function pg_temp.leonx_policy(
+  p_schema text, p_table text, p_name text, p_cmd text, p_using text, p_check text
+) returns void
+language plpgsql
+as $fn$
+begin
+  if exists (select 1 from pg_policies where schemaname = p_schema and tablename = p_table and policyname = p_name) then
+    execute format('alter policy %I on %I.%I to authenticated', p_name, p_schema, p_table)
+      || coalesce(' using (' || p_using || ')', '')
+      || coalesce(' with check (' || p_check || ')', '');
+  else
+    execute format('create policy %I on %I.%I for %s to authenticated', p_name, p_schema, p_table, p_cmd)
+      || coalesce(' using (' || p_using || ')', '')
+      || coalesce(' with check (' || p_check || ')', '');
+  end if;
+end;
+$fn$;
 
-drop policy if exists leonx_project_files_insert on storage.objects;
-create policy leonx_project_files_insert on storage.objects
-  for insert to authenticated
-  with check (
-    bucket_id = 'project-files'
-    and (select public.is_owner())
-    and public.storage_path_belongs_to_project(name)
-  );
+select pg_temp.leonx_policy('storage', 'objects', 'leonx_project_files_select', 'select',
+  $$bucket_id = 'project-files' and (select public.is_owner())$$, null);
 
-drop policy if exists leonx_project_files_update on storage.objects;
-create policy leonx_project_files_update on storage.objects
-  for update to authenticated
-  using (bucket_id = 'project-files' and (select public.is_owner()))
-  with check (
-    bucket_id = 'project-files'
-    and (select public.is_owner())
-    and public.storage_path_belongs_to_project(name)
-  );
+select pg_temp.leonx_policy('storage', 'objects', 'leonx_project_files_insert', 'insert', null,
+  $$bucket_id = 'project-files' and (select public.is_owner()) and public.storage_path_belongs_to_project(name)$$);
 
-drop policy if exists leonx_project_files_delete on storage.objects;
-create policy leonx_project_files_delete on storage.objects
-  for delete to authenticated
-  using (bucket_id = 'project-files' and (select public.is_owner()));
+select pg_temp.leonx_policy('storage', 'objects', 'leonx_project_files_update', 'update',
+  $$bucket_id = 'project-files' and (select public.is_owner())$$,
+  $$bucket_id = 'project-files' and (select public.is_owner()) and public.storage_path_belongs_to_project(name)$$);
+
+select pg_temp.leonx_policy('storage', 'objects', 'leonx_project_files_delete', 'delete',
+  $$bucket_id = 'project-files' and (select public.is_owner())$$, null);

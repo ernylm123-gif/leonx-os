@@ -3,9 +3,10 @@
 --   Tek sahip yapılandırması, firmalar, ilgili kişiler, projeler,
 --   durum geçmişi, notlar, dosya kayıtları ve etkinlik günlüğü.
 --
--- Bu dosya tekrar çalıştırılabilir (idempotent): tablo silmez, veri
--- değiştirmez; yalnızca eksik nesneleri oluşturur ve fonksiyonları,
--- tetikleyicileri günceller.
+-- Bu dosya tekrar çalıştırılabilir (idempotent): hiçbir nesneyi silmez
+-- (silme ifadesi içermez), veri değiştirmez; yalnızca eksik nesneleri oluşturur ve
+-- fonksiyonları/tetikleyicileri "create or replace" ile günceller.
+-- Gereksinim: PostgreSQL 14+ (Supabase: 15/17).
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -233,10 +234,8 @@ declare
   t text;
 begin
   foreach t in array array['companies', 'contacts', 'projects', 'project_notes', 'project_files'] loop
-    execute format('drop trigger if exists set_created_by on public.%I', t);
-    execute format('create trigger set_created_by before insert on public.%I for each row execute function public.tg_set_created_by()', t);
-    execute format('drop trigger if exists touch_row on public.%I', t);
-    execute format('create trigger touch_row before update on public.%I for each row execute function public.tg_touch_row()', t);
+    execute format('create or replace trigger set_created_by before insert on public.%I for each row execute function public.tg_set_created_by()', t);
+    execute format('create or replace trigger touch_row before update on public.%I for each row execute function public.tg_touch_row()', t);
   end loop;
 end;
 $$;
@@ -261,8 +260,7 @@ begin
 end;
 $$;
 
-drop trigger if exists project_status_history on public.projects;
-create trigger project_status_history
+create or replace trigger project_status_history
   after insert or update of status on public.projects
   for each row execute function public.tg_project_status_history();
 
@@ -320,9 +318,8 @@ begin
     array['project_notes', 'project_note'],
     array['project_files', 'project_file']
   ] loop
-    execute format('drop trigger if exists activity_log on public.%I', pair[1]);
     execute format(
-      'create trigger activity_log after insert or update or delete on public.%I for each row execute function public.tg_activity_log(%L)',
+      'create or replace trigger activity_log after insert or update or delete on public.%I for each row execute function public.tg_activity_log(%L)',
       pair[1], pair[2]);
   end loop;
 end;

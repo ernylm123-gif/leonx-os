@@ -66,10 +66,10 @@ sorgu olarak yapıştırın ve **Run** deyin. Her biri "Success. No rows returne
 | 3 | `supabase/migrations/20261012000300_leonx_realtime.sql` | Realtime yayınına tabloların eklenmesi |
 | 4 | `supabase/migrations/20261012000400_leonx_storage.sql` | Özel `project-files` dosya deposu ve politikaları |
 
-- Dosyalar **tekrar çalıştırılabilir**: yanlışlıkla iki kez çalıştırmak veri silmez.
+- Dosyalar **tekrar çalıştırılabilir** ve hiçbir nesneyi silmez (`DROP` içermez): tetikleyiciler
+  `create or replace trigger`, politikalar "yoksa oluştur, varsa `ALTER POLICY`" ile tanımlanır.
+- Supabase MCP bağlayıcısı (Claude) ile de uygulanabilir; bağlayıcı silme içeren sorgular için onay ister.
 - iPad'de GitHub'dan dosya içeriğini kopyalamak için dosyayı açıp **Raw** görünümüne geçin, tümünü seçip kopyalayın.
-- "Supabase dashboard'da bu sorgu yıkıcı olabilir" uyarısı görürseniz: dosyalarda `DROP TABLE` veya veri silme
-  yoktur; uyarı `drop policy if exists` / `drop trigger if exists` ifadelerinden kaynaklanır ve onaylanabilir.
 
 Kontrol: **Table Editor**'de `app_owner, companies, contacts, projects, project_status_history, project_notes,
 project_files, activity_log` tabloları görünmeli ve hepsinde **RLS enabled** yazmalıdır.
@@ -94,8 +94,8 @@ yalnızca SQL Editor'dan yapılabilir.
   **ROLLBACK** yapar: mevcut verinize ve sahip ayarınıza dokunmaz.
 - Başarılıysa çıktı/bildirimlerde **TÜM TESTLER BAŞARILI** görünür. Bir kontrol başarısız olursa
   "TEST BAŞARISIZ: …" hatasıyla durur.
-- Not: Bu dosya geliştirme sırasında yerel PostgreSQL 16 üzerinde (Supabase taklit iskeletiyle) çalıştırıldı;
-  gerçek Supabase projesinde henüz çalıştırılmadı. Hata alırsanız mesajı paylaşın.
+- Bağlayıcı ile uzaktan çalıştırma için silme içermeyen alt küme: `supabase/tests/rls_policies.remote_safe.sql`
+  (sonuçları bilinçli bir `LEONX_TEST_SONUC` hata iletisinde döndürür ve her şeyi geri alır).
 
 ## 7. Bağlantı bilgilerini alın
 
