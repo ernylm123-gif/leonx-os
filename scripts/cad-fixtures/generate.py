@@ -287,6 +287,28 @@ expected['window_schedule.dxf'] = {
     'dimension_values': [1200, 1500],
 }
 
+# --------------------------------------------------------------------------- 6b. Ölçü metni uyuşmazlığı ve plan görünüşü
+doc = new_doc(ezdxf.units.MM)
+doc.dimstyles.new('LEONX', dxfattribs={'dimlfac': 1, 'dimtxt': 100, 'dimasz': 60, 'dimdec': 0})
+msp = doc.modelspace()
+rect(msp, 0, 0, 1200, 1500, layer='PENCERE')
+msp.add_text('P9', height=150, dxfattribs={'insert': (500, -400), 'layer': 'POZ_NO'})
+d = msp.add_linear_dim(base=(0, -250), p1=(0, 0), p2=(1200, 0), text='1250', dimstyle='LEONX', dxfattribs={'layer': 'OLCU'})
+d.render()
+save(doc, 'dim_mismatch.dxf')
+expected['dim_mismatch.dxf'] = {'label': 'P9', 'geometry_w': 1200, 'text': '1250'}
+
+doc = new_doc(ezdxf.units.MM)
+msp = doc.modelspace()
+blk = doc.blocks.new('KAPI_PLAN_90', base_point=(0, 0))
+blk.add_line((0, 0), (900, 0))
+blk.add_line((0, 0), (0, 900))
+blk.add_arc((0, 0), radius=900, start_angle=0, end_angle=90)
+msp.add_blockref('KAPI_PLAN_90', (0, 0), dxfattribs={'layer': 'KAPI'})
+msp.add_blockref('KAPI_PLAN_90', (3000, 0), dxfattribs={'layer': 'KAPI'})
+save(doc, 'plan_door.dxf')
+expected['plan_door.dxf'] = {'count': 2, 'width': 900, 'height': None}
+
 # --------------------------------------------------------------------------- 7. Bozuk dosyalar
 good = open(os.path.join(OUT, 'units_mm.dxf'), 'rb').read()
 open(os.path.join(OUT, 'corrupt_truncated.dxf'), 'wb').write(good[: len(good) // 2])

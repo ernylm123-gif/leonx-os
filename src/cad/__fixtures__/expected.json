@@ -285,6 +285,16 @@
       1500
     ]
   },
+  "dim_mismatch.dxf": {
+    "label": "P9",
+    "geometry_w": 1200,
+    "text": "1250"
+  },
+  "plan_door.dxf": {
+    "count": 2,
+    "width": 900,
+    "height": null
+  },
   "corrupt": {
     "corrupt_truncated.dxf": "partial-or-syntax",
     "corrupt_badcode.dxf": "syntax",
