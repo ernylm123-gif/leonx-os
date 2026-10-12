@@ -63,10 +63,10 @@ export const NAV_ITEMS: NavItem[] = [
     code: 'M02',
     label: 'CAD Analiz',
     shortLabel: 'CAD',
-    description: 'DWG / DXF çizim analizi',
+    description: 'DXF çizim analizi, PDF ölçümü ve CAD görüntüleyici',
     icon: ScanLine,
     group: 'muhendislik',
-    status: 'planned',
+    status: 'ready',
     mobilePrimary: true,
   },
   {

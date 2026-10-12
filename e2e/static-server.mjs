@@ -7,6 +7,8 @@ import path from 'node:path'
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.wasm': 'application/wasm',
   '.css': 'text/css',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
