@@ -48,6 +48,11 @@ for pass in 1 2; do
   done
 done
 
+echo "▸ Örnek sahip hesabı (yalnızca yerel test)"
+"${PSQL[@]}" -c "insert into auth.users (id, email) values ('11111111-1111-4111-8111-111111111111', 'sahip@yerel.test') on conflict do nothing;
+insert into public.app_owner (singleton, user_id) values (true, '11111111-1111-4111-8111-111111111111') on conflict (singleton) do nothing;
+insert into public.companies (name) values ('Mevcut veri — silinmemeli');"
+
 echo "▸ RLS ve bütünlük testleri"
 TEST_PSQL=("${RUN[@]}" "${PG_BIN}/psql" -h "${WORK}" -p "${PORT}" -U postgres -d postgres -v ON_ERROR_STOP=1 -q -X)
 set +e
@@ -59,5 +64,12 @@ if [[ ${STATUS} -ne 0 ]] || ! grep -q "TÜM TESTLER BAŞARILI" <<<"${OUT}"; then
   echo "✗ Veritabanı testleri BAŞARISIZ" >&2
   exit 1
 fi
+REMAINING="$("${PSQL[@]}" -tA -c "select count(*) from public.companies where name = 'Mevcut veri — silinmemeli'")"
+OWNER_KEPT="$("${PSQL[@]}" -tA -c "select count(*) from public.app_owner where user_id = '11111111-1111-4111-8111-111111111111'")"
+if [[ "${REMAINING}" != "1" || "${OWNER_KEPT}" != "1" ]]; then
+  echo "✗ Test sonrası mevcut veri veya sahip kaydı değişti" >&2
+  exit 1
+fi
+echo "   ✓ mevcut veri ve sahip kaydı testten sonra aynen duruyor"
 PASSES="$(grep -c "PASS" <<<"${OUT}")"
 echo "✓ Veritabanı testleri başarılı (${PASSES} kontrol)"

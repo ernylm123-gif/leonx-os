@@ -6,6 +6,9 @@
 -- ve sonunda ROLLBACK yapılır: gerçek veriye ve sahip ayarına kalıcı
 -- etkisi yoktur. Başarısız bir kontrol "TEST BAŞARISIZ" hatasıyla durur.
 --
+-- Mevcut veriler: test yalnızca kendi eklediği kayıtlarla çalışır ve hepsi ROLLBACK ile
+-- geri alınır. Tek kalıcı iz, kimlik (identity) sayaçlarının birkaç sayı ilerlemesidir.
+--
 -- Senaryolar:
 --   A) Giriş yapmamış (anon) istemci
 --   B) Yetkili sahip (owner)
@@ -15,18 +18,20 @@
 -- =====================================================================
 begin;
 
--- Test kullanıcıları (rastgele UUID; işlem sonunda geri alınır)
-select set_config('leonx.owner',    gen_random_uuid()::text, true);
+-- Test kimlikleri
+--   Sahip: app_owner tablosunda TANIMLI olan gerçek hesap (önce 01_set_owner.sql çalıştırılmalı).
+--   Yabancı: auth.users'ta bulunmayan rastgele bir UUID; "geçerli oturum, yetkili değil" durumunu taklit eder.
+-- auth.users tablosuna hiçbir şey yazılmaz.
+do $$
+begin
+  if not exists (select 1 from public.app_owner) then
+    raise exception 'Önce yetkili kullanıcıyı tanımlayın (supabase/setup/01_set_owner.sql), sonra bu testi çalıştırın.';
+  end if;
+end;
+$$;
+
+select set_config('leonx.owner',    (select user_id::text from public.app_owner), true);
 select set_config('leonx.intruder', gen_random_uuid()::text, true);
-
-insert into auth.users (id, email)
-values
-  (current_setting('leonx.owner')::uuid,    'leonx-test-owner@example.invalid'),
-  (current_setting('leonx.intruder')::uuid, 'leonx-test-intruder@example.invalid');
-
-insert into public.app_owner (singleton, user_id)
-values (true, current_setting('leonx.owner')::uuid)
-on conflict (singleton) do update set user_id = excluded.user_id;
 
 -- Yardımcı: belirli kullanıcı olarak JWT talepleri
 create or replace function pg_temp.act_as(p_user text)
@@ -387,5 +392,9 @@ begin
   raise notice 'TÜM TESTLER BAŞARILI';
 end;
 $$;
+
+-- Özet satırı (SQL Editor'da sonuç olarak görünür); ardından tüm değişiklikler geri alınır
+select 'TÜM TESTLER BAŞARILI' as sonuc,
+       (select count(*) from public.projects where code like 'LX-TEST-%') as kalan_test_projesi_rollback_oncesi;
 
 rollback;

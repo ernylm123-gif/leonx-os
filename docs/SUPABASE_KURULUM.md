@@ -88,8 +88,10 @@ yalnızca SQL Editor'dan yapılabilir.
 
 `supabase/tests/rls_policies.test.sql` dosyasının içeriğini SQL Editor'da çalıştırın.
 
-- Test, geçici iki kullanıcı (sahip ve yabancı) oluşturur, anonim/yetkisiz erişim ve veri bütünlüğü
-  senaryolarını dener ve sonunda **ROLLBACK** yapar: gerçek verinize ve sahip ayarınıza dokunmaz.
+- Önce 5. adım (sahip tanımlama) tamamlanmış olmalıdır; test sahip olarak bu hesabı kullanır.
+- `auth.users` tablosuna yazmaz. Yetkisiz kullanıcıyı rastgele bir kimlikle taklit eder; anonim/yetkisiz
+  erişim ve veri bütünlüğü senaryolarını yalnızca kendi eklediği test kayıtlarıyla dener ve sonunda
+  **ROLLBACK** yapar: mevcut verinize ve sahip ayarınıza dokunmaz.
 - Başarılıysa çıktı/bildirimlerde **TÜM TESTLER BAŞARILI** görünür. Bir kontrol başarısız olursa
   "TEST BAŞARISIZ: …" hatasıyla durur.
 - Not: Bu dosya geliştirme sırasında yerel PostgreSQL 16 üzerinde (Supabase taklit iskeletiyle) çalıştırıldı;
