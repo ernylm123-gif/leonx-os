@@ -1,0 +1,295 @@
+{
+  "units_mm.dxf": {
+    "insunits": 4,
+    "mmPerUnit": 1.0,
+    "rect_drawing_units": [
+      1200.0,
+      1500.0
+    ],
+    "rect_mm": [
+      1200,
+      1500
+    ],
+    "area_mm2": 1800000,
+    "perimeter_mm": 5400
+  },
+  "units_cm.dxf": {
+    "insunits": 5,
+    "mmPerUnit": 10.0,
+    "rect_drawing_units": [
+      120.0,
+      150.0
+    ],
+    "rect_mm": [
+      1200,
+      1500
+    ],
+    "area_mm2": 1800000,
+    "perimeter_mm": 5400
+  },
+  "units_m.dxf": {
+    "insunits": 6,
+    "mmPerUnit": 1000.0,
+    "rect_drawing_units": [
+      1.2,
+      1.5
+    ],
+    "rect_mm": [
+      1200,
+      1500
+    ],
+    "area_mm2": 1800000,
+    "perimeter_mm": 5400
+  },
+  "units_inch.dxf": {
+    "insunits": 1,
+    "mmPerUnit": 25.4,
+    "rect_drawing_units": [
+      47.24409448818898,
+      59.05511811023622
+    ],
+    "rect_mm": [
+      1200,
+      1500
+    ],
+    "area_mm2": 1800000,
+    "perimeter_mm": 5400
+  },
+  "units_unitless.dxf": {
+    "insunits": 0,
+    "mmPerUnit": null,
+    "rect_drawing_units": [
+      1200.0,
+      1500.0
+    ],
+    "rect_mm": [
+      1200,
+      1500
+    ],
+    "area_mm2": 1800000,
+    "perimeter_mm": 5400
+  },
+  "blocks_transform.dxf": {
+    "inserts": [
+      {
+        "key": "duz",
+        "handle": "93",
+        "block": "PENCERE_1200x1500",
+        "bbox": [
+          0.0,
+          0.0,
+          1200.0,
+          1500.0
+        ]
+      },
+      {
+        "key": "dondurulmus_90",
+        "handle": "95",
+        "block": "PENCERE_1200x1500",
+        "bbox": [
+          3500.0,
+          0.0,
+          5000.0,
+          1200.0
+        ]
+      },
+      {
+        "key": "olcekli_2x1",
+        "handle": "97",
+        "block": "PENCERE_1200x1500",
+        "bbox": [
+          10000.0,
+          0.0,
+          12400.0,
+          1500.0
+        ]
+      },
+      {
+        "key": "aynali_x",
+        "handle": "99",
+        "block": "PENCERE_1200x1500",
+        "bbox": [
+          13800.0,
+          0.0,
+          15000.0,
+          1500.0
+        ]
+      },
+      {
+        "key": "dondurulmus_30_olcek_0.5",
+        "handle": "9B",
+        "block": "PENCERE_1200x1500",
+        "bbox": [
+          19625.0,
+          0.0,
+          20519.615242270662,
+          949.5190528383289
+        ]
+      },
+      {
+        "key": "extrusion_negatif_z",
+        "handle": "9D",
+        "block": "PENCERE_1200x1500",
+        "bbox": [
+          -26200.0,
+          0.0,
+          -25000.0,
+          1500.0
+        ]
+      },
+      {
+        "key": "taban_noktali_kapi",
+        "handle": "9F",
+        "block": "KAPI",
+        "bbox": [
+          30000.0,
+          0.0,
+          30900.0,
+          2100.0
+        ]
+      },
+      {
+        "key": "taban_noktali_kapi_45",
+        "handle": "A1",
+        "block": "KAPI",
+        "bbox": [
+          33515.07575950825,
+          0.0,
+          35636.39610306789,
+          2121.3203435596424
+        ]
+      }
+    ]
+  },
+  "minsert.dxf": {
+    "instances": 6,
+    "bbox": [
+      0.0,
+      0.0,
+      4000.0,
+      3200.0
+    ]
+  },
+  "nested_blocks.dxf": {
+    "inner_rect_world": [
+      [
+        1530.3300858899106,
+        1530.3300858899106
+      ],
+      [
+        1318.1980515339465,
+        1742.462120245875
+      ],
+      [
+        893.9339828220178,
+        1318.1980515339465
+      ],
+      [
+        1106.066017177982,
+        1106.066017177982
+      ]
+    ],
+    "inner_rect_layer": "DOGRAMA",
+    "inner_rect_rgb": 16711680,
+    "sabit_line_layer": "SABIT",
+    "bbox": [
+      893.9339828220178,
+      1000.0,
+      1530.3300858899106,
+      1742.462120245875
+    ],
+    "depth": 2,
+    "inner_rect_size": [
+      300.0,
+      600.0
+    ]
+  },
+  "cycle.dxf": {
+    "warning": "block-cycle"
+  },
+  "entities.dxf": {
+    "line_length": 1000,
+    "kemer_area": 1592699.081698724,
+    "kemer_perimeter": 4970.796326794896,
+    "arc_length": 785.3981633974482,
+    "circle_area": 196349.54084936206,
+    "circle_length": 1570.7963267948965,
+    "ellipse_area": 251327.41228718346,
+    "text": "Şeffaf Cam ĞÜŞİÖÇ ğüşıöç",
+    "mtext": "KALIN satır\nikinci 1/2 Ø50",
+    "dim_measurement": 1000,
+    "dim_displayed_value": 100000,
+    "dim_override_text": "1250",
+    "hatch_area_with_hole": 750000,
+    "hatch_edge_area": 1392699.081698724,
+    "unsupported": [
+      "XLINE",
+      "RAY"
+    ],
+    "paper_space_skipped": 1
+  },
+  "encoding_cp1254.dxf": {
+    "text": "PENCERE ÇIKIŞ - ĞÜŞİÖÇ ğüşıöç",
+    "layer": "MAHAL_İSİM"
+  },
+  "encoding_cp1254_mislabeled.dxf": {
+    "text": "PENCERE ÇIKIŞ - ĞÜŞİÖÇ ğüşıöç",
+    "layer": "MAHAL_İSİM",
+    "warning": "encoding-fixed"
+  },
+  "window_schedule.dxf": {
+    "groups": [
+      {
+        "source": "block",
+        "block": "PVC_P1_1200x1500",
+        "count": 3,
+        "w": 1200,
+        "h": 1500,
+        "label": "P1",
+        "material": "pvc"
+      },
+      {
+        "source": "block",
+        "block": "ALU_K1_900x2100",
+        "count": 2,
+        "w": 900,
+        "h": 2100,
+        "label": "K1",
+        "material": "aluminyum"
+      },
+      {
+        "source": "polyline",
+        "count": 1,
+        "w": 2000,
+        "h": 800,
+        "label": "S1",
+        "duplicate_removed": 1
+      },
+      {
+        "source": "lines",
+        "count": 1,
+        "w": 1000,
+        "h": 1000,
+        "label": "P2"
+      },
+      {
+        "source": "polygon",
+        "count": 1,
+        "shape": "trapez",
+        "area": 1350000.0,
+        "label": "P3"
+      }
+    ],
+    "dimension_values": [
+      1200,
+      1500
+    ]
+  },
+  "corrupt": {
+    "corrupt_truncated.dxf": "partial-or-syntax",
+    "corrupt_badcode.dxf": "syntax",
+    "fake.dwg": "dwg",
+    "binary.dxf": "dxf-binary",
+    "not_cad.dxf": "unknown"
+  }
+}
