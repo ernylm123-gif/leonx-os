@@ -2,7 +2,7 @@ import { forwardRef, type ButtonHTMLAttributes } from 'react'
 import { Lock, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/cn'
 
-type Variant = 'primary' | 'secondary' | 'ghost'
+type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant
@@ -13,6 +13,7 @@ const VARIANTS: Record<Variant, string> = {
   primary: 'bg-primary text-primary-ink shadow-card hover:bg-primary-hover',
   secondary: 'border border-line bg-surface text-ink shadow-card hover:bg-surface-2',
   ghost: 'text-muted hover:bg-surface-2 hover:text-ink',
+  danger: 'bg-danger text-white shadow-card hover:brightness-110 dark:text-canvas',
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(

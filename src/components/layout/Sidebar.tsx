@@ -1,7 +1,8 @@
-import { ExternalLink, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { ExternalLink, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { LeonxLockup, LeonxSymbol } from '@/components/brand/LeonxLogo'
 import { APP, COMPANY } from '@/config/company'
+import { useAuth } from '@/context/auth'
 import { usePreferences } from '@/context/preferences'
 import { cn } from '@/lib/cn'
 import { SidebarNav } from './SidebarNav'
@@ -10,6 +11,7 @@ import { SidebarNav } from './SidebarNav'
 export function Sidebar() {
   const { preferences, setPreference } = usePreferences()
   const collapsed = preferences.sidebarCollapsed
+  const { session, signOut } = useAuth()
 
   return (
     <aside
@@ -49,6 +51,19 @@ export function Sidebar() {
             <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           </a>
         )}
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          className={cn(
+            'mb-1 flex h-9 w-full items-center gap-2 rounded-lg text-xs text-muted transition hover:bg-surface-2 hover:text-ink',
+            collapsed ? 'justify-center' : 'px-2',
+          )}
+          title={session?.user.email ? `${session.user.email} — çıkış yap` : 'Çıkış yap'}
+          aria-label="Çıkış yap"
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          {!collapsed && <span className="min-w-0 truncate">Çıkış · {session?.user.email}</span>}
+        </button>
         <button
           type="button"
           onClick={() => setPreference('sidebarCollapsed', !collapsed)}

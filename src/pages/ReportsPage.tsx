@@ -1,17 +1,48 @@
-import { BarChart3, ClipboardList, Factory, FileBarChart, FolderKanban, LineChart } from 'lucide-react'
+import { BarChart3, ClipboardList, FileBarChart, Layers, LineChart, ListChecks } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { PlannedNotice } from '@/components/ui/PlannedNotice'
+import { Panel } from '@/components/ui/Panel'
 import { StatusPill } from '@/components/ui/StatusPill'
+import { useData } from '@/context/data'
+import { countByCategory, countByStatus } from '@/lib/stats'
 
-const REPORTS = [
-  { code: 'R01', icon: FolderKanban, title: 'Proje durum raporu', description: 'Aşamalarına göre aktif ve tamamlanan projeler.', source: 'Projeler' },
-  { code: 'R02', icon: LineChart, title: 'Teklif dönüşüm raporu', description: 'Gönderilen ve onaylanan tekliflerin oranı.', source: 'Teklifler' },
-  { code: 'R03', icon: ClipboardList, title: 'Malzeme ihtiyaç raporu', description: 'Onaylı işler için toplam malzeme ihtiyacı.', source: 'Metraj' },
-  { code: 'R04', icon: Factory, title: 'Üretim yükü raporu', description: 'Ürün gruplarına göre planlanan üretim.', source: 'Projeler' },
-  { code: 'R05', icon: FileBarChart, title: 'Firma bazlı rapor', description: 'Firma başına proje ve teklif geçmişi.', source: 'Firmalar' },
+function BarList({ rows, total, hrefFor }: { rows: { value: string; label: string; count: number }[]; total: number; hrefFor: (v: string) => string }) {
+  return (
+    <ul className="flex flex-col gap-3">
+      {rows.map((r) => {
+        const pct = total ? Math.round((r.count / total) * 100) : 0
+        return (
+          <li key={r.value}>
+            <Link to={hrefFor(r.value)} className="group block rounded-lg focus-visible:outline-offset-4">
+              <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
+                <span className="truncate text-ink-2 group-hover:text-ink">{r.label}</span>
+                <span className="shrink-0 font-mono text-xs text-muted">
+                  {r.count}
+                  <span className="ml-1.5 text-subtle">{pct}%</span>
+                </span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-surface-2" aria-hidden="true">
+                <div className="brushed h-full rounded-full transition-[width] duration-500" style={{ width: `${pct}%` }} />
+              </div>
+            </Link>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+const PLANNED = [
+  { code: 'R03', icon: LineChart, title: 'Teklif dönüşüm raporu', source: 'Teklifler' },
+  { code: 'R04', icon: ClipboardList, title: 'Malzeme ihtiyaç raporu', source: 'Metraj' },
 ]
 
 export function ReportsPage() {
+  const { projects, loading } = useData()
+  const total = projects.length
+  const byStatus = countByStatus(projects)
+  const byCategory = countByCategory(projects).filter((c) => c.count > 0)
+
   return (
     <>
       <PageHeader
@@ -19,37 +50,52 @@ export function ReportsPage() {
         code="M07"
         eyebrow="Ticari"
         title="Raporlar"
-        description="Proje, teklif, metraj ve üretim verilerinden yönetim raporları."
-        status="planned"
+        description="Kayıtlı projelerden temel özetler. Teklif ve metraj raporları, ilgili modüller geliştirildiğinde eklenecek."
+        status="ready"
       />
 
-      <PlannedNotice className="mb-6">
-        Raporlar, ilgili modüller veri üretmeye başladığında oluşturulabilecek. Şu anda raporlanacak kayıt yoktur.
-      </PlannedNotice>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Panel title="Durumlara göre projeler" subtitle={`R01 · ${total} proje`} icon={ListChecks}>
+          {loading && !total ? (
+            <div className="h-48 animate-pulse rounded-xl bg-surface-2" />
+          ) : total === 0 ? (
+            <p className="py-8 text-center text-sm text-subtle">Rapor için henüz proje kaydı yok.</p>
+          ) : (
+            <BarList rows={byStatus} total={total} hrefFor={(v) => `/projeler?durum=${v}`} />
+          )}
+        </Panel>
+        <Panel title="Kategorilere göre projeler" subtitle={`R02 · ${byCategory.length} kategori`} icon={Layers}>
+          {loading && !total ? (
+            <div className="h-48 animate-pulse rounded-xl bg-surface-2" />
+          ) : total === 0 ? (
+            <p className="py-8 text-center text-sm text-subtle">Rapor için henüz proje kaydı yok.</p>
+          ) : (
+            <BarList rows={byCategory} total={total} hrefFor={(v) => `/projeler?durum=tumu&kategori=${v}`} />
+          )}
+        </Panel>
+      </div>
 
-      <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {REPORTS.map(({ code, icon: Icon, title, description, source }) => (
-          <li key={code} className="card flex min-w-0 flex-col p-5">
-            <div className="flex items-start justify-between gap-3">
-              <span className="grid h-10 w-10 place-items-center rounded-xl border border-line bg-surface-2">
-                <Icon className="h-[18px] w-[18px] text-titanium" strokeWidth={1.75} aria-hidden="true" />
-              </span>
-              <StatusPill tone="offline">Veri yok</StatusPill>
+      <h2 className="mt-8 mb-3 text-sm font-semibold text-ink">Planlanan raporlar</h2>
+      <ul className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {PLANNED.map(({ code, icon: Icon, title, source }) => (
+          <li key={code} className="card flex items-center gap-4 p-5">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-line bg-surface-2">
+              <Icon className="h-[18px] w-[18px] text-titanium" strokeWidth={1.75} aria-hidden="true" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-ink">{title}</span>
+                <span className="font-mono text-[10px] text-subtle">{code}</span>
+              </div>
+              <div className="text-xs text-muted">Kaynak modül: {source} (henüz geliştirilmedi)</div>
             </div>
-            <div className="mt-4 flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-ink">{title}</h2>
-              <span className="font-mono text-[10px] text-subtle">{code}</span>
-            </div>
-            <p className="mt-1 flex-1 text-xs leading-relaxed text-muted">{description}</p>
-            {/* Boş grafik alanı — veri gelmeden çizim yapılmaz */}
-            <div className="mt-4 flex h-16 items-end gap-1.5 border-b border-line" aria-hidden="true">
-              {[0, 1, 2, 3, 4, 5, 6, 7].map((b) => (
-                <span key={b} className="h-1 flex-1 rounded-t-sm bg-surface-3" />
-              ))}
-            </div>
-            <div className="mt-3 text-[11px] text-subtle">Kaynak modül: {source}</div>
+            <StatusPill tone="offline">Veri yok</StatusPill>
           </li>
         ))}
+        <li className="card flex items-center gap-4 p-5 md:col-span-2">
+          <FileBarChart className="h-5 w-5 shrink-0 text-titanium" aria-hidden="true" />
+          <p className="text-xs leading-relaxed text-muted">Finansal rapor üretilmez: teklif ve fiyatlandırma motoru olmadan tutar hesaplanmaz.</p>
+        </li>
       </ul>
     </>
   )

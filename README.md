@@ -4,24 +4,33 @@ LEONX Metal'in **iç kullanımına özel** proje, CAD analiz, metraj ve teklif y
 
 > Firma: **LEONX METAL** · [leonxmetal.com](https://www.leonxmetal.com)
 
-## Durum — Faz 1, 2A ve 3 tamamlandı
+## Durum — Faz 4: güvenli tek kullanıcı + Supabase + anlık senkronizasyon
 
-Bu sürüm yalnızca arayüzü ve uygulama iskeletini içerir. Veritabanı (Supabase), CAD analiz motoru ve
-yapay zekâ entegrasyonu **henüz yoktur**. Uygulamada sahte müşteri, fiyat veya metraj verisi bulunmaz;
-geliştirilmemiş eylemler devre dışıdır ve hangi aşamada geleceği belirtilir.
+LEONX OS artık gerçek veriyle çalışan, **tek kişiye ait** bir proje ve firma yönetim sistemidir:
+
+- Supabase Auth ile e-posta/şifre girişi (herkese açık kayıt yok, tek hesap, çoklu cihaz oturumu)
+- Veritabanında tek yetkili kullanıcı UUID'si üzerinden **Row Level Security** (varsayılan erişim kapalı)
+- Firmalar ve ilgili kişiler; projeler, durum geçmişi, notlar ve özel depoda dosyalar
+- Cihazlar arası **anlık senkronizasyon** (Supabase Realtime), kopmada otomatik yeniden bağlanma
+- Aynı kaydın iki cihazda düzenlenmesine karşı **sürüm tabanlı çakışma kontrolü**
+- Gerçek kayıtlardan Dashboard ve Raporlar (finansal değer üretilmez)
+
+CAD analiz motoru, metraj/fiyatlandırma, teklif ve yapay zekâ **henüz geliştirilmedi**; bu modüller
+arayüzde açıkça "Geliştirme aşamasında" olarak gösterilir.
 
 | Faz | Kapsam | Durum |
 | --- | --- | --- |
 | 1 | Arayüz ve yazılım altyapısı | ✅ |
 | 2A | Güvenli web dağıtım hazırlığı (Vercel, mobil uyumluluk) | ✅ |
 | 3 | Kurumsal arayüz, orijinal logo, açık/koyu/sistem teması | ✅ |
-| Sıradaki | Veritabanı, kimlik doğrulama, kayıtlar | Planlandı |
-| — | DWG / DXF analiz motoru | Planlandı |
+| 4 | Giriş, Supabase veritabanı, RLS, firmalar, projeler, dosyalar, Realtime | ✅ (kod) — Supabase kurulumu sizin tarafınızda |
+| Sıradaki | DWG / DXF analiz motoru | Planlandı |
 | — | Otomatik metraj ve fiyatlandırma | Planlandı |
 | — | Teklif hazırlama ve PDF çıktıları | Planlandı |
 | — | LEONX AI entegrasyonu | Planlandı |
 
-Gelecek aşamalar uygulamada numara yerine adla anılır (ör. "Veritabanı aşaması").
+> **Kurulum:** Uygulamanın çalışması için Supabase projesi, migration'lar ve ortam değişkenleri gereklidir.
+> Adım adım yönerge: **[docs/SUPABASE_KURULUM.md](docs/SUPABASE_KURULUM.md)**
 
 ## Marka ve logo
 
@@ -53,20 +62,63 @@ Ayarlar → Görünüm'de **Sistem / Açık / Koyu** seçilebilir; üst çubukta
   Koyu tema yalnızca bu değişkenleri `[data-theme='dark']` altında yeniden tanımlar.
 - "Hareketleri azalt" tercihi ve cihazın hareket azaltma ayarı animasyonları en aza indirir.
 
-## ⚠️ Güvenlik uyarısı — üretimde özel veri işlemeye hazır değildir
+## Güvenlik
 
-LEONX OS'un bu sürümünde **kimlik doğrulama (giriş sistemi), yetkilendirme ve veritabanı yoktur.**
+### Gerçek müşteri verisi girmeden önce
 
-- Uygulamanın web adresini bilen **herkes** arayüzü açabilir. Adresin gizli tutulması bir güvenlik önlemi değildir.
-- Uygulama şu anda hiçbir veri kaydetmez veya sunucuya göndermez; tek yerel kayıt, arayüz tercihlerinin
-  (menü daraltma, hareket azaltma) tarayıcıda saklanmasıdır.
-- **Müşteri bilgisi, fiyat, teklif, çizim veya başka bir firma içi veri girilmemeli ve yüklenmemelidir.**
-  Kimlik doğrulama ve yetkilendirme eklenip test edilene kadar Vercel dağıtımı yalnızca arayüz önizlemesi içindir.
-- Arama motorlarının sayfayı dizine eklememesi için `robots.txt`, `noindex` meta etiketi ve `X-Robots-Tag`
-  başlığı eklendi. Bu bir erişim kontrolü **değildir**; yalnızca dizinlemeyi engellemeye yöneliktir.
-- Depoda gizli anahtar, `.env` dosyası veya parola yoktur. Gelecekte eklenecek anahtarlar yalnızca Vercel'in
-  **Environment Variables** bölümüne girilmeli, depoya yazılmamalıdır. `VITE_` ile başlayan değişkenler tarayıcıya
-  gönderilen koda gömülür; bu nedenle bu öneke yalnızca herkese açık olabilecek değerler verilmelidir.
+Kod ve veritabanı politikaları hazırlandı ve test edildi; ancak **sizin Supabase projenizde** henüz
+kurulmadı ve doğrulanmadı. Gerçek müşteri verisi girmeden önce:
+
+1. [docs/SUPABASE_KURULUM.md](docs/SUPABASE_KURULUM.md) adımlarını eksiksiz tamamlayın (özellikle herkese
+   açık kaydın kapatılması ve sahip UUID'sinin tanımlanması).
+2. `supabase/tests/rls_policies.test.sql` dosyasını Supabase SQL Editor'da çalıştırıp **TÜM TESTLER
+   BAŞARILI** sonucunu görün.
+3. İkinci bir test hesabıyla giriş yapıp hiçbir veri görmediğinizi doğrulayın, sonra bu hesabı silin.
+
+### Erişim modeli
+
+- **Tek hesap, çoklu cihaz.** Hesap Supabase panelinden elle oluşturulur; uygulamada kayıt ekranı yoktur.
+- **Yetki veritabanındadır.** `app_owner` tablosundaki tek UUID ile `auth.uid()` karşılaştırılır
+  (`public.is_owner()`). E-posta adresine veya arayüz kontrolüne dayanılmaz; arayüzdeki ekranlar yalnızca
+  kullanıcı deneyimi içindir.
+- **Varsayılan erişim kapalı.** Tüm tablolarda RLS açık; `anon` rolünün tablo ve fonksiyon yetkileri
+  kaldırıldı. Geçerli bir Supabase hesabı olan ama sahip olmayan kullanıcı hiçbir satırı göremez veya
+  değiştiremez.
+- **İstemciye güvenilmez.** `created_by`, `created_at`, `updated_at`, `version` alanları tetikleyicilerle
+  sunucuda belirlenir; durum geçmişi ve etkinlik günlüğüne istemci yazamaz.
+
+### Risk değerlendirmesi
+
+| Risk | Önlem |
+| --- | --- |
+| SQL injection | İstemci SQL metni oluşturmaz; tüm sorgular supabase-js/PostgREST üzerinden parametreli. Veritabanı fonksiyonları `search_path = ''` ile tanımlı. Arama, bellekteki listede yapılır |
+| Yetkisiz erişim | RLS + sahip UUID'si; anon yetkileri kaldırıldı; 46 kontrollük SQL test paketi (yerelde geçti) |
+| Veri sızıntısı | Realtime olayları abone başına RLS ile süzülür; silme olaylarında yalnızca kimlik gider. Hata iletileri tablo/SQL ayrıntısı göstermez. Yayın paketinde gizli anahtar yok |
+| Gizli anahtarın sızması | Yalnızca publishable anahtar kullanılır; `sb_secret_` veya `service_role` anahtarı algılanırsa uygulama çalışmayı reddeder |
+| Hatalı dosya erişimi | Özel bucket; okuma/yazma yalnızca sahip; yükleme yalnızca mevcut bir projenin klasörüne; uzantı izin listesi, 50 MB sınırı, içerik türü uzantıdan belirlenir; indirme yetkili oturumla yapılır, herkese açık bağlantı üretilmez |
+| XSS / oturum çalınması | Oturum belirteci tarayıcıda saklanır (Supabase varsayılanı). Katı CSP satır içi betiği yasaklar; React çıktıyı kaçışlar; `dangerouslySetInnerHTML` kullanılmaz |
+| Kaba kuvvet giriş denemeleri | Supabase Auth hız sınırları; hatalı denemede şifre alanı temizlenir |
+| Sessiz veri kaybı | Sürüm tabanlı çakışma kontrolü; projesi olan firma silinemez (veritabanı kısıtı) |
+
+### Bilinen sınırlar
+
+- İki aşamalı doğrulama (MFA) henüz yok. Güçlü ve benzersiz bir şifre kullanın.
+- Çevrimdışı düzenleme **desteklenmez**. Bağlantı yokken kayıt yapılamaz; bağlantı gelince veriler yenilenir.
+- Listeler 1000 kayıtla sınırlıdır (Supabase API varsayılanı); aşılırsa uyarı gösterilir.
+- Etkinlik günlüğü (`activity_log`) veritabanında tutulur ancak henüz arayüzde gösterilmez.
+- Dosya içerikleri virüs taramasından geçirilmez; yalnızca kendi yüklediğiniz dosyalar saklanır.
+- Arama motorlarının dizinlemesi `robots.txt`, `noindex` ve `X-Robots-Tag` ile engellenir; bu bir erişim kontrolü değildir.
+
+### Maliyet ve plan kısıtları
+
+- Hedef: **ek aylık maliyet yok.** Supabase **Free** ve Vercel **Hobby** planlarıyla çalışacak şekilde
+  tasarlandı; ücretli API, ek veritabanı veya depolama servisi kullanılmaz.
+- **Vercel Hobby planı yalnızca kişisel, ticari olmayan kullanım içindir** (Vercel kullanım koşulları).
+  LEONX Metal'in iş süreçleri için kullanım ticari kullanım sayılabilir; bu durumda Vercel **Pro** planı
+  gerekebilir. Karar ve sorumluluk hesap sahibindedir; güncel koşulları Vercel'in Fair Use / Terms
+  sayfalarından kontrol edin.
+- Supabase Free projeleri uzun süre kullanılmazsa duraklatılabilir; kota ve yedekleme sınırları için
+  [docs/SUPABASE_KURULUM.md](docs/SUPABASE_KURULUM.md#free-plan-notları) bölümüne bakın.
 
 ## Tarayıcı desteği
 
@@ -103,7 +155,15 @@ Dağıtım ayarları `vercel.json` dosyasındadır:
 | Güvenlik başlıkları | Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, HSTS, X-Robots-Tag |
 | Önbellek | `/assets/` altındaki sürümlü dosyalar 1 yıl önbelleğe alınır |
 
-Ortam değişkeni (Environment Variable) **gerekmez**.
+Gerekli ortam değişkenleri (Vercel → Settings → Environment Variables, **Production** ve **Preview**):
+
+| Değişken | Değer |
+| --- | --- |
+| `VITE_SUPABASE_URL` | `https://<proje>.supabase.co` |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_...` (asla secret/service_role değil) |
+
+Değişkenleri ekledikten veya değiştirdikten sonra **Redeploy** gerekir. Değişkenler yoksa uygulama çökmez,
+"Kurulum gerekli" ekranını gösterir. CSP, tarayıcının yalnızca `*.supabase.co` adresine bağlanmasına izin verir.
 
 ## iPad Safari üzerinden Vercel'de yayınlama
 
@@ -144,7 +204,7 @@ Vercel varsayılan olarak `main` dalını yayına alır.
 | Framework Preset | **Vite** (otomatik algılanır) |
 | Root Directory | `./` |
 | Build and Output Settings | Değiştirmeyin; `vercel.json` kullanılır |
-| Environment Variables | Boş bırakın |
+| Environment Variables | `VITE_SUPABASE_URL` ve `VITE_SUPABASE_PUBLISHABLE_KEY` (bkz. [Supabase kurulumu](docs/SUPABASE_KURULUM.md#8-vercel-ortam-değişkenleri)) |
 
 **Deploy** düğmesine dokunun. Build yaklaşık 1 dakika sürer. Tamamlandığında ekranda önizleme görüntüsü
 ve `https://leonx-os-….vercel.app` biçiminde bir adres görünür.
@@ -163,7 +223,8 @@ ve `https://leonx-os-….vercel.app` biçiminde bir adres görünür.
 2. **Vercel Authentication** seçeneğini açık tutun. Bu, önizleme (Preview) adreslerine yalnızca Vercel
    ekibinizdeki kişilerin girebilmesini sağlar.
 3. Üretim (Production) adresinin korunup korunmadığı Vercel planınıza bağlıdır; bu sayfada hangi
-   adreslerin korunduğu yazar. Üretim adresi herkese açıksa yukarıdaki güvenlik uyarısı geçerlidir.
+   adreslerin korunduğu yazar. Üretim adresi herkese açık olsa bile yalnızca giriş ekranı görünür;
+   veriler Supabase oturumu ve RLS ile korunur (bkz. Güvenlik bölümü).
 
 ### 7. iPad ana ekranına ekleyin (isteğe bağlı)
 
@@ -194,13 +255,34 @@ npm run dev        # geliştirme sunucusu (http://localhost:5173)
 npm run typecheck  # TypeScript kontrolü
 npm run build      # production build (dist/)
 npm run preview    # build çıktısını önizle
-npm run check      # TypeScript kontrolü + production build
+npm run test       # birim testleri (Vitest)
+npm run test:db    # veritabanı/RLS testleri — yerel PostgreSQL 15+ gerektirir
+npm run test:e2e   # tarayıcı testleri (Playwright, sahte Supabase arka ucu)
+npm run check      # TypeScript + birim testleri + production build
 ```
+
+### Testler
+
+| Komut | Ne test eder | Gerçek Supabase'e bağlanır mı |
+| --- | --- | --- |
+| `npm run test` | Form doğrulamaları, dosya kuralları, anahtar güvenliği, istatistikler, Realtime yaşam döngüsü (sahte kanal) | Hayır |
+| `npm run test:db` | Migration'ları geçici bir PostgreSQL'e **iki kez** uygular (tekrar çalıştırılabilirlik) ve RLS/bütünlük testlerini çalıştırır. Supabase'in `auth`/`storage` şemaları `supabase/tests/local/supabase_stub.sql` ile taklit edilir | Hayır |
+| `npm run test:e2e` | Giriş, yetkisiz hesap, CRUD, dosya, başka cihazdan gelen değişiklik, çakışma, yeniden bağlanma, çıkış; 6 ekran × açık/koyu tema | Hayır — Supabase API'leri `e2e/mock-supabase.mjs` ile taklit edilir |
+
+Gerçek Supabase projesinde doğrulama için `supabase/tests/rls_policies.test.sql` dosyasını SQL Editor'da çalıştırın.
 
 ## Klasör yapısı
 
 ```
 vercel.json                Vercel build, SPA yönlendirme ve güvenlik başlıkları
+.env.example               Ortam değişkeni adları (gerçek değer içermez)
+supabase/
+  migrations/              Veritabanı şeması, RLS, Realtime, Storage (sırayla uygulanır)
+  setup/01_set_owner.sql   Tek yetkili kullanıcıyı tanımlama
+  tests/                   RLS/bütünlük testleri + yerel Supabase taklit iskeleti
+scripts/test-db.sh         Yerel PostgreSQL ile veritabanı testleri
+e2e/                       Tarayıcı testleri ve sahte Supabase arka ucu
+docs/SUPABASE_KURULUM.md   Supabase kurulum yönergesi
 public/
   theme-init.js            İlk boyamadan önce temayı uygular
   branding/                Orijinal LEONX logosu ve ondan kırpılan sürümler
@@ -215,6 +297,12 @@ src/
     navigation.ts          Menü öğeleri, gruplar ve modül durumları
     company.ts             Firma bilgisi, sürüm, entegrasyon durumu, yol haritası
   context/preferences.tsx  Tema ve arayüz tercihleri (cihazda saklanır)
+  context/auth.tsx         Oturum, sahip doğrulaması, çıkış
+  context/data.tsx         Canlı veri deposu (firmalar, projeler) + Realtime
+  data/                    Veri erişim katmanı (supabase-js) ve satır tipleri
+  features/                Proje ve firma formları, notlar, dosyalar
+  lib/supabase.ts          Merkezi Supabase istemcisi (ortam değişkenlerinden)
+  lib/realtimeSync.ts      Realtime abonelik yaşam döngüsü ve yeniden bağlanma
   lib/useOverlay.ts        Menü/arama katmanları: Escape, kaydırma kilidi, odak yönetimi
   layouts/AppLayout.tsx    Ana yerleşim ve sayfa geçişleri
   components/
@@ -230,11 +318,14 @@ src/
 | Yol | Sayfa |
 | --- | --- |
 | `/` | Dashboard |
+| `/giris` | Giriş (herkese açık tek sayfa) |
 | `/projeler` | Projeler |
+| `/projeler/:id` | Proje detayı |
 | `/cad-analiz` | CAD Analiz |
 | `/metraj` | Metraj |
 | `/teklifler` | Teklifler |
 | `/firmalar` | Firmalar |
+| `/firmalar/:id` | Firma detayı |
 | `/leonx-ai` | LEONX AI |
 | `/raporlar` | Raporlar |
 | `/ayarlar` | Ayarlar |

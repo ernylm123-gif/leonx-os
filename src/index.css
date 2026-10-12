@@ -34,6 +34,8 @@
   --warn: #8f5d0f;
   --warn-soft: rgb(212 166 74 / 0.14);
   --warn-line: rgb(176 128 40 / 0.28);
+  --danger: #b4372d;
+  --danger-soft: rgb(180 55 45 / 0.08);
 
   --overlay: rgb(21 24 28 / 0.32);
   --focus: #707985;
@@ -72,6 +74,8 @@
   --warn: #dcb062;
   --warn-soft: rgb(220 176 98 / 0.1);
   --warn-line: rgb(220 176 98 / 0.26);
+  --danger: #f08a80;
+  --danger-soft: rgb(240 138 128 / 0.1);
 
   --overlay: rgb(0 0 0 / 0.55);
   --focus: #b8c0c9;
@@ -110,6 +114,8 @@
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
   --color-warn-line: var(--warn-line);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
   --color-overlay: var(--overlay);
   --color-plate: var(--plate);
   --color-plate-line: var(--plate-line);
