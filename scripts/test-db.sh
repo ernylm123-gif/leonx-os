@@ -53,17 +53,22 @@ echo "▸ Örnek sahip hesabı (yalnızca yerel test)"
 insert into public.app_owner (singleton, user_id) values (true, '11111111-1111-4111-8111-111111111111') on conflict (singleton) do nothing;
 insert into public.companies (name) values ('Mevcut veri — silinmemeli');"
 
-echo "▸ RLS ve bütünlük testleri"
 TEST_PSQL=("${RUN[@]}" "${PG_BIN}/psql" -h "${WORK}" -p "${PORT}" -U postgres -d postgres -v ON_ERROR_STOP=1 -q -X)
-set +e
-OUT="$("${TEST_PSQL[@]}" -f "${ROOT}/supabase/tests/rls_policies.test.sql" 2>&1)"
-STATUS=$?
-set -e
-echo "${OUT}" | sed -n -e 's/^.*NOTICE:  /   /p' -e 's/^.*ERROR:  /   ✗ /p'
-if [[ ${STATUS} -ne 0 ]] || ! grep -q "TÜM TESTLER BAŞARILI" <<<"${OUT}"; then
-  echo "✗ Veritabanı testleri BAŞARISIZ" >&2
-  exit 1
-fi
+ALL_OUT=""
+for t in "${ROOT}"/supabase/tests/*.test.sql; do
+  echo "▸ $(basename "$t")"
+  set +e
+  OUT="$("${TEST_PSQL[@]}" -f "$t" 2>&1)"
+  STATUS=$?
+  set -e
+  echo "${OUT}" | sed -n -e 's/^.*NOTICE:  /   /p' -e 's/^.*ERROR:  /   ✗ /p'
+  if [[ ${STATUS} -ne 0 ]] || ! grep -q "TESTLER[İI]* BAŞARILI" <<<"${OUT}"; then
+    echo "✗ Veritabanı testleri BAŞARISIZ ($(basename "$t"))" >&2
+    exit 1
+  fi
+  ALL_OUT+="${OUT}"$'\n'
+done
+OUT="${ALL_OUT}"
 REMAINING="$("${PSQL[@]}" -tA -c "select count(*) from public.companies where name = 'Mevcut veri — silinmemeli'")"
 OWNER_KEPT="$("${PSQL[@]}" -tA -c "select count(*) from public.app_owner where user_id = '11111111-1111-4111-8111-111111111111'")"
 if [[ "${REMAINING}" != "1" || "${OWNER_KEPT}" != "1" ]]; then
