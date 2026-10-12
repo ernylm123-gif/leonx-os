@@ -117,6 +117,10 @@ yalnızca SQL Editor'dan yapılabilir.
 3. **Deployments** → en son dağıtım → **⋯ → Redeploy**. (`VITE_` değişkenleri derleme sırasında okunur;
    değişiklikten sonra yeniden derleme gerekir.)
 
+> Yalnızca **Production** işaretlenirse PR önizleme dağıtımları Supabase ayarı olmadan derlenir ve
+> uygulama "Kurulum gerekli" ekranını gösterir. Değişkenler yalnızca publishable anahtar içerdiği için
+> Preview ortamına eklenmeleri güvenlidir; `service_role` / `sb_secret_` anahtarı hiçbir ortama eklenmez.
+
 ## 9. Doğrulama
 
 1. Uygulamayı açın → giriş ekranı görünmeli (kayıt bağlantısı yoktur).

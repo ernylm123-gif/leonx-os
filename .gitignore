@@ -12,3 +12,4 @@ dist-ssr
 .idea
 dist-e2e
 dist-e2e-unconfigured
+.claude/settings.local.json
