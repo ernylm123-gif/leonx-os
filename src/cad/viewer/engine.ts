@@ -675,7 +675,10 @@ export class ViewerEngine {
       ctx.drawImage(this.background.image, 0, 0, x1 - x0, y1 - y0)
     }
 
-    if (this.scene) {
+    // Arka plan görüntüsü (PDF sayfası) varken vektörler görüntünün kopyasıdır: çizilmez,
+    // yalnızca seçim, yakalama ve vurgulama için kullanılır.
+    const drawGeometry = !this.background
+    if (this.scene && drawGeometry) {
       ctx.setTransform(T[0], T[1], T[2], T[3], T[4], T[5])
       ctx.lineWidth = 1 / this.s
       ctx.lineJoin = 'round'
@@ -694,6 +697,8 @@ export class ViewerEngine {
       }
       this.renderPoints(T)
       this.renderTexts(T)
+    }
+    if (this.scene) {
       for (const h of this.highlights) this.renderEntities(h.ids, h.color, 2.2, T, 0.9)
       if (this.selection.size) this.renderEntities([...this.selection], this.theme.accent, 2.8, T, 1)
     }

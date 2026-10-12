@@ -5,14 +5,16 @@
  */
 import { buildPdfScene, findScaleHints, type PdfPageInfo } from './pdfScene'
 
-type PdfJs = typeof import('pdfjs-dist')
+// Eski tarayıcılar (iPadOS Safari dahil) için polyfill içeren "legacy" derleme kullanılır;
+// standart derleme çok yeni JS özelliklerine (ör. Map.getOrInsertComputed) ihtiyaç duyar.
+type PdfJs = typeof import('pdfjs-dist/legacy/build/pdf.mjs')
 type PDFDocumentProxy = Awaited<ReturnType<PdfJs['getDocument']>['promise']>
 
 let pdfjsPromise: Promise<PdfJs> | null = null
 
 async function loadPdfJs(): Promise<PdfJs> {
   pdfjsPromise ??= (async () => {
-    const [lib, worker] = await Promise.all([import('pdfjs-dist'), import('pdfjs-dist/build/pdf.worker.min.mjs?url')])
+    const [lib, worker] = await Promise.all([import('pdfjs-dist/legacy/build/pdf.mjs'), import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')])
     lib.GlobalWorkerOptions.workerSrc = worker.default
     return lib
   })()
