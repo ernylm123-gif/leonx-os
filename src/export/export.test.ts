@@ -114,7 +114,8 @@ describe('Excel raporu', () => {
     expect(safeSheetName('x'.repeat(40), used).length).toBe(31)
   })
 
-  it('openpyxl ile bağımsız okuma (Python varsa)', () => {
+  // Dış araç (Python) kontrolleri: yayın derlemesinde (Vercel) atlanır, CI ve yerelde çalışır
+  it.skipIf(!!process.env.VERCEL)('openpyxl ile bağımsız okuma (Python varsa)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'leonx-xlsx-'))
     const path = join(dir, 'r.xlsx')
     writeFileSync(path, bytes)
@@ -128,7 +129,7 @@ describe('Excel raporu', () => {
     const [total, names] = out.trim().split('\n')
     expect(Math.round(Number(total) * 100)).toBe(summarize(items).verified.frameArea)
     expect(names).toContain('Doğrulanmamış')
-  })
+  }, 30_000)
 })
 
 describe('PDF raporu', () => {
@@ -177,7 +178,7 @@ describe('PDF raporu', () => {
     expect(pages.join(' ')).not.toContain('TASLAK — ONAYLANMAMIŞ')
   })
 
-  it('pypdf ile bağımsız okuma (Python varsa)', async () => {
+  it.skipIf(!!process.env.VERCEL)('pypdf ile bağımsız okuma (Python varsa)', async () => {
     const bytes = await reportToPdf(buildReport(items, meta), fonts)
     const dir = mkdtempSync(join(tmpdir(), 'leonx-pdf-'))
     const path = join(dir, 'r.pdf')
@@ -191,5 +192,5 @@ describe('PDF raporu', () => {
     }
     expect(out).toContain('METRAJ RAPORU')
     expect(out).toContain('Şişli')
-  })
+  }, 30_000)
 })
