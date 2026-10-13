@@ -154,3 +154,51 @@ export function originStatus(origin: string, canonical: string, env: string): 'k
   if (origin === canonical) return 'kanonik'
   return 'sabit-dagitim'
 }
+
+// ------------------------------------------------------------------ önbellek ve yeniden yükleme
+
+/**
+ * LEONX OS service worker kullanmaz. Tarayıcıda önceki bir kurulumdan kalmış service worker
+ * veya Cache Storage varsa (eski sürüm dosyalarını vermeye devam edebilir) güvenle kaldırılır.
+ * İş verisi bu depolarda tutulmaz; oturum ve tercihler (localStorage) etkilenmez.
+ */
+export async function purgeLegacyCaches(): Promise<{ workers: number; caches: number }> {
+  let workers = 0
+  let removed = 0
+  try {
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations()
+      for (const r of regs) if (await r.unregister()) workers++
+    }
+  } catch {
+    /* desteklenmiyor veya engelli */
+  }
+  try {
+    if (typeof caches !== 'undefined') {
+      for (const k of await caches.keys()) if (await caches.delete(k)) removed++
+    }
+  } catch {
+    /* desteklenmiyor veya engelli */
+  }
+  return { workers, caches: removed }
+}
+
+export const RELOAD_PARAM = '_surum'
+
+/**
+ * Yeni sürümü açan adres: aynı sayfa + sürüm parametresi. Parametre HTML'in hiçbir ara
+ * önbellekten (iOS ana ekran uygulaması dahil) gelmemesini garanti eder; açılışta silinir.
+ */
+export function reloadUrl(href: string, target: string): string {
+  const u = new URL(href)
+  u.searchParams.set(RELOAD_PARAM, target.replace(/[^\w.+-]/g, '').slice(0, 64) || '1')
+  return u.toString()
+}
+
+/** Açılışta sürüm parametresini adres çubuğundan kaldırır (geçmişe kayıt eklemeden) */
+export function cleanReloadParam(href: string): string | null {
+  const u = new URL(href)
+  if (!u.searchParams.has(RELOAD_PARAM)) return null
+  u.searchParams.delete(RELOAD_PARAM)
+  return u.pathname + (u.search === '?' ? '' : u.search) + u.hash
+}

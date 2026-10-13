@@ -177,17 +177,33 @@ Değişkenleri ekledikten veya değiştirdikten sonra **Redeploy** gerekir. Değ
 bu adreslerde uygulamanın üstünde uyarı ve üretim adresine bağlantı gösterilir.
 
 - Her derleme `sürüm + commit + zaman` biçiminde bir **derleme kimliği** alır ve `/version.json` olarak yayımlanır.
-- **Ayarlar → Sürüm ve senkronizasyon** ekranı derleme kimliğini, commit'i, ortamı, uygulama türünü (tarayıcı /
-  ana ekran uygulaması) ve canlı senkronizasyon durumunu gösterir. Tüm cihazlarda bu kimlik aynı olmalıdır.
+- **Ayarlar → Sürüm bilgisi** ekranı derleme kimliğini, commit'i, ortamı, sunucudaki (yayındaki) sürümü, güncelleme
+  durumunu, uygulama türünü (tarayıcı / ana ekran uygulaması) ve canlı senkronizasyon durumunu gösterir. Tüm cihazlarda bu kimlik aynı olmalıdır.
   Kenar çubuğunda da `v<sürüm> · <commit>` görünür.
 - Açık uygulama sunucudaki kimliği açılıştan ~4 sn sonra, her 5 dakikada bir ve uygulama ön plana döndüğünde /
-  bağlantı geldiğinde denetler. Farklıysa **"Yeni sürüm hazır — Güncelle"** gösterilir; kaydedilmemiş form varsa
-  önce uyarılır. Güncelleme yalnızca uygulamayı yeniler, veriler sunucudadır.
-- Service worker yoktur; HTML önbelleğe alınmaz, bu yüzden yeniden yükleme her zaman en güncel sürümü getirir.
+  bağlantı geldiğinde denetler. Farklıysa **"LEONX OS — Yeni sürüm hazır"** bildirimi **Güncelle / Daha Sonra** seçenekleriyle
+  gösterilir; kaydedilmemiş form varsa önce uyarılır, dosya yüklemesi sürerken güncelleme ertelenir. Güncelleme yalnızca uygulamayı yeniler, veriler sunucudadır.
+- Service worker yoktur; HTML önbelleğe alınmaz. Güncelleme, önceki kurulumlardan kalmış service worker ve
+  önbellekleri temizler ve sayfayı sürüm parametreli adresle açar (iOS/Android ana ekran uygulaması dahil hiçbir
+  ara önbellek eski HTML'i veremez); parametre açılışta adresten silinir.
   Aynı sürüm için en fazla 2 deneme yapılır (sonsuz yenileme olmaz); tarayıcı yine eski dosyayı verirse
   uygulamayı tamamen kapatıp açma yönergesi gösterilir. Uygulamayı silip yeniden yüklemek gerekmez.
 - Dağıtım sonrası eski sekmede silinmiş sayfa parçası yüklenemezse beyaz ekran yerine hedef sayfada bir kez
   güvenli yeniden yükleme yapılır.
+
+### Yayın hattı (GitHub → Vercel)
+
+1. Her PR'da GitHub Actions (`.github/workflows/ci.yml`): TypeScript, birim testleri, production build, yayın kapısı
+   (`scripts/check-bundle.mjs`: gizli anahtar taraması, sürüm dosyası), kritik bağımlılık açığı denetimi,
+   veritabanı/RLS testleri ve tarayıcı testleri.
+2. `main`'e birleştirme → Vercel production yayınını otomatik başlatır. Vercel build'i birim testlerini ve yayın
+   kapısını yeniden çalıştırır (`vercel.json → buildCommand`); başarısızsa yayın durur, production değişmez.
+3. Yayın tamamlanınca `/version.json` yeni derleme kimliğini verir; açık uygulamalar (ana ekran uygulamaları dahil)
+   en geç 5 dakika içinde veya ön plana gelince "Yeni sürüm hazır" bildirimini gösterir.
+
+Testleri geçen PR'ların kendiliğinden birleşmesi için GitHub'da bir kez: **Settings → General → Allow auto-merge**
+ve **Settings → Branches → main** kuralında "Require status checks" (Kalite ve güvenlik, Veritabanı ve RLS testleri,
+Tarayıcı testleri) açılmalı; ardından PR'da **Enable auto-merge** seçilir.
 
 ## iPad Safari üzerinden Vercel'de yayınlama
 
@@ -262,7 +278,7 @@ ve `https://leonx-os-….vercel.app` biçiminde bir adres görünür.
 | --- | --- |
 | Build hatası: Node.js sürümü | **Settings** → **Build and Deployment** → **Node.js Version** → `22.x` seçin ve **Redeploy** yapın |
 | Alt sayfa yenilenince 404 | `vercel.json` dosyasının deponun kök klasöründe olduğunu ve `main` dalına birleştirildiğini kontrol edin |
-| Eski sürüm görünüyor | Adresin `leonx-os.vercel.app` olduğunu kontrol edin; **Ayarlar → Sürüm ve senkronizasyon → Güncellemeleri denetle**. Ana ekran uygulamasında uygulama değiştiriciden kapatıp yeniden açın |
+| Eski sürüm görünüyor | Adresin `leonx-os.vercel.app` olduğunu kontrol edin; **Ayarlar → Sürüm bilgisi → Güncellemeleri kontrol et**. Ana ekran uygulamasında uygulama değiştiriciden kapatıp yeniden açın |
 | Proje listede yok | 3. adımdaki **Adjust GitHub App Permissions** ile depoya erişim verin |
 
 Her `main` dalına birleştirme otomatik olarak yeni bir üretim dağıtımı başlatır.

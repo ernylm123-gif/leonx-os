@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { contentTypeFor, STORAGE_BUCKET, storagePathFor } from '@/lib/files'
 import type { ProjectStatus } from '@/lib/domain'
 import { withNetworkRetry } from '@/lib/retry'
+import { runBusy } from '@/lib/unsaved'
 import type {
   Company,
   CompanyInput,
@@ -194,7 +195,12 @@ export async function listProjectFiles(db: SupabaseClient, projectId: string): P
 }
 
 /** Dosyayı özel bucket'a yükler ve meta veriyi kaydeder; kayıt başarısız olursa yüklenen dosyayı geri siler. */
-export async function uploadProjectFile(db: SupabaseClient, projectId: string, file: File): Promise<ProjectFile> {
+export function uploadProjectFile(db: SupabaseClient, projectId: string, file: File): Promise<ProjectFile> {
+  // Yükleme sürerken sürüm güncellemesi ertelenir
+  return runBusy(`${file.name} yükleniyor`, () => uploadNow(db, projectId, file))
+}
+
+async function uploadNow(db: SupabaseClient, projectId: string, file: File): Promise<ProjectFile> {
   const path = storagePathFor(projectId, file.name, crypto.randomUUID())
   const contentType = contentTypeFor(file.name)
   const up = await db.storage.from(STORAGE_BUCKET).upload(path, file, { contentType, upsert: false, cacheControl: '3600' })

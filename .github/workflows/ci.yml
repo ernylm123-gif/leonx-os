@@ -1,0 +1,71 @@
+# LEONX OS — Sürekli entegrasyon
+#
+# Her PR ve main'e her gönderimde: TypeScript, birim testleri, production build + yayın kapısı
+# (gizli anahtar taraması, sürüm dosyası), kritik bağımlılık açığı denetimi, veritabanı/RLS
+# testleri ve tarayıcı testleri çalışır. Gerçek Supabase projesine bağlanılmaz; depoya yazma
+# yetkisi yoktur (yalnızca okuma).
+#
+# Production yayını: Vercel, main'e her birleştirmede yayını kendisi başlatır. Vercel build'i
+# testleri ve yayın kapısını yeniden çalıştırır (vercel.json → buildCommand); başarısızsa
+# production değişmez.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kalite:
+    name: Kalite ve güvenlik
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Birim testleri
+        run: npm run test
+      - name: Production build
+        run: npm run build
+      - name: Yayın kapısı (gizli anahtar taraması, sürüm dosyası)
+        run: npm run check:bundle
+      - name: Bağımlılık güvenlik denetimi (kritik)
+        run: npm audit --omit=dev --audit-level=critical
+
+  veritabani:
+    name: Veritabanı ve RLS testleri
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Geçici PostgreSQL üzerinde migration ve RLS testleri
+        run: bash scripts/test-db.sh
+
+  e2e:
+    name: Tarayıcı testleri
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Uçtan uca testler (sahte Supabase arka ucu)
+        run: npm run test:e2e

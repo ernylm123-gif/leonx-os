@@ -129,3 +129,15 @@ describe('parça yükleme hatası ve adres durumu', () => {
     expect(originStatus('http://127.0.0.1:4173', c, 'yerel')).toBe('yerel')
   })
 })
+
+describe('önbelleği atlayan yeniden yükleme adresi', () => {
+  it('sayfa, sorgu ve çapa korunur; parametre açılışta temizlenir', async () => {
+    const { reloadUrl, cleanReloadParam } = await import('./appVersion')
+    const u = reloadUrl('https://leonx-os.vercel.app/metraj?proje=abc#x', '0.5.0+abc1234.k1')
+    expect(u).toBe('https://leonx-os.vercel.app/metraj?proje=abc&_surum=0.5.0%2Babc1234.k1#x')
+    expect(cleanReloadParam(u)).toBe('/metraj?proje=abc#x')
+    expect(cleanReloadParam('https://leonx-os.vercel.app/ayarlar?_surum=x')).toBe('/ayarlar')
+    expect(cleanReloadParam('https://leonx-os.vercel.app/ayarlar')).toBeNull()
+    expect(reloadUrl('https://a.test/', '<script>')).toContain('_surum=script')
+  })
+})

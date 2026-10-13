@@ -10,10 +10,12 @@ import {
   isChunkLoadError,
   isNewer,
   originStatus,
+  purgeLegacyCaches,
   recordReloadAttempt,
+  reloadUrl,
   safeSessionStorage,
 } from '@/lib/appVersion'
-import { installBeforeUnloadGuard, useUnsavedLabels } from '@/lib/unsaved'
+import { busyLabels, installBeforeUnloadGuard, useBusyLabels, useUnsavedLabels } from '@/lib/unsaved'
 
 /** Denetim sıklığı: arka planda 5 dk; ön plana dönüş / ağ geri gelişi en fazla 30 sn'de bir */
 const POLL_MS = 5 * 60 * 1000
@@ -90,9 +92,13 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         setStuck(true)
         return
       }
+      // Dosya yüklemesi sürerken güncellenmez (bildirim yükleme bitince düğmeyi açar)
+      if (busyLabels().length > 0) return
       recordReloadAttempt(target, store)
-      // HTML önbelleğe alınmaz (vercel.json); varlık dosyaları içerik karmalı adlarla yeni sürümden gelir
-      window.location.reload()
+      // Eski önbellekler temizlenir; sürüm parametreli adres HTML'in hiçbir ara önbellekten
+      // gelmemesini sağlar (iOS/Android ana ekran uygulaması dahil). Varlık dosyaları içerik
+      // karmalı adlarla yeni sürümden gelir.
+      void purgeLegacyCaches().finally(() => window.location.replace(reloadUrl(window.location.href, target)))
     },
     [latest, store],
   )
@@ -130,6 +136,7 @@ export function useUpdate(): UpdateContextValue {
 function UpdateBanner() {
   const { available, applyUpdate, latest, stuck } = useUpdate()
   const unsaved = useUnsavedLabels()
+  const busy = useBusyLabels()
   const [dismissedFor, setDismissedFor] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   if (!available || !latest || dismissedFor === latest.buildId) return null
@@ -145,12 +152,17 @@ function UpdateBanner() {
           <RefreshCw className="h-4 w-4" aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-ink">Yeni sürüm hazır</p>
+          <p className="text-sm font-semibold text-ink">LEONX OS — Yeni sürüm hazır</p>
           <p className="mt-0.5 text-[12.5px] text-muted">
             {stuck
               ? 'Güncelleme yüklenemedi: tarayıcı eski dosyaları vermeye devam ediyor. Uygulamayı tamamen kapatıp yeniden açın (iPad/iPhone: uygulama değiştiriciden yukarı kaydırın).'
               : `v${latest.version} (${latest.commit}) yayınlandı. Verileriniz sunucuda güvende; güncelleme yalnızca uygulamayı yeniler.`}
           </p>
+          {busy.length > 0 && !stuck && (
+            <p className="mt-2 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-[12px] text-muted" data-testid="update-busy">
+              {busy.join(', ')}. Güncelleme, işlem bitince yapılabilir.
+            </p>
+          )}
           {confirming && unsaved.length > 0 && (
             <p className="mt-2 rounded-lg border border-warn-line bg-warn-soft px-2.5 py-1.5 text-[12px] text-warn" data-testid="update-unsaved">
               Kaydedilmemiş değişiklik: {unsaved.join(', ')}. Önce kaydedin; yine de güncellerseniz bu değişiklikler kaybolur.
@@ -161,6 +173,7 @@ function UpdateBanner() {
               <button
                 type="button"
                 data-testid="update-apply"
+                disabled={busy.length > 0}
                 onClick={() => {
                   if (unsaved.length > 0 && !confirming) {
                     setConfirming(true)
@@ -168,14 +181,14 @@ function UpdateBanner() {
                   }
                   applyUpdate(confirming)
                 }}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-[13px] font-semibold text-primary-ink hover:bg-primary-hover"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-[13px] font-semibold text-primary-ink hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                 {confirming && unsaved.length > 0 ? 'Yine de güncelle' : 'Güncelle'}
               </button>
             )}
-            <button type="button" onClick={() => setDismissedFor(latest.buildId)} className="h-9 rounded-lg px-3 text-[13px] font-semibold text-muted hover:bg-surface-2 hover:text-ink">
-              Sonra
+            <button type="button" data-testid="update-later" onClick={() => setDismissedFor(latest.buildId)} className="h-9 rounded-lg px-3 text-[13px] font-semibold text-muted hover:bg-surface-2 hover:text-ink">
+              Daha Sonra
             </button>
           </div>
         </div>
@@ -227,7 +240,7 @@ export function RouteErrorFallback({ error }: { error: unknown }) {
     if (chunk && canAttemptReload(target, store)) {
       recoveryScheduled = true
       recordReloadAttempt(target, store)
-      window.setTimeout(() => window.location.reload(), 50)
+      window.setTimeout(() => window.location.replace(reloadUrl(window.location.href, 'parca')), 50)
       return true
     }
     return false

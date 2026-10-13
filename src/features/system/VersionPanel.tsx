@@ -27,12 +27,14 @@ export function VersionPanel() {
     ['Derleme zamanı', formatDateTime(current.builtAt)],
     ['Adres', window.location.host, true],
     ['Uygulama türü', MODE_LABEL[displayMode()]],
+    ['Yayındaki sürüm (sunucu)', latest ? latest.buildId : lastCheckedAt ? 'Okunamadı' : 'Denetleniyor…', true],
+    ['Güncelleme durumu', available ? (stuck ? 'Yeni sürüm yüklenemedi — uygulamayı kapatıp açın' : 'Yeni sürüm hazır') : latest ? 'Güncel' : 'Denetlenmedi'],
     ['Anlık senkronizasyon', `${SYNC_LABEL[syncState]}${lastSyncedAt ? ` · son eşitleme ${formatDateTime(lastSyncedAt.toISOString())}` : ''}`],
   ]
   return (
     <Panel
-      title="Sürüm ve senkronizasyon"
-      subtitle="Cihazlarınızda bu ekrandaki derleme kimliği aynı olmalıdır"
+      title="Sürüm bilgisi"
+      subtitle="Tüm cihazlarda derleme kimliği aynı olmalıdır"
       icon={Info}
       className="lg:col-span-2"
       actions={
@@ -44,7 +46,7 @@ export function VersionPanel() {
           data-testid="version-check"
         >
           {checking ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
-          Güncellemeleri denetle
+          Güncellemeleri kontrol et
         </button>
       }
     >

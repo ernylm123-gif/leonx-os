@@ -65,3 +65,41 @@ export function useFormDirty(open: boolean, label: string) {
   useUnsavedChanges(open && isDirty, label)
   return { markDirty: () => setDirty(true), isDirty }
 }
+
+// ------------------------------------------------------------------ süren işlemler
+// Dosya yükleme gibi yarıda kesilmemesi gereken işlemler. Bunlar sürerken sürüm güncellemesi
+// ertelenir (yeniden yükleme yüklemeyi yarıda keser ve depoda yarım dosya bırakabilir).
+const busy = new Map<string, string>()
+const busyListeners = new Set<() => void>()
+let busySnapshot: string[] = []
+
+export function setBusy(key: string, label: string | null) {
+  if (label) busy.set(key, label)
+  else busy.delete(key)
+  busySnapshot = [...busy.values()]
+  for (const l of busyListeners) l()
+}
+
+export function busyLabels(): string[] {
+  return busySnapshot
+}
+
+function subscribeBusy(fn: () => void): () => void {
+  busyListeners.add(fn)
+  return () => busyListeners.delete(fn)
+}
+
+export function useBusyLabels(): string[] {
+  return useSyncExternalStore(subscribeBusy, busyLabels, busyLabels)
+}
+
+/** Süren işlemi kaydeder; işlem bitince (hata olsa da) kayıt silinir. */
+export async function runBusy<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const key = `${label}:${Math.random().toString(36).slice(2)}`
+  setBusy(key, label)
+  try {
+    return await fn()
+  } finally {
+    setBusy(key, null)
+  }
+}

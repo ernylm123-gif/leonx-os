@@ -427,6 +427,49 @@ await test('Güncelleme kaydedilmemiş formu korur: önce uyarı, form verisi ka
   expect((await d.getByLabel('Proje adı').inputValue()) === 'Kaydedilmemiş proje adı', 'form verisi kayboldu')
 })
 
+await test('Dosya yüklenirken güncelleme ertelenir; yükleme bitince "Güncelle" açılır', async ({ page, mock }) => {
+  await serveNewerVersion(page)
+  const p = mock.externalInsert('projects', { code: 'LX-2026-610', name: 'Yükleme projesi', category: 'diger' })
+  let release
+  const gate = new Promise((r) => (release = r))
+  await page.route(`${SUPABASE_URL}/storage/v1/object/**`, async (route) => {
+    if (route.request().method() === 'POST') await gate
+    await route.fallback()
+  })
+  await login(page, OWNER, `/projeler/${p.id}`)
+  await page.getByRole('heading', { name: 'Yükleme projesi' }).waitFor()
+  await page.getByTestId('update-banner').waitFor({ timeout: 10000 })
+  await page.locator('input[type=file]').first().setInputFiles({ name: 'Uzun Yükleme.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 test') })
+  await page.getByTestId('update-busy').getByText(/Uzun Yükleme\.pdf yükleniyor/).waitFor()
+  expect(await page.getByTestId('update-apply').isDisabled(), 'yükleme sürerken güncelle düğmesi açık')
+  release()
+  await page.getByText('Uzun Yükleme.pdf yüklendi.').waitFor()
+  await eventually(async () => !(await page.getByTestId('update-apply').isDisabled()), 'yükleme bitince düğme açılmadı')
+  expect(mock.storage.size === 1 && mock.db.project_files.length === 1, 'yükleme tamamlanmadı')
+  // "Daha Sonra" bildirimi bu sürüm için kapatır
+  await page.getByTestId('update-later').click()
+  await eventually(async () => (await page.getByTestId('update-banner').count()) === 0, 'Daha Sonra bildirimi kapatmadı')
+})
+
+await test('Güncelle: eski önbellek ve service worker temizlenir, sürüm parametresi adresten silinir', async ({ page }) => {
+  await serveNewerVersion(page)
+  await login(page, OWNER, '/ayarlar')
+  await page.getByTestId('version-panel').waitFor()
+  // Önceki bir kurulumdan kalmış önbellek taklidi
+  await page.evaluate(async () => {
+    const c = await caches.open('eski-surum')
+    await c.put('/eski.js', new Response('eski'))
+  })
+  await page.getByTestId('version-check').click()
+  await page.getByTestId('update-banner').getByText('LEONX OS — Yeni sürüm hazır').waitFor()
+  await Promise.all([page.waitForEvent('load'), page.getByTestId('update-apply').click()])
+  await page.getByTestId('version-panel').waitFor()
+  expect(!page.url().includes('_surum='), `sürüm parametresi adreste kaldı: ${page.url()}`)
+  expect(page.url().endsWith('/ayarlar'), `sayfa korunmadı: ${page.url()}`)
+  expect((await page.evaluate(() => caches.keys())).length === 0, 'eski önbellek temizlenmedi')
+  await page.getByTestId('version-Güncelleme durumu').waitFor()
+})
+
 await test('Dağıtım sonrası silinmiş sayfa parçası: beyaz ekran yok, bir kez güvenli yeniden yükleme', async ({ page }) => {
   let failed = 0
   await page.route(/\/assets\/ReportsPage-[^/]+\.js$/, (route) => {
