@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useData } from '@/context/data'
+import { type DetailTable, useData } from '@/context/data'
 import { dataErrorMessage } from './errors'
 
-type DetailTable = 'contacts' | 'project_notes' | 'project_files' | 'project_status_history'
 
 /**
  * Bir kayda bağlı alt listeyi (ör. projenin notları) yükler ve Realtime ile güncel tutar.

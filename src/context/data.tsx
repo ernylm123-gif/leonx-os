@@ -19,9 +19,12 @@ export const REALTIME_TABLES = [
   'project_notes',
   'project_files',
   'project_status_history',
+  'cad_analyses',
+  'quantity_takeoffs',
+  'quantity_items',
 ] as const
 
-type DetailTable = 'contacts' | 'project_notes' | 'project_files' | 'project_status_history'
+export type DetailTable = Exclude<(typeof REALTIME_TABLES)[number], 'companies' | 'projects'>
 type DetailListener = (payload: ChangePayload) => void
 
 interface DataContextValue {

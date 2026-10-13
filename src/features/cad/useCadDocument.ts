@@ -160,5 +160,10 @@ export function useCadDocument() {
     setState({ status: 'empty' })
   }, [cancel])
 
-  return { state, load, cancel, reset }
+  /** Dosya indirilemediğinde (ör. projeden açma) açıklamalı hata durumu */
+  const fail = useCallback((fileName: string, message: string) => setState({ status: 'error', fileName, code: 'download', message }), [])
+
+  const pending = useCallback((fileName: string, stage: string) => setState({ status: 'loading', fileName, stage, fraction: 0.02 }), [])
+
+  return { state, load, cancel, reset, fail, pending }
 }

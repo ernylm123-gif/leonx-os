@@ -66,6 +66,8 @@ export interface WorkspaceExtensions {
   toolbarExtra?: ReactNode
   /** Görüntüleyicide ek vurgular (ör. poz adayları) */
   highlights?: { ids: number[]; color: string }[]
+  /** Ölçüm satırında ek işlem (ör. ölçümü metraja ekle) */
+  measurementAction?: { label: string; run: (m: Measurement) => void }
 }
 
 export interface WorkspaceContext {
@@ -92,10 +94,10 @@ export function CadWorkspace({
 }: {
   extensions?: (ctx: WorkspaceContext) => WorkspaceExtensions
   onContext?: (ctx: WorkspaceContext) => void
-  initialFile?: { name: string; load: () => Promise<ArrayBuffer>; source: CadSource } | null
+  initialFile?: { load: () => Promise<{ name: string; bytes: ArrayBuffer }>; source: CadSource } | null
   headerExtra?: ReactNode
 }) {
-  const { state, load, cancel, reset } = useCadDocument()
+  const { state, load, cancel, reset, fail, pending } = useCadDocument()
   const doc = state.status === 'ready' ? state.doc : null
   const canvasRef = useRef<CadCanvasHandle>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -116,6 +118,8 @@ export function CadWorkspace({
   const [cursor, setCursor] = useState<{ p: Pt; snapped: boolean } | null>(null)
   const [calib, setCalib] = useState<{ open: boolean; dist: number }>({ open: false, dist: 0 })
   const [log, setLog] = useState<LogEntry[]>([])
+  const [bottomH, setBottomH] = useState<number>(() => Number(readPref('leonx-cad-bottom-h', '300')) || 300)
+  const centerRef = useRef<HTMLDivElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
   const addLog = useCallback((message: string) => setLog((l) => [...l.slice(-199), { at: new Date(), message }]), [])
@@ -157,16 +161,19 @@ export function CadWorkspace({
     let cancelled = false
     void (async () => {
       try {
-        const bytes = await f.load()
-        if (!cancelled) await openFile(f.name, bytes, f.source)
+        pending('Proje dosyası', 'Dosya projeden indiriliyor')
+        const { name, bytes } = await f.load()
+        if (!cancelled) await openFile(name, bytes, f.source)
       } catch (e) {
-        addLog(`Dosya indirilemedi: ${e instanceof Error ? e.message : 'bilinmeyen hata'}`)
+        const msg = e instanceof Error && e.message ? e.message : 'Dosya indirilemedi.'
+        addLog(`Dosya indirilemedi: ${msg}`)
+        if (!cancelled) fail('Proje dosyası', `Dosya indirilemedi: ${msg}`)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [openFile, addLog])
+  }, [openFile, addLog, fail, pending])
 
   const zoomTo = useCallback((b: [number, number, number, number]) => canvasRef.current?.zoomToBox(b), [])
 
@@ -419,7 +426,7 @@ export function CadWorkspace({
       <div className="relative flex min-h-0 flex-1">
         {/* Sol panel */}
         {leftOpen && (
-          <aside className={cn(panelBase, overlayMobile, 'w-[272px] shrink-0 border-r border-line max-lg:left-0')} aria-label="Dosya ve katmanlar">
+          <aside className={cn(panelBase, overlayMobile, 'w-[300px] shrink-0 border-r border-line max-lg:left-0')} aria-label="Dosya ve katmanlar">
             <PanelTabs tabs={leftTabs} value={leftTab} onChange={setLeftTab} label="Sol panel sekmeleri" />
             <div className="min-h-0 flex-1 overflow-y-auto">
               {!doc ? (
@@ -438,7 +445,7 @@ export function CadWorkspace({
         )}
 
         {/* Orta: görüntüleyici */}
-        <div className="relative flex min-w-0 flex-1 flex-col">
+        <div ref={centerRef} className="relative flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1" style={{ background: doc ? THEMES[bg].background : undefined }}>
             {!doc && (
               <div className="absolute inset-0 overflow-y-auto overscroll-contain">
@@ -528,9 +535,48 @@ export function CadWorkspace({
             )}
           </div>
 
-          {/* Alt panel */}
+          {/* Alt panel (masaüstünde üst kenarından sürüklenerek boyutlandırılır) */}
           {bottomOpen && (
-            <section className={cn(panelBase, 'h-[34%] min-h-[180px] shrink-0 border-t border-line max-lg:absolute max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-20 max-lg:h-[55%] max-lg:shadow-raised')} aria-label="Alt panel">
+            <section
+              className={cn(panelBase, 'relative shrink-0 border-t border-line max-lg:absolute max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-20 max-lg:!h-[60%] max-lg:shadow-raised')}
+              style={{ height: bottomH }}
+              aria-label="Alt panel"
+            >
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="Alt panel yüksekliği (sürükleyin, çift tıklayınca büyüt/küçült)"
+                tabIndex={0}
+                className="absolute inset-x-0 -top-1.5 z-10 hidden h-3 cursor-row-resize lg:block"
+                onPointerDown={(e) => {
+                  const startY = e.clientY
+                  const startH = bottomH
+                  const max = (centerRef.current?.clientHeight ?? 800) - 120
+                  const el = e.currentTarget
+                  el.setPointerCapture(e.pointerId)
+                  const move = (ev: PointerEvent) => setBottomH(Math.max(140, Math.min(max, startH + (startY - ev.clientY))))
+                  const up = () => {
+                    el.removeEventListener('pointermove', move)
+                    el.removeEventListener('pointerup', up)
+                    setBottomH((h) => {
+                      writePref('leonx-cad-bottom-h', String(Math.round(h)))
+                      return h
+                    })
+                  }
+                  el.addEventListener('pointermove', move)
+                  el.addEventListener('pointerup', up)
+                }}
+                onDoubleClick={() => {
+                  const max = (centerRef.current?.clientHeight ?? 800) - 120
+                  setBottomH((h) => (h > max * 0.6 ? 300 : max))
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowUp') setBottomH((h) => h + 40)
+                  if (e.key === 'ArrowDown') setBottomH((h) => Math.max(140, h - 40))
+                }}
+              >
+                <span className="mx-auto mt-1 block h-1 w-12 rounded-full bg-line-strong" aria-hidden="true" />
+              </div>
               <PanelTabs tabs={bottomTabs} value={bottomTab} onChange={setBottomTab} label="Alt panel sekmeleri" />
               <div className="min-h-0 flex-1 overflow-auto">
                 {bottomTab === 'uyarilar' ? (
@@ -568,6 +614,7 @@ export function CadWorkspace({
                 unit={unit}
                 onRemove={(id) => canvasRef.current?.removeMeasurement(id)}
                 onClear={() => canvasRef.current?.clearMeasurements()}
+                action={ext.measurementAction}
               />
             )}
           </aside>

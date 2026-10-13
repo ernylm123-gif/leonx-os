@@ -58,9 +58,11 @@ export type MeasureBasis = 'dograma' | 'bosluk'
 export type GlassMode = 'yok' | 'dusum' | 'manuel'
 
 export interface DrawingRef {
+  /** Tespit grubunun anahtarı (aynı adayın iki kez eklenmesini önler) */
+  key?: string | null
   analysis_id?: string | null
   file_name?: string | null
-  source: 'blok' | 'kapali_cizgi' | 'cizgi_dortgen' | 'cokgen' | 'elle'
+  source: 'blok' | 'kapali_cizgi' | 'cizgi_dortgen' | 'cokgen' | 'elle' | 'olcum'
   handles?: string[]
   layer?: string | null
   block?: string | null

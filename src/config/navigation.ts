@@ -73,10 +73,10 @@ export const NAV_ITEMS: NavItem[] = [
     path: '/metraj',
     code: 'M03',
     label: 'Metraj',
-    description: 'Otomatik metraj ve malzeme listeleri',
+    description: 'Poz bazlı metraj, doğrulama, revizyon ve Excel/PDF',
     icon: Ruler,
     group: 'muhendislik',
-    status: 'planned',
+    status: 'ready',
   },
   {
     path: '/teklifler',

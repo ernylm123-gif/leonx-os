@@ -422,6 +422,7 @@ export function MeasurementsPanel({
   unit,
   onRemove,
   onClear,
+  action,
 }: {
   list: Measurement[]
   active: Measurement | null
@@ -429,6 +430,7 @@ export function MeasurementsPanel({
   unit: DisplayUnitId
   onRemove: (id: number) => void
   onClear: () => void
+  action?: { label: string; run: (m: Measurement) => void }
 }) {
   const value = (m: Measurement) => {
     if (m.kind === 'area') {
@@ -464,6 +466,11 @@ export function MeasurementsPanel({
                 {value(m)}
               </div>
             </div>
+            {action && (
+              <button type="button" onClick={() => action.run(m)} className="h-8 shrink-0 rounded-md px-2 text-[11.5px] font-semibold text-ink hover:bg-surface" data-testid="measurement-action">
+                {action.label}
+              </button>
+            )}
             <button type="button" onClick={() => onRemove(m.id)} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted hover:bg-surface hover:text-danger" aria-label="Ölçümü sil">
               <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
