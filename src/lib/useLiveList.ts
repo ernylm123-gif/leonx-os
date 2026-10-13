@@ -50,3 +50,53 @@ export function useLiveList<T>(table: DetailTable, parentKey: string, parentId: 
 
   return { items, setItems, loading, error, reload, lastSyncedAt }
 }
+
+/**
+ * Bir veya birkaç tablonun tamamına bağlı sorgu (ör. tüm teklifler ve kalemleri). Bu tablolarda
+ * başka cihazdan gelen her değişiklikte (kısa bir gecikmeyle toplanarak) yeniden yüklenir.
+ */
+export function useLiveQuery<T>(tables: DetailTable[], fetcher: () => Promise<T>, initial: T) {
+  const { subscribeDetail, syncState } = useData()
+  const [data, setData] = useState<T>(initial)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const fetchRef = useRef(fetcher)
+  fetchRef.current = fetcher
+  const key = tables.join(',')
+
+  const reload = useCallback(async () => {
+    try {
+      setData(await fetchRef.current())
+      setError(null)
+    } catch (e) {
+      setError(dataErrorMessage(e, 'Liste yükleme'))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void reload()
+  }, [reload])
+
+  const prevState = useRef(syncState)
+  useEffect(() => {
+    if (syncState === 'live' && prevState.current !== 'live') void reload()
+    prevState.current = syncState
+  }, [syncState, reload])
+
+  useEffect(() => {
+    let timer: number | undefined
+    const schedule = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => void reload(), 120)
+    }
+    const offs = key.split(',').map((t) => subscribeDetail(t as DetailTable, schedule))
+    return () => {
+      window.clearTimeout(timer)
+      offs.forEach((off) => off())
+    }
+  }, [key, subscribeDetail, reload])
+
+  return { data, setData, loading, error, reload }
+}

@@ -4,6 +4,7 @@ import { useToast } from '@/context/toast'
 import type { Company, Project, QuantityTakeoff } from '@/data/types'
 import type { QuantityItem } from '@/quantity/types'
 import { buildReport, type ReportMeta, reportFileName } from '@/export/report'
+import { downloadBytes as download, loadPdfAssets } from '@/lib/download'
 
 export function reportMeta(takeoff: QuantityTakeoff, project: Project | null, company: Company | null): ReportMeta {
   return {
@@ -22,25 +23,6 @@ export function reportMeta(takeoff: QuantityTakeoff, project: Project | null, co
   }
 }
 
-function download(bytes: Uint8Array, name: string, type: string) {
-  const blob = new Blob([bytes as BlobPart], { type })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  a.rel = 'noopener'
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  window.setTimeout(() => URL.revokeObjectURL(url), 30_000)
-}
-
-async function fetchBytes(url: string): Promise<Uint8Array> {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`${url} yüklenemedi`)
-  return new Uint8Array(await res.arrayBuffer())
-}
-
 /** Excel ve PDF dışa aktarma: ekrandakiyle aynı rapor modelinden üretilir */
 export function ExportButtons({ takeoff, items, project, company }: { takeoff: QuantityTakeoff; items: QuantityItem[]; project: Project | null; company: Company | null }) {
   const { notify } = useToast()
@@ -53,13 +35,8 @@ export function ExportButtons({ takeoff, items, project, company }: { takeoff: Q
         const { reportToXlsx } = await import('@/export/quantityXlsx')
         download(reportToXlsx(report), reportFileName(report.meta, 'xlsx'), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
       } else {
-        const [{ reportToPdf }, reg, semi] = await Promise.all([
-          import('@/export/quantityPdf'),
-          import('@/assets/fonts/Inter-Regular.ttf?url'),
-          import('@/assets/fonts/Inter-SemiBold.ttf?url'),
-        ])
-        const [regular, semibold, logo] = await Promise.all([fetchBytes(reg.default), fetchBytes(semi.default), fetchBytes('/branding/leonx-logo.png').catch(() => null)])
-        download(await reportToPdf(report, { regular, semibold, logo }), reportFileName(report.meta, 'pdf'), 'application/pdf')
+        const [{ reportToPdf }, assets] = await Promise.all([import('@/export/quantityPdf'), loadPdfAssets()])
+        download(await reportToPdf(report, assets), reportFileName(report.meta, 'pdf'), 'application/pdf')
       }
       if (report.totals.pending.items > 0) notify(`Raporda ${report.totals.pending.items} doğrulama bekleyen kalem ayrıca işaretlendi.`, 'info')
     } catch (e) {

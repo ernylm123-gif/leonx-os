@@ -16,6 +16,7 @@ import { ProjectFiles } from '@/features/projects/ProjectFiles'
 import { ProjectForm } from '@/features/projects/ProjectForm'
 import { ProjectNotes } from '@/features/projects/ProjectNotes'
 import { ProjectQuantity } from '@/features/projects/ProjectQuantity'
+import { RelatedQuotes } from '@/features/quotes/RelatedQuotes'
 import { CATEGORY_LABEL, isActiveStatus, isStatus, PROJECT_STATUSES, STATUS_LABEL } from '@/lib/domain'
 import { dataErrorMessage } from '@/lib/errors'
 import { daysUntil, formatDate, formatDateTime, localISODate } from '@/lib/stats'
@@ -188,6 +189,7 @@ export function ProjectDetailPage() {
               Oluşturuldu {formatDateTime(project.created_at)} · Güncellendi {formatDateTime(project.updated_at)} · Sürüm {project.version}
             </p>
           </Panel>
+          <RelatedQuotes by="project_id" id={project.id} companyId={project.company_id} />
           <ProjectQuantity projectId={project.id} />
           <ProjectFiles projectId={project.id} />
           <ProjectNotes projectId={project.id} />

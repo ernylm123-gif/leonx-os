@@ -75,7 +75,7 @@ export async function insertManyOnce<T>(db: SupabaseClient, table: string, rows:
  * İyimser eşzamanlılık: güncelleme yalnızca beklenen sürüm hâlâ geçerliyse uygulanır.
  * Satır dönmezse kaydın başka cihazda değiştiği veya silindiği anlaşılır.
  */
-async function versionedUpdate<T extends { id: string; version: number }>(
+export async function versionedUpdate<T extends { id: string; version: number }>(
   db: SupabaseClient,
   table: string,
   id: string,

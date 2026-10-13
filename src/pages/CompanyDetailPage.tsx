@@ -14,6 +14,7 @@ import type { Contact } from '@/data/types'
 import { CompanyForm } from '@/features/companies/CompanyForm'
 import { ContactForm } from '@/features/companies/ContactForm'
 import { ProjectForm } from '@/features/projects/ProjectForm'
+import { RelatedQuotes } from '@/features/quotes/RelatedQuotes'
 import { CATEGORY_LABEL } from '@/lib/domain'
 import { dataErrorMessage } from '@/lib/errors'
 import { formatDate, formatDateTime } from '@/lib/stats'
@@ -174,6 +175,7 @@ export function CompanyDetailPage() {
               </ul>
             )}
           </Panel>
+          <RelatedQuotes by="company_id" id={company.id} />
         </div>
 
         <Panel

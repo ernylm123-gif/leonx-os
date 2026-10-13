@@ -51,10 +51,12 @@ interface ProjectFormProps {
   project?: Project
   /** Yeni projede ön seçili firma */
   defaultCompanyId?: string
+  /** Yeni projede ön doldurulan ad (ör. tekliften proje oluşturma) */
+  defaultName?: string
   onSaved?: (p: Project) => void
 }
 
-export function ProjectForm({ open, onClose, project, defaultCompanyId, onSaved }: ProjectFormProps) {
+export function ProjectForm({ open, onClose, project, defaultCompanyId, defaultName, onSaved }: ProjectFormProps) {
   const { companies, projects, upsertProject } = useData()
   const { notify } = useToast()
   const [form, setForm] = useState<FormState>(EMPTY)
@@ -75,7 +77,7 @@ export function ProjectForm({ open, onClose, project, defaultCompanyId, onSaved 
       setForm(toForm(project))
       setBaseVersion(project.version)
     } else {
-      setForm({ ...EMPTY, company_id: defaultCompanyId ?? '' })
+      setForm({ ...EMPTY, company_id: defaultCompanyId ?? '', name: defaultName ?? '' })
       setBaseVersion(null)
       let cancelled = false
       suggestProjectCode(requireSupabase()).then((code) => {

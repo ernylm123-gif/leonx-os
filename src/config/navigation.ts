@@ -82,10 +82,10 @@ export const NAV_ITEMS: NavItem[] = [
     path: '/teklifler',
     code: 'M04',
     label: 'Teklifler',
-    description: 'Fiyatlandırma ve teklif hazırlama',
+    description: 'Teklif, maliyet ve fiyatlandırma',
     icon: FileText,
     group: 'ticari',
-    status: 'planned',
+    status: 'ready',
     mobilePrimary: true,
   },
   {

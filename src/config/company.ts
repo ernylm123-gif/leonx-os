@@ -9,7 +9,7 @@ export const COMPANY = {
 export const APP = {
   name: 'LEONX OS',
   version: __LEONX_BUILD__.version,
-  stage: 'Faz 5 · CAD analizi ve metraj',
+  stage: 'Faz 6 · Teklif, maliyet ve poz yönetimi',
   /** Tek kanonik üretim adresi — tüm cihazlar bu adresi kullanmalıdır */
   canonicalOrigin: 'https://leonx-os.vercel.app',
 } as const
@@ -30,7 +30,7 @@ export const MILESTONE = {
 export const INTEGRATIONS = [
   { key: 'cad', label: 'CAD analiz motoru (DXF, PDF; DWG dönüştürme ile)', connected: true, milestone: MILESTONE.cad },
   { key: 'quantity', label: 'Poz bazlı metraj ve Excel/PDF', connected: true, milestone: MILESTONE.pricing },
-  { key: 'pricing', label: 'Fiyatlandırma', connected: false, milestone: MILESTONE.pricing },
+  { key: 'pricing', label: 'Teklif, maliyet ve fiyatlandırma (PDF/Excel)', connected: true, milestone: MILESTONE.quotes },
   { key: 'ai', label: 'LEONX AI', connected: false, milestone: MILESTONE.ai },
 ] as const
 
@@ -40,7 +40,6 @@ export const ROADMAP = [
   { phase: 'Faz 3', title: 'Kurumsal arayüz ve tema sistemi', done: true },
   { phase: 'Faz 4', title: 'Giriş, veritabanı, firmalar, projeler, dosyalar, senkronizasyon', done: true },
   { phase: 'Faz 5', title: 'DXF/PDF analiz, CAD görüntüleyici, poz tespiti ve metraj', done: true },
-  { phase: 'Sıradaki', title: 'Fiyatlandırma', done: false },
-  { phase: 'Planlandı', title: 'Teklif hazırlama ve PDF çıktıları', done: false },
-  { phase: 'Planlandı', title: 'LEONX AI entegrasyonu', done: false },
+  { phase: 'Faz 6', title: 'Teklif, maliyet, fiyatlandırma, revizyon ve kurumsal PDF/Excel', done: true },
+  { phase: 'Sıradaki', title: 'LEONX AI entegrasyonu', done: false },
 ] as const

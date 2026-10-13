@@ -66,6 +66,7 @@ sorgu olarak yapıştırın ve **Run** deyin. Her biri "Success. No rows returne
 | 3 | `supabase/migrations/20261012000300_leonx_realtime.sql` | Realtime yayınına tabloların eklenmesi |
 | 4 | `supabase/migrations/20261012000400_leonx_storage.sql` | Özel `project-files` dosya deposu ve politikaları |
 | 5 | `supabase/migrations/20261012000500_leonx_quantity.sql` | CAD analizleri, metraj sürümleri, pozlar, düzeltme geçmişi (RLS + Realtime) |
+| 6 | `supabase/migrations/20261013000600_leonx_quotes.sql` | Teklifler, kalemler, revizyon geçmişi, teklif ayarları, numara sayacı (RLS + Realtime) |
 
 - Dosyalar **tekrar çalıştırılabilir** ve hiçbir nesneyi silmez (`DROP` içermez): tetikleyiciler
   `create or replace trigger`, politikalar "yoksa oluştur, varsa `ALTER POLICY`" ile tanımlanır.
@@ -73,7 +74,7 @@ sorgu olarak yapıştırın ve **Run** deyin. Her biri "Success. No rows returne
 - iPad'de GitHub'dan dosya içeriğini kopyalamak için dosyayı açıp **Raw** görünümüne geçin, tümünü seçip kopyalayın.
 
 Kontrol: **Table Editor**'de `app_owner, companies, contacts, projects, project_status_history, project_notes,
-project_files, activity_log, cad_analyses, quantity_takeoffs, quantity_items, quantity_item_history` tabloları görünmeli ve hepsinde **RLS enabled** yazmalıdır.
+project_files, activity_log, cad_analyses, quantity_takeoffs, quantity_items, quantity_item_history, quotes, quote_items, quote_history, quote_settings, quote_counters` tabloları görünmeli ve hepsinde **RLS enabled** yazmalıdır.
 **Storage**'da `project-files` bucket'ı **Private** olarak görünmelidir.
 
 ## 5. Yetkili kullanıcıyı (sahip) tanımlayın
