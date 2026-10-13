@@ -8,8 +8,10 @@ export const COMPANY = {
 
 export const APP = {
   name: 'LEONX OS',
-  version: '0.4.0',
-  stage: 'Faz 4 · Güvenli veri ve senkronizasyon',
+  version: __LEONX_BUILD__.version,
+  stage: 'Faz 5 · CAD analizi ve metraj',
+  /** Tek kanonik üretim adresi — tüm cihazlar bu adresi kullanmalıdır */
+  canonicalOrigin: 'https://leonx-os.vercel.app',
 } as const
 
 /**
@@ -26,8 +28,9 @@ export const MILESTONE = {
 
 /** Henüz entegre edilmemiş servisler. Veritabanı durumu çalışma anında gösterilir. */
 export const INTEGRATIONS = [
-  { key: 'cad', label: 'CAD analiz motoru (DWG/DXF)', connected: false, milestone: MILESTONE.cad },
-  { key: 'pricing', label: 'Metraj ve fiyatlandırma', connected: false, milestone: MILESTONE.pricing },
+  { key: 'cad', label: 'CAD analiz motoru (DXF, PDF; DWG dönüştürme ile)', connected: true, milestone: MILESTONE.cad },
+  { key: 'quantity', label: 'Poz bazlı metraj ve Excel/PDF', connected: true, milestone: MILESTONE.pricing },
+  { key: 'pricing', label: 'Fiyatlandırma', connected: false, milestone: MILESTONE.pricing },
   { key: 'ai', label: 'LEONX AI', connected: false, milestone: MILESTONE.ai },
 ] as const
 
@@ -36,8 +39,8 @@ export const ROADMAP = [
   { phase: 'Faz 2A', title: 'Güvenli web dağıtım hazırlığı', done: true },
   { phase: 'Faz 3', title: 'Kurumsal arayüz ve tema sistemi', done: true },
   { phase: 'Faz 4', title: 'Giriş, veritabanı, firmalar, projeler, dosyalar, senkronizasyon', done: true },
-  { phase: 'Sıradaki', title: 'DWG / DXF analiz motoru', done: false },
-  { phase: 'Planlandı', title: 'Otomatik metraj ve fiyatlandırma', done: false },
+  { phase: 'Faz 5', title: 'DXF/PDF analiz, CAD görüntüleyici, poz tespiti ve metraj', done: true },
+  { phase: 'Sıradaki', title: 'Fiyatlandırma', done: false },
   { phase: 'Planlandı', title: 'Teklif hazırlama ve PDF çıktıları', done: false },
   { phase: 'Planlandı', title: 'LEONX AI entegrasyonu', done: false },
 ] as const

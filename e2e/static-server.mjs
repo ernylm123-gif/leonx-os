@@ -15,6 +15,7 @@ const TYPES = {
   '.woff2': 'font/woff2',
   '.webmanifest': 'application/manifest+json',
   '.txt': 'text/plain',
+  '.json': 'application/json',
 }
 
 export function startStaticServer(dir, port, vercelJsonPath) {

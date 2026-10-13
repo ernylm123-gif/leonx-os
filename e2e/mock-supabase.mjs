@@ -239,9 +239,14 @@ export class MockSupabase {
 
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' } })
 
-    if (this.failNext && p.includes(this.failNext.match)) {
+    if (this.failNext && p.includes(this.failNext.match) && (!this.failNext.method || this.failNext.method === req.method())) {
       const f = this.failNext
       this.failNext = null
+      // Sunucu isteği işler ama yanıt istemciye ulaşmaz (mobil bağlantı kopması)
+      if (f.loseResponse) {
+        await this.handle({ request: () => req, fulfill: async () => {}, abort: async () => {} })
+        return route.abort('failed')
+      }
       if (f.abort) return route.abort('failed')
       return json(f.status, f.body)
     }

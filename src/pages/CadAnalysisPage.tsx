@@ -15,6 +15,7 @@ import { QuantityItemForm } from '@/features/quantity/QuantityItemForm'
 import { QuantityTable } from '@/features/quantity/QuantityTable'
 import { type ItemsStore, useLocalItems, useRemoteItems } from '@/features/quantity/useItemsStore'
 import { cn } from '@/lib/cn'
+import { useUnsavedChanges } from '@/lib/unsaved'
 import { requireSupabase } from '@/lib/supabase'
 import { type DetectionResult, detectPoz, type PozCandidate } from '@/quantity/detect'
 import { areaMeasurementToInput, candidateToInput, distanceMeasurementToInput } from '@/quantity/fromDetection'
@@ -43,6 +44,7 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
   const [bindOpen, setBindOpen] = useState(false)
   const [measureForm, setMeasureForm] = useState<QuantityItemInput | null>(null)
   const ctxRef = useRef<WorkspaceContext | null>(null)
+  useUnsavedChanges(store.kind === 'local' && local.items.length > 0, 'Projeye kaydedilmemiş metraj')
   const docRef = useRef<unknown>(null)
 
   const initialFile = useMemo(() => {

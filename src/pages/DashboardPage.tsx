@@ -147,7 +147,7 @@ export function DashboardPage() {
               {INTEGRATIONS.map((s) => (
                 <li key={s.key} className="flex items-center justify-between gap-3 py-3 text-sm last:pb-0">
                   <span className="min-w-0 truncate text-ink-2">{s.label}</span>
-                  <StatusPill tone="offline">Bağlı değil</StatusPill>
+                  {s.connected ? <StatusPill tone="ready">Hazır</StatusPill> : <StatusPill tone="offline">Bağlı değil</StatusPill>}
                 </li>
               ))}
             </ul>

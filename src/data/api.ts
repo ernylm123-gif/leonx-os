@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { contentTypeFor, STORAGE_BUCKET, storagePathFor } from '@/lib/files'
 import type { ProjectStatus } from '@/lib/domain'
+import { withNetworkRetry } from '@/lib/retry'
 import type {
   Company,
   CompanyInput,
@@ -35,6 +36,41 @@ function unwrap<T>(res: { data: T | null; error: unknown }): T {
 }
 
 /**
+ * Tekrarlanabilir (idempotent) ekleme. Kimlik istemcide üretilir; bağlantı koptuğunda istek
+ * yeniden gönderilir. İlk deneme sunucuda başarılı olup yanıt kaybolduysa ikinci deneme
+ * benzersizlik hatası (23505) alır: bu durumda aynı kimlikli kayıt okunur ve çift kayıt oluşmaz.
+ */
+export async function insertOnce<T>(db: SupabaseClient, table: string, row: object): Promise<T> {
+  const id = ((row as { id?: string }).id ?? crypto.randomUUID()) as string
+  return withNetworkRetry(async () => {
+    const res = await db.from(table).insert({ ...row, id }).select('*').single()
+    if (!res.error) return res.data as T
+    if ((res.error as { code?: string }).code === '23505') {
+      const got = await db.from(table).select('*').eq('id', id).maybeSingle()
+      if (got.error) throw got.error
+      if (got.data) return got.data as T
+    }
+    throw res.error
+  })
+}
+
+/** Toplu tekrarlanabilir ekleme (tek istek, tek işlem). Önceki deneme yazıldıysa kayıtlar okunur. */
+export async function insertManyOnce<T>(db: SupabaseClient, table: string, rows: object[]): Promise<T[]> {
+  const withIds = rows.map((r) => ({ ...r, id: (r as { id?: string }).id ?? crypto.randomUUID() }))
+  const ids = withIds.map((r) => r.id)
+  return withNetworkRetry(async () => {
+    const res = await db.from(table).insert(withIds).select('*')
+    if (!res.error) return res.data as T[]
+    if ((res.error as { code?: string }).code === '23505') {
+      const got = await db.from(table).select('*').in('id', ids)
+      if (got.error) throw got.error
+      if (got.data && got.data.length === ids.length) return got.data as T[]
+    }
+    throw res.error
+  })
+}
+
+/**
  * İyimser eşzamanlılık: güncelleme yalnızca beklenen sürüm hâlâ geçerliyse uygulanır.
  * Satır dönmezse kaydın başka cihazda değiştiği veya silindiği anlaşılır.
  */
@@ -66,7 +102,7 @@ export async function listCompanies(db: SupabaseClient): Promise<Company[]> {
 }
 
 export async function createCompany(db: SupabaseClient, input: CompanyInput): Promise<Company> {
-  return unwrap(await db.from('companies').insert(input).select('*').single())
+  return insertOnce(db, 'companies', input)
 }
 
 export function updateCompany(db: SupabaseClient, id: string, version: number, input: CompanyInput): Promise<Company> {
@@ -90,7 +126,7 @@ export async function listContacts(db: SupabaseClient, companyId: string): Promi
 }
 
 export async function createContact(db: SupabaseClient, input: ContactInput): Promise<Contact> {
-  return unwrap(await db.from('contacts').insert(input).select('*').single())
+  return insertOnce(db, 'contacts', input)
 }
 
 export function updateContact(db: SupabaseClient, id: string, version: number, input: ContactInput): Promise<Contact> {
@@ -112,7 +148,7 @@ export async function suggestProjectCode(db: SupabaseClient): Promise<string | n
 }
 
 export async function createProject(db: SupabaseClient, input: ProjectInput): Promise<Project> {
-  return unwrap(await db.from('projects').insert(input).select('*').single())
+  return insertOnce(db, 'projects', input)
 }
 
 export function updateProject(db: SupabaseClient, id: string, version: number, input: ProjectInput): Promise<Project> {
@@ -145,7 +181,7 @@ export async function listNotes(db: SupabaseClient, projectId: string): Promise<
 }
 
 export async function createNote(db: SupabaseClient, projectId: string, body: string): Promise<ProjectNote> {
-  return unwrap(await db.from('project_notes').insert({ project_id: projectId, body }).select('*').single())
+  return insertOnce(db, 'project_notes', { project_id: projectId, body })
 }
 
 export async function deleteNote(db: SupabaseClient, id: string): Promise<void> {
@@ -163,16 +199,12 @@ export async function uploadProjectFile(db: SupabaseClient, projectId: string, f
   const contentType = contentTypeFor(file.name)
   const up = await db.storage.from(STORAGE_BUCKET).upload(path, file, { contentType, upsert: false, cacheControl: '3600' })
   if (up.error) throw up.error
-  const res = await db
-    .from('project_files')
-    .insert({ project_id: projectId, storage_path: path, file_name: file.name, mime_type: contentType, size_bytes: file.size })
-    .select('*')
-    .single()
-  if (res.error) {
+  try {
+    return await insertOnce<ProjectFile>(db, 'project_files', { project_id: projectId, storage_path: path, file_name: file.name, mime_type: contentType, size_bytes: file.size })
+  } catch (e) {
     await db.storage.from(STORAGE_BUCKET).remove([path])
-    throw res.error
+    throw e
   }
-  return res.data as ProjectFile
 }
 
 /** Özel dosyayı yetkili oturumla indirir (herkese açık bağlantı oluşturulmaz). */

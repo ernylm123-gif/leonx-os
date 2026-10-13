@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { useFormDirty } from '@/lib/unsaved'
 import { Button } from '@/components/ui/Button'
 import { FormAlert, TextAreaField, TextField } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
@@ -40,6 +41,7 @@ export function CompanyForm({ open, onClose, company, onSaved }: CompanyFormProp
   const [formError, setFormError] = useState<string | null>(null)
   const [conflict, setConflict] = useState<'changed' | 'deleted' | null>(null)
   const [busy, setBusy] = useState(false)
+  const { markDirty } = useFormDirty(open, 'Firma formu')
 
   useEffect(() => {
     if (!open) return
@@ -127,7 +129,7 @@ export function CompanyForm({ open, onClose, company, onSaved }: CompanyFormProp
         </FormAlert>
       )}
       {formError && <FormAlert>{formError}</FormAlert>}
-      <form id="company-form" onSubmit={(e) => void submit(e)} noValidate className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <form onChangeCapture={markDirty} id="company-form" onSubmit={(e) => void submit(e)} noValidate className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <TextField
           label="Firma adı"
           required
