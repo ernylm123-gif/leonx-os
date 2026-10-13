@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { QuantityItem, QuantityItemInput } from '@/quantity/types'
-import { ConflictError, LIST_LIMIT } from './api'
+import { ConflictError, insertManyOnce, insertOnce, LIST_LIMIT } from './api'
+import { withNetworkRetry } from '@/lib/retry'
 import type { CadAnalysis, CadAnalysisInput, QuantityItemHistory, QuantityTakeoff } from './types'
 
 /**
@@ -28,7 +29,7 @@ export async function listAnalyses(db: SupabaseClient, projectId: string): Promi
 }
 
 export async function createAnalysis(db: SupabaseClient, input: CadAnalysisInput): Promise<CadAnalysis> {
-  return unwrap(await db.from('cad_analyses').insert(input).select('*').single())
+  return insertOnce(db, 'cad_analyses', input)
 }
 
 export async function deleteAnalysis(db: SupabaseClient, id: string): Promise<void> {
@@ -46,16 +47,15 @@ export async function getTakeoff(db: SupabaseClient, id: string): Promise<Quanti
 
 /** Yeni boş sürüm. Revizyon numarası çakışırsa (başka cihaz aynı anda oluşturduysa) bir kez yeniden denenir. */
 export async function createTakeoff(db: SupabaseClient, projectId: string, name: string, analysisId: string | null = null): Promise<QuantityTakeoff> {
+  // Aynı kimlik tüm denemelerde kullanılır: önceki deneme yazıldıysa ikinci kayıt oluşmaz
+  const id = crypto.randomUUID()
   for (let attempt = 0; attempt < 2; attempt++) {
-    const next = await db.rpc('next_takeoff_revision', { p_project: projectId })
-    if (next.error) throw next.error
-    const res = await db
-      .from('quantity_takeoffs')
-      .insert({ project_id: projectId, name, revision: next.data as number, analysis_id: analysisId })
-      .select('*')
-      .single()
-    if (!res.error) return res.data as QuantityTakeoff
-    if ((res.error as { code?: string }).code !== '23505' || attempt === 1) throw res.error
+    const next = await withNetworkRetry(async () => unwrap(await db.rpc('next_takeoff_revision', { p_project: projectId })))
+    try {
+      return await insertOnce<QuantityTakeoff>(db, 'quantity_takeoffs', { id, project_id: projectId, name, revision: next as number, analysis_id: analysisId })
+    } catch (e) {
+      if ((e as { code?: string }).code !== '23505' || attempt === 1) throw e
+    }
   }
   throw new Error('Metraj sürümü oluşturulamadı')
 }
@@ -98,7 +98,7 @@ function toRow(input: QuantityItemInput) {
 export async function createItems(db: SupabaseClient, takeoffId: string, projectId: string, inputs: QuantityItemInput[]): Promise<QuantityItem[]> {
   if (inputs.length === 0) return []
   const rows = inputs.map((i) => ({ ...toRow(i), takeoff_id: takeoffId, project_id: projectId }))
-  return unwrap(await db.from('quantity_items').insert(rows).select('*'))
+  return insertManyOnce(db, 'quantity_items', rows)
 }
 
 export function updateItem(db: SupabaseClient, item: QuantityItem, patch: Partial<QuantityItemInput>): Promise<QuantityItem> {

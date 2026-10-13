@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from 'react'
+import { useUnsavedChanges } from '@/lib/unsaved'
 import { MessageSquareText, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -22,6 +23,7 @@ export function ProjectNotes({ projectId }: { projectId: string }) {
   const [body, setBody] = useState('')
   const [fieldError, setFieldError] = useState<string | undefined>()
   const [busy, setBusy] = useState(false)
+  useUnsavedChanges(body.trim().length > 0, 'Proje notu')
   const [toDelete, setToDelete] = useState<ProjectNote | null>(null)
   const [deleting, setDeleting] = useState(false)
 

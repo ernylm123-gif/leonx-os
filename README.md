@@ -4,29 +4,32 @@ LEONX Metal'in **iç kullanımına özel** proje, CAD analiz, metraj ve teklif y
 
 > Firma: **LEONX METAL** · [leonxmetal.com](https://www.leonxmetal.com)
 
-## Durum — Faz 4: güvenli tek kullanıcı + Supabase + anlık senkronizasyon
+## Durum — Faz 5: CAD analizi ve metraj + tüm cihazlarda tek sürüm
 
-LEONX OS artık gerçek veriyle çalışan, **tek kişiye ait** bir proje ve firma yönetim sistemidir:
+LEONX OS gerçek veriyle çalışan, **tek kişiye ait** bir proje, CAD analizi ve metraj sistemidir:
 
 - Supabase Auth ile e-posta/şifre girişi (herkese açık kayıt yok, tek hesap, çoklu cihaz oturumu)
 - Veritabanında tek yetkili kullanıcı UUID'si üzerinden **Row Level Security** (varsayılan erişim kapalı)
-- Firmalar ve ilgili kişiler; projeler, durum geçmişi, notlar ve özel depoda dosyalar
-- Cihazlar arası **anlık senkronizasyon** (Supabase Realtime), kopmada otomatik yeniden bağlanma
-- Aynı kaydın iki cihazda düzenlenmesine karşı **sürüm tabanlı çakışma kontrolü**
-- Gerçek kayıtlardan Dashboard ve Raporlar (finansal değer üretilmez)
+- Firmalar, ilgili kişiler, projeler, durum geçmişi, notlar ve özel depoda dosyalar
+- **CAD analizi:** DXF okuma (katman, blok, birim, ölçü), PDF vektör/raster ayrımı ve iki noktalı kalibrasyon,
+  görüntüleyici (yakınlaştırma, ölçüm, katman, arama). DWG doğrudan okunmaz; DXF'e dönüştürme rehberi gösterilir
+- **Metraj:** poz bazlı alan/çevre/adet hesapları, otomatik poz önerisi (her zaman kullanıcı onayıyla),
+  sürümler, onay kilidi, düzeltme geçmişi, Excel ve PDF çıktıları (ekran toplamı = dosya toplamı)
+- Cihazlar arası **anlık senkronizasyon** (Supabase Realtime), kopmada otomatik yeniden bağlanma,
+  sürüm tabanlı çakışma kontrolü, bağlantı kopmasında **çift kayıt oluşturmayan** otomatik yeniden deneme
+- **Tek sürüm:** her derlemenin kimliği vardır; açık uygulamalar yeni dağıtımı algılayıp
+  "Yeni sürüm hazır — Güncelle" bildirimi gösterir (bkz. [Sürüm ve güncelleme](#sürüm-ve-güncelleme))
 
-CAD analiz motoru, metraj/fiyatlandırma, teklif ve yapay zekâ **henüz geliştirilmedi**; bu modüller
-arayüzde açıkça "Geliştirme aşamasında" olarak gösterilir.
+Teklif/fiyatlandırma ve LEONX AI **henüz geliştirilmedi**; arayüzde "Geliştirme aşamasında" olarak gösterilir.
 
 | Faz | Kapsam | Durum |
 | --- | --- | --- |
 | 1 | Arayüz ve yazılım altyapısı | ✅ |
 | 2A | Güvenli web dağıtım hazırlığı (Vercel, mobil uyumluluk) | ✅ |
 | 3 | Kurumsal arayüz, orijinal logo, açık/koyu/sistem teması | ✅ |
-| 4 | Giriş, Supabase veritabanı, RLS, firmalar, projeler, dosyalar, Realtime | ✅ (kod) — Supabase kurulumu sizin tarafınızda |
-| Sıradaki | DWG / DXF analiz motoru | Planlandı |
-| — | Otomatik metraj ve fiyatlandırma | Planlandı |
-| — | Teklif hazırlama ve PDF çıktıları | Planlandı |
+| 4 | Giriş, Supabase veritabanı, RLS, firmalar, projeler, dosyalar, Realtime | ✅ |
+| 5 | CAD analizi (DXF/PDF), metraj, Excel/PDF çıktıları, sürüm/güncelleme sistemi | ✅ (kod) |
+| — | Teklif hazırlama ve fiyatlandırma | Planlandı |
 | — | LEONX AI entegrasyonu | Planlandı |
 
 > **Kurulum:** Uygulamanın çalışması için Supabase projesi, migration'lar ve ortam değişkenleri gereklidir.
@@ -103,7 +106,9 @@ kurulmadı ve doğrulanmadı. Gerçek müşteri verisi girmeden önce:
 ### Bilinen sınırlar
 
 - İki aşamalı doğrulama (MFA) henüz yok. Güçlü ve benzersiz bir şifre kullanın.
-- Çevrimdışı düzenleme **desteklenmez**. Bağlantı yokken kayıt yapılamaz; bağlantı gelince veriler yenilenir.
+- Çevrimdışı düzenleme **desteklenmez**: iş verisi yalnızca Supabase'de tutulur. Bağlantı yokken açık formdaki
+  bilgiler korunur, kayıt birkaç saniye içinde bağlantı gelirse otomatik gönderilir; gelmezse "Bağlantı yok" iletisi
+  gösterilir ve form açık kalır. Bağlantı gelince tüm veriler otomatik yenilenir.
 - Listeler 1000 kayıtla sınırlıdır (Supabase API varsayılanı); aşılırsa uyarı gösterilir.
 - Etkinlik günlüğü (`activity_log`) veritabanında tutulur ancak henüz arayüzde gösterilmez.
 - Dosya içerikleri virüs taramasından geçirilmez; yalnızca kendi yüklediğiniz dosyalar saklanır.
@@ -153,7 +158,7 @@ Dağıtım ayarları `vercel.json` dosyasındadır:
 | Node.js | 20.19+ veya 22.12+ (`package.json` → `engines`, `.nvmrc`) |
 | SPA yönlendirme | `/assets/` dışındaki ve dosya karşılığı olmayan tüm yollar `index.html`'e yönlendirilir; böylece `/projeler` gibi alt sayfalar doğrudan açıldığında veya yenilendiğinde 404 vermez |
 | Güvenlik başlıkları | Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, HSTS, X-Robots-Tag |
-| Önbellek | `/assets/` altındaki sürümlü dosyalar 1 yıl önbelleğe alınır |
+| Önbellek | `/assets/` altındaki içerik karmalı dosyalar 1 yıl önbelleğe alınır; HTML `no-cache`, `version.json` `no-store` |
 
 Gerekli ortam değişkenleri (Vercel → Settings → Environment Variables, **Production** ve **Preview**):
 
@@ -164,6 +169,41 @@ Gerekli ortam değişkenleri (Vercel → Settings → Environment Variables, **P
 
 Değişkenleri ekledikten veya değiştirdikten sonra **Redeploy** gerekir. Değişkenler yoksa uygulama çökmez,
 "Kurulum gerekli" ekranını gösterir. CSP, tarayıcının yalnızca `*.supabase.co` adresine bağlanmasına izin verir.
+
+## Sürüm ve güncelleme
+
+**Tek üretim adresi: <https://leonx-os.vercel.app>** (yalnızca `main` dalından yayınlanır). Önizleme
+(`leonx-os-git-...vercel.app`) ve sabit dağıtım adresleri (`leonx-xxxx.vercel.app`) günlük kullanım için değildir;
+bu adreslerde uygulamanın üstünde uyarı ve üretim adresine bağlantı gösterilir.
+
+- Her derleme `sürüm + commit + zaman` biçiminde bir **derleme kimliği** alır ve `/version.json` olarak yayımlanır.
+- **Ayarlar → Sürüm bilgisi** ekranı derleme kimliğini, commit'i, ortamı, sunucudaki (yayındaki) sürümü, güncelleme
+  durumunu, uygulama türünü (tarayıcı / ana ekran uygulaması) ve canlı senkronizasyon durumunu gösterir. Tüm cihazlarda bu kimlik aynı olmalıdır.
+  Kenar çubuğunda da `v<sürüm> · <commit>` görünür.
+- Açık uygulama sunucudaki kimliği açılıştan ~4 sn sonra, her 5 dakikada bir ve uygulama ön plana döndüğünde /
+  bağlantı geldiğinde denetler. Farklıysa **"LEONX OS — Yeni sürüm hazır"** bildirimi **Güncelle / Daha Sonra** seçenekleriyle
+  gösterilir; kaydedilmemiş form varsa önce uyarılır, dosya yüklemesi sürerken güncelleme ertelenir. Güncelleme yalnızca uygulamayı yeniler, veriler sunucudadır.
+- Service worker yoktur; HTML önbelleğe alınmaz. Güncelleme, önceki kurulumlardan kalmış service worker ve
+  önbellekleri temizler ve sayfayı sürüm parametreli adresle açar (iOS/Android ana ekran uygulaması dahil hiçbir
+  ara önbellek eski HTML'i veremez); parametre açılışta adresten silinir.
+  Aynı sürüm için en fazla 2 deneme yapılır (sonsuz yenileme olmaz); tarayıcı yine eski dosyayı verirse
+  uygulamayı tamamen kapatıp açma yönergesi gösterilir. Uygulamayı silip yeniden yüklemek gerekmez.
+- Dağıtım sonrası eski sekmede silinmiş sayfa parçası yüklenemezse beyaz ekran yerine hedef sayfada bir kez
+  güvenli yeniden yükleme yapılır.
+
+### Yayın hattı (GitHub → Vercel)
+
+1. Her PR'da GitHub Actions (`.github/workflows/ci.yml`): TypeScript, birim testleri, production build, yayın kapısı
+   (`scripts/check-bundle.mjs`: gizli anahtar taraması, sürüm dosyası), kritik bağımlılık açığı denetimi,
+   veritabanı/RLS testleri ve tarayıcı testleri.
+2. `main`'e birleştirme → Vercel production yayınını otomatik başlatır. Vercel build'i birim testlerini ve yayın
+   kapısını yeniden çalıştırır (`vercel.json → buildCommand`); başarısızsa yayın durur, production değişmez.
+3. Yayın tamamlanınca `/version.json` yeni derleme kimliğini verir; açık uygulamalar (ana ekran uygulamaları dahil)
+   en geç 5 dakika içinde veya ön plana gelince "Yeni sürüm hazır" bildirimini gösterir.
+
+Testleri geçen PR'ların kendiliğinden birleşmesi için GitHub'da bir kez: **Settings → General → Allow auto-merge**
+ve **Settings → Branches → main** kuralında "Require status checks" (Kalite ve güvenlik, Veritabanı ve RLS testleri,
+Tarayıcı testleri) açılmalı; ardından PR'da **Enable auto-merge** seçilir.
 
 ## iPad Safari üzerinden Vercel'de yayınlama
 
@@ -238,7 +278,7 @@ ve `https://leonx-os-….vercel.app` biçiminde bir adres görünür.
 | --- | --- |
 | Build hatası: Node.js sürümü | **Settings** → **Build and Deployment** → **Node.js Version** → `22.x` seçin ve **Redeploy** yapın |
 | Alt sayfa yenilenince 404 | `vercel.json` dosyasının deponun kök klasöründe olduğunu ve `main` dalına birleştirildiğini kontrol edin |
-| Eski sürüm görünüyor | Safari'de sayfayı yenileyin; ana ekran uygulamasında uygulamayı kapatıp yeniden açın |
+| Eski sürüm görünüyor | Adresin `leonx-os.vercel.app` olduğunu kontrol edin; **Ayarlar → Sürüm bilgisi → Güncellemeleri kontrol et**. Ana ekran uygulamasında uygulama değiştiriciden kapatıp yeniden açın |
 | Proje listede yok | 3. adımdaki **Adjust GitHub App Permissions** ile depoya erişim verin |
 
 Her `main` dalına birleştirme otomatik olarak yeni bir üretim dağıtımı başlatır.
@@ -267,7 +307,7 @@ npm run check      # TypeScript + birim testleri + production build
 | --- | --- | --- |
 | `npm run test` | Form doğrulamaları, dosya kuralları, anahtar güvenliği, istatistikler, Realtime yaşam döngüsü (sahte kanal) | Hayır |
 | `npm run test:db` | Migration'ları geçici bir PostgreSQL'e **iki kez** uygular (tekrar çalıştırılabilirlik) ve RLS/bütünlük testlerini çalıştırır. Supabase'in `auth`/`storage` şemaları `supabase/tests/local/supabase_stub.sql` ile taklit edilir | Hayır |
-| `npm run test:e2e` | Giriş, yetkisiz hesap, CRUD, dosya, başka cihazdan gelen değişiklik, çakışma, yeniden bağlanma, çıkış; 6 ekran × açık/koyu tema | Hayır — Supabase API'leri `e2e/mock-supabase.mjs` ile taklit edilir |
+| `npm run test:e2e` | Giriş, yetkisiz hesap, CRUD, dosya, çakışma, yeniden bağlanma, çıkış; üç cihaz (masaüstü/iPad/telefon) arası canlı senkronizasyon; çevrimdışı → çevrimiçi; kaybolan yanıtta çift kayıt olmaması; yeni sürüm algılama, yenileme döngüsü koruması, kaydedilmemiş form uyarısı, silinmiş parça kurtarma; DXF → metraj → onay → Excel/PDF; PDF'in CSP altında açılması; 6 ekran × açık/koyu tema | Hayır — Supabase API'leri `e2e/mock-supabase.mjs` ile taklit edilir |
 
 Gerçek Supabase projesinde doğrulama için `supabase/tests/rls_policies.test.sql` dosyasını SQL Editor'da çalıştırın.
 

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Building, ExternalLink, Info, LogOut, Monitor, Moon, Palette, PlugZap, RotateCcw, Settings, ShieldCheck, SlidersHorizontal, Sun } from 'lucide-react'
+import { Building, ExternalLink, LogOut, Monitor, Moon, Palette, PlugZap, RotateCcw, Settings, ShieldCheck, SlidersHorizontal, Sun } from 'lucide-react'
 import { LeonxLockup } from '@/components/brand/LeonxLogo'
 import { Button } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -8,12 +8,13 @@ import { Panel } from '@/components/ui/Panel'
 import { SegmentedControl } from '@/components/ui/SegmentedControl'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { Toggle } from '@/components/ui/Toggle'
-import { APP, COMPANY, INTEGRATIONS } from '@/config/company'
+import { COMPANY, INTEGRATIONS } from '@/config/company'
 import { useAuth } from '@/context/auth'
 import { useData } from '@/context/data'
 import { usePreferences, type ThemePreference } from '@/context/preferences'
 import { formatDateTime } from '@/lib/stats'
 import { supabaseConfig } from '@/lib/supabase'
+import { VersionPanel } from '@/features/system/VersionPanel'
 
 const THEME_OPTIONS = [
   { value: 'system' as const, label: 'Sistem', icon: Monitor },
@@ -158,28 +159,15 @@ export function SettingsPage() {
               <li key={s.key} className="flex items-center justify-between gap-3 py-3 text-sm last:pb-0">
                 <span className="min-w-0">
                   <span className="block truncate text-ink-2">{s.label}</span>
-                  <span className="text-[11px] text-subtle">Planlanan: {s.milestone}</span>
+                  {!s.connected && <span className="text-[11px] text-subtle">Planlanan: {s.milestone}</span>}
                 </span>
-                <StatusPill tone="offline">Bağlı değil</StatusPill>
+                {s.connected ? <StatusPill tone="ready">Hazır</StatusPill> : <StatusPill tone="offline">Bağlı değil</StatusPill>}
               </li>
             ))}
           </ul>
         </Panel>
 
-        <Panel title="Sürüm bilgisi" icon={Info} className="lg:col-span-2">
-          <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-3">
-            {[
-              ['Uygulama', APP.name],
-              ['Sürüm', `v${APP.version}`],
-              ['Aşama', APP.stage],
-            ].map(([k, v]) => (
-              <div key={k} className="rounded-xl border border-line bg-surface-2/60 px-4 py-3">
-                <dt className="text-xs text-muted">{k}</dt>
-                <dd className="mt-1 font-medium text-ink">{v}</dd>
-              </div>
-            ))}
-          </dl>
-        </Panel>
+        <VersionPanel />
       </div>
 
       <ConfirmDialog

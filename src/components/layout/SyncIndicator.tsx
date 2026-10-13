@@ -35,3 +35,15 @@ export function SyncIndicator() {
     </div>
   )
 }
+
+/** Çevrimdışıyken tüm ekran boyutlarında görünen açıklama (mobilde durum simgesi küçük kalır). */
+export function OfflineNotice() {
+  const { syncState } = useData()
+  if (syncState !== 'offline') return null
+  return (
+    <div role="alert" data-testid="offline-notice" className="border-b border-danger/25 bg-danger-soft px-4 py-2 text-center text-[12.5px] text-danger">
+      <CloudOff className="mr-1.5 inline h-3.5 w-3.5 align-[-2px]" aria-hidden="true" />
+      Çevrimdışısınız. Açık formlardaki bilgiler korunur; bağlantı gelince kaydedin. Veriler bağlantı gelince otomatik yenilenir.
+    </div>
+  )
+}

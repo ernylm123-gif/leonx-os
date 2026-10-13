@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useState } from 'react'
+import { useFormDirty } from '@/lib/unsaved'
 import { Button } from '@/components/ui/Button'
 import { FormAlert, TextAreaField, TextField } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
@@ -24,6 +25,7 @@ export function ContactForm({ open, onClose, companyId, contact, onSaved }: Cont
   const [errors, setErrors] = useState<FieldErrors<ContactInput>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const { markDirty } = useFormDirty(open, 'İlgili kişi formu')
 
   useEffect(() => {
     if (!open) return
@@ -83,7 +85,7 @@ export function ContactForm({ open, onClose, companyId, contact, onSaved }: Cont
       }
     >
       {formError && <FormAlert>{formError}</FormAlert>}
-      <form id="contact-form" onSubmit={(e) => void submit(e)} noValidate className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <form onChangeCapture={markDirty} id="contact-form" onSubmit={(e) => void submit(e)} noValidate className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <TextField label="Ad soyad" required value={form.full_name} onChange={set('full_name')} error={errors.full_name} className="sm:col-span-2" maxLength={160} autoComplete="name" />
         <TextField label="Görev / unvan" value={form.title} onChange={set('title')} error={errors.title} maxLength={120} />
         <TextField label="Telefon" type="tel" inputMode="tel" value={form.phone} onChange={set('phone')} error={errors.phone} />

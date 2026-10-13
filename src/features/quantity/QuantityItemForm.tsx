@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { SelectField, TextAreaField, TextField } from '@/components/ui/Field'
 import type { ComponentProps } from 'react'
 import { Modal } from '@/components/ui/Modal'
+import { useFormDirty } from '@/lib/unsaved'
 import { computeItem, unitForCategory } from '@/quantity/engine'
 import { formatCenti, formatMilli, parseDecimalInput } from '@/quantity/precision'
 import {
@@ -91,6 +92,7 @@ export function QuantityItemForm({
   const [qtyRaw, setQtyRaw] = useState(String(initial.quantity))
   const [vertText, setVertText] = useState(verticesToText(initial.vertices))
   const [touched, setTouched] = useState(false)
+  const { markDirty } = useFormDirty(open, 'Poz formu')
 
   useEffect(() => {
     if (!open) return
@@ -162,6 +164,7 @@ export function QuantityItemForm({
       }
     >
       <form
+        onChangeCapture={markDirty}
         className="space-y-5"
         onSubmit={(e) => {
           e.preventDefault()

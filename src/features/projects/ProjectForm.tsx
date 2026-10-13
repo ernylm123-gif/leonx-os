@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { useFormDirty } from '@/lib/unsaved'
 import { Button } from '@/components/ui/Button'
 import { FormAlert, SelectField, TextAreaField, TextField } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
@@ -62,6 +63,7 @@ export function ProjectForm({ open, onClose, project, defaultCompanyId, onSaved 
   const [formError, setFormError] = useState<string | null>(null)
   const [conflict, setConflict] = useState<'changed' | 'deleted' | null>(null)
   const [busy, setBusy] = useState(false)
+  const { markDirty } = useFormDirty(open, 'Proje formu')
 
   // Form açıldığında başlangıç değerleri
   useEffect(() => {
@@ -165,7 +167,7 @@ export function ProjectForm({ open, onClose, project, defaultCompanyId, onSaved 
       )}
       {formError && <FormAlert>{formError}</FormAlert>}
 
-      <form id="project-form" onSubmit={(e) => void submit(e)} noValidate className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <form onChangeCapture={markDirty} id="project-form" onSubmit={(e) => void submit(e)} noValidate className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <TextField
           label="Proje kodu"
           required

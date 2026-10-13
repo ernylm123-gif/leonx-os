@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { X } from 'lucide-react'
 import { LeonxLockup } from '@/components/brand/LeonxLogo'
 import { APP, COMPANY } from '@/config/company'
+import { CURRENT_BUILD } from '@/lib/appVersion'
 import { useOverlay } from '@/lib/useOverlay'
 import { SidebarNav } from './SidebarNav'
 
@@ -52,7 +53,7 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
               <SidebarNav onNavigate={onClose} layoutId="drawer-active" />
             </div>
             <div className="border-t border-line px-5 py-3.5 text-xs text-subtle">
-              <span className="font-semibold tracking-[0.12em] text-ink-2">{COMPANY.name}</span> · LEONX OS v{APP.version}
+              <span className="font-semibold tracking-[0.12em] text-ink-2">{COMPANY.name}</span> · LEONX OS v{APP.version} · <span className="font-mono">{CURRENT_BUILD.commit}</span>
             </div>
           </motion.aside>
         </div>

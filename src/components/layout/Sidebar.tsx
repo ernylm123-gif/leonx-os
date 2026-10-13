@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { LeonxLockup, LeonxSymbol } from '@/components/brand/LeonxLogo'
 import { APP, COMPANY } from '@/config/company'
 import { useAuth } from '@/context/auth'
+import { CURRENT_BUILD } from '@/lib/appVersion'
 import { usePreferences } from '@/context/preferences'
 import { cn } from '@/lib/cn'
 import { SidebarNav } from './SidebarNav'
@@ -27,7 +28,9 @@ export function Sidebar() {
         {!collapsed && (
           <div className="mt-3 flex items-center justify-between px-1">
             <span className="text-[11px] font-semibold tracking-[0.24em] text-ink-2">LEONX OS</span>
-            <span className="font-mono text-[10px] text-subtle">v{APP.version}</span>
+            <Link to="/ayarlar" className="font-mono text-[10px] text-subtle hover:text-ink" title={`Derleme ${CURRENT_BUILD.buildId}`} data-testid="sidebar-version">
+              v{APP.version} · {CURRENT_BUILD.commit}
+            </Link>
           </div>
         )}
       </div>

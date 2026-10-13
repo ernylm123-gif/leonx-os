@@ -5,6 +5,7 @@ import { CommandPalette } from '@/components/layout/CommandPalette'
 import { MobileDrawer } from '@/components/layout/MobileDrawer'
 import { MobileTabBar } from '@/components/layout/MobileTabBar'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { OfflineNotice } from '@/components/layout/SyncIndicator'
 import { Topbar } from '@/components/layout/Topbar'
 import { findNavItem } from '@/config/navigation'
 
@@ -62,6 +63,7 @@ export function AppLayout() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar menuOpen={overlay === 'menu'} onOpenMenu={openMenu} onOpenSearch={openSearch} />
+        <OfflineNotice />
         <main
           id="icerik"
           className="flex-1 px-4 pt-6 pb-[calc(96px+env(safe-area-inset-bottom))] sm:px-6 sm:pt-8 md:pb-14 lg:px-8 xl:px-10"
