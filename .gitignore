@@ -10,3 +10,6 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
+dist-e2e
+dist-e2e-unconfigured
+.claude/settings.local.json
