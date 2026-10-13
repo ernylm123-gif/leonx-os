@@ -22,7 +22,19 @@ const fakeJwt = (user) =>
     exp: Math.floor(Date.now() / 1000) + 3600,
   })}.test-imza`
 
-const TABLES = ['companies', 'contacts', 'projects', 'project_notes', 'project_files', 'project_status_history']
+const TABLES = [
+  'companies',
+  'contacts',
+  'projects',
+  'project_notes',
+  'project_files',
+  'project_status_history',
+  'cad_analyses',
+  'quantity_takeoffs',
+  'quantity_items',
+  'quantity_item_history',
+]
+const guardError = (message) => ({ error: { status: 400, code: '23514', message } })
 
 export class MockSupabase {
   constructor() {
@@ -61,10 +73,26 @@ export class MockSupabase {
   insertRow(table, input, actor = OWNER.id) {
     const now = this.now()
     let row
-    if (table === 'project_status_history') {
+    if (table === 'project_status_history' || table === 'quantity_item_history') {
       row = { id: this.historySeq++, changed_at: now, changed_by: actor, ...input }
     } else {
-      row = { ...input, id: randomUUID(), created_by: actor, created_at: now, updated_at: now, version: 1 }
+      // İstemcinin ürettiği UUID kabul edilir (idempotent yeniden deneme); aynı id ikinci kez eklenemez
+      const id = input.id ?? randomUUID()
+      if (this.db[table].some((r) => r.id === id)) return { error: { status: 409, code: '23505', message: `duplicate key value violates unique constraint "${table}_pkey"` } }
+      row = { ...input, id, created_by: actor, created_at: now, updated_at: now, version: 1 }
+    }
+    if (table === 'quantity_takeoffs') {
+      if (row.status && row.status !== 'taslak') return guardError('Yeni metraj sürümü taslak olarak oluşturulur')
+      row = { status: 'taslak', based_on: null, analysis_id: null, notes: null, approved_at: null, approved_by: null, ...row }
+      if (this.db.quantity_takeoffs.some((t) => t.project_id === row.project_id && t.revision === row.revision)) {
+        return { error: { status: 409, code: '23505', message: 'duplicate key value violates unique constraint "quantity_takeoffs_revision_unique"' } }
+      }
+    }
+    if (table === 'quantity_items') {
+      const t = this.db.quantity_takeoffs.find((x) => x.id === row.takeoff_id)
+      if (!t) return { error: { status: 409, code: '23503', message: 'Metraj sürümü bulunamadı' } }
+      if (t.status !== 'taslak') return guardError('Onaylanmış veya arşivlenmiş metraj sürümü değiştirilemez; yeni sürüm oluşturun')
+      row.project_id = t.project_id
     }
     if (table === 'projects') {
       row = { status: 'kesif', priority: 'normal', company_id: null, description: null, start_date: null, due_date: null, location: null, notes: null, ...row }
@@ -72,6 +100,7 @@ export class MockSupabase {
     }
     this.db[table].push(row)
     this.broadcast(table, 'INSERT', row, null)
+    if (table === 'quantity_items') this.insertRow('quantity_item_history', { item_id: row.id, takeoff_id: row.takeoff_id, project_id: row.project_id, poz_code: row.poz_code, action: 'ekle', changes: {} }, actor)
     if (table === 'projects') this.insertRow('project_status_history', { project_id: row.id, from_status: null, to_status: row.status }, actor)
     return { row }
   }
@@ -80,18 +109,37 @@ export class MockSupabase {
     const i = this.db[table].findIndex((r) => r.id === id)
     if (i === -1) return null
     const old = this.db[table][i]
+    if (table === 'quantity_items') {
+      const t = this.db.quantity_takeoffs.find((x) => x.id === old.takeoff_id)
+      if (t && t.status !== 'taslak') return guardError('Onaylanmış veya arşivlenmiş metraj sürümü değiştirilemez; yeni sürüm oluşturun')
+    }
+    if (table === 'quantity_takeoffs') {
+      if (old.status === 'onaylandi' && patch.status && !['onaylandi', 'arsiv'].includes(patch.status)) return guardError('Onaylanmış metraj sürümü değiştirilemez; yeni sürüm oluşturun')
+      if (old.status === 'arsiv' && patch.status && patch.status !== 'arsiv') return guardError('Arşivlenmiş sürüm yeniden açılamaz; yeni sürüm oluşturun')
+      if (patch.status === 'onaylandi' && old.status === 'taslak') patch = { ...patch, approved_at: this.now(), approved_by: actor }
+    }
     const next = { ...old, ...patch, id: old.id, created_at: old.created_at, created_by: old.created_by, updated_at: this.now(), version: old.version + 1 }
     this.db[table][i] = next
     this.broadcast(table, 'UPDATE', next, { id: old.id })
+    if (table === 'quantity_items') {
+      const changes = {}
+      for (const k of Object.keys(patch)) if (JSON.stringify(old[k]) !== JSON.stringify(next[k])) changes[k] = { eski: old[k] ?? null, yeni: next[k] ?? null }
+      if (Object.keys(changes).length) this.insertRow('quantity_item_history', { item_id: next.id, takeoff_id: next.takeoff_id, project_id: next.project_id, poz_code: next.poz_code, action: 'guncelle', changes }, actor)
+    }
     if (table === 'projects' && patch.status && patch.status !== old.status) {
       this.insertRow('project_status_history', { project_id: id, from_status: old.status, to_status: patch.status }, actor)
     }
     return next
   }
 
-  deleteRow(table, id) {
+  deleteRow(table, id, cascade = false) {
     const i = this.db[table].findIndex((r) => r.id === id)
     if (i === -1) return null
+    if (!cascade && table === 'quantity_items') {
+      const t = this.db.quantity_takeoffs.find((x) => x.id === this.db[table][i].takeoff_id)
+      if (t && t.status !== 'taslak') return guardError('Onaylanmış veya arşivlenmiş metraj sürümündeki poz silinemez')
+    }
+    if (!cascade && table === 'quantity_takeoffs' && this.db[table][i].status === 'onaylandi') return guardError('Onaylanmış metraj sürümü silinemez; arşivleyebilirsiniz')
     if (table === 'companies' && this.db.projects.some((p) => p.company_id === id)) {
       return { error: { status: 409, code: '23503', message: 'update or delete on table "companies" violates foreign key constraint' } }
     }
@@ -100,10 +148,14 @@ export class MockSupabase {
     // ON DELETE CASCADE karşılıkları
     if (table === 'companies') for (const c of this.db.contacts.filter((x) => x.company_id === id)) this.deleteRow('contacts', c.id)
     if (table === 'projects') {
-      for (const t of ['project_notes', 'project_files', 'project_status_history']) {
-        for (const r of this.db[t].filter((x) => x.project_id === id)) this.deleteRow(t, r.id)
+      for (const t of ['project_notes', 'project_files', 'project_status_history', 'quantity_items', 'quantity_takeoffs', 'cad_analyses', 'quantity_item_history']) {
+        for (const r of this.db[t].filter((x) => x.project_id === id)) this.deleteRow(t, r.id, true)
       }
     }
+    if (table === 'quantity_takeoffs') for (const r of this.db.quantity_items.filter((x) => x.takeoff_id === id)) this.deleteRow('quantity_items', r.id, true)
+    if (table === 'project_files') for (const a of this.db.cad_analyses.filter((x) => x.file_id === id)) this.updateRow('cad_analyses', a.id, { file_id: null })
+    if (table === 'cad_analyses') for (const t of this.db.quantity_takeoffs.filter((x) => x.analysis_id === id)) this.updateRow('quantity_takeoffs', t.id, { analysis_id: null })
+    if (table === 'quantity_items' && !cascade) this.insertRow('quantity_item_history', { item_id: row.id, takeoff_id: row.takeoff_id, project_id: row.project_id, poz_code: row.poz_code, action: 'sil', changes: {} })
     return { row }
   }
 
@@ -220,6 +272,25 @@ export class MockSupabase {
       const nums = this.db.projects.map((x) => x.code.match(new RegExp(`^LX-${year}-(\\d+)$`))?.[1]).filter(Boolean).map(Number)
       return json(200, `LX-${year}-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0')}`)
     }
+    if (p === '/rest/v1/rpc/next_takeoff_revision') {
+      if (!user) return json(401, { code: '42501', message: 'permission denied' })
+      const { p_project } = req.postDataJSON()
+      const revs = this.isOwner(user) ? this.db.quantity_takeoffs.filter((t) => t.project_id === p_project).map((t) => t.revision) : []
+      return json(200, (revs.length ? Math.max(...revs) : 0) + 1)
+    }
+    if (p === '/rest/v1/rpc/create_takeoff_revision') {
+      if (!this.isOwner(user)) return json(400, { code: 'P0002', message: 'Kaynak metraj sürümü bulunamadı' })
+      const { p_source, p_name } = req.postDataJSON()
+      const src = this.db.quantity_takeoffs.find((t) => t.id === p_source)
+      if (!src) return json(400, { code: 'P0002', message: 'Kaynak metraj sürümü bulunamadı' })
+      const revision = Math.max(...this.db.quantity_takeoffs.filter((t) => t.project_id === src.project_id).map((t) => t.revision)) + 1
+      const { row } = this.insertRow('quantity_takeoffs', { project_id: src.project_id, name: p_name || 'Metraj', revision, based_on: src.id, analysis_id: src.analysis_id })
+      for (const it of this.db.quantity_items.filter((x) => x.takeoff_id === src.id)) {
+        const { id: _i, created_at: _c, updated_at: _u, version: _v, created_by: _b, ...rest } = it
+        this.insertRow('quantity_items', { ...rest, takeoff_id: row.id })
+      }
+      return json(200, row.id)
+    }
 
     // ---------------- Storage
     if (p.startsWith('/storage/v1/object')) {
@@ -266,6 +337,11 @@ export class MockSupabase {
       if (['select', 'order', 'offset', 'limit', 'columns', 'on_conflict'].includes(k)) continue
       const fm = v.match(/^eq\.(.*)$/)
       if (fm) filters.push((r) => String(r[k]) === fm[1])
+      const im = v.match(/^in\.\((.*)\)$/)
+      if (im) {
+        const set = new Set(im[1].split(',').map((x) => x.replace(/^"|"$/g, '')))
+        filters.push((r) => set.has(String(r[k])))
+      }
     }
     const match = (r) => filters.every((f) => f(r))
     const owner = this.isOwner(user)
@@ -306,7 +382,13 @@ export class MockSupabase {
     if (method === 'PATCH') {
       const patch = req.postDataJSON()
       const targets = this.db[table].filter(match)
-      return reply(targets.map((t) => this.updateRow(table, t.id, patch)))
+      const out = []
+      for (const t of targets) {
+        const r = this.updateRow(table, t.id, patch)
+        if (r?.error) return json(r.error.status, { code: r.error.code, message: r.error.message, details: null, hint: null })
+        out.push(r)
+      }
+      return reply(out)
     }
     if (method === 'DELETE') {
       const targets = this.db[table].filter(match)

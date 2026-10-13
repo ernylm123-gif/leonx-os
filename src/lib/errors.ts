@@ -38,6 +38,8 @@ export function authErrorMessage(e: unknown): string {
 export function dataErrorMessage(e: unknown, context = 'İşlem'): string {
   if (isNetworkError(e)) return 'Bağlantı yok. İnternet bağlantınızı kontrol edip tekrar deneyin.'
   const err = e as AppErrorLike
+  // Veritabanı tetikleyicilerimizin Türkçe iş kuralı iletileri olduğu gibi gösterilir
+  if (err?.message && /^(Onaylanmış|Arşivlenmiş|Poz |Metraj |Yeni metraj|Kaynak metraj)/.test(err.message)) return err.message
   switch (err?.code) {
     case '23505':
       return 'Bu değer zaten kullanılıyor (ör. aynı proje kodu).'
