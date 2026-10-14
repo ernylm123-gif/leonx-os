@@ -12,6 +12,49 @@ export const PROJECT_CATEGORIES = [
   { value: 'diger', label: 'Diğer' },
 ] as const
 
+/**
+ * Proje aşamaları (Faz 7) — iş akışının ana ekseni. Veritabanındaki eski "status" alanı
+ * aşamadan sunucuda türetilir (geriye uyumluluk); istemci yalnız aşamayı yazar.
+ */
+export const PROJECT_STAGES = [
+  { value: 'yeni_firsat', label: 'Yeni fırsat', short: 'Fırsat', group: 'satis' },
+  { value: 'teklif_hazirlaniyor', label: 'Teklif hazırlanıyor', short: 'Teklif hazırlık', group: 'satis' },
+  { value: 'teklif_gonderildi', label: 'Teklif gönderildi', short: 'Teklif gitti', group: 'satis' },
+  { value: 'gorusme', label: 'Görüşme aşamasında', short: 'Görüşme', group: 'satis' },
+  { value: 'onaylandi', label: 'Onaylandı', short: 'Onaylandı', group: 'uygulama' },
+  { value: 'olcu_kesif', label: 'Ölçü / keşif', short: 'Ölçü/keşif', group: 'uygulama' },
+  { value: 'uretime_hazirlik', label: 'Üretime hazırlık', short: 'Üretim hazırlık', group: 'uygulama' },
+  { value: 'uretimde', label: 'Üretimde', short: 'Üretimde', group: 'uygulama' },
+  { value: 'montajda', label: 'Montajda', short: 'Montajda', group: 'uygulama' },
+  { value: 'tamamlandi', label: 'Tamamlandı', short: 'Tamamlandı', group: 'kapanis' },
+  { value: 'teslim_edildi', label: 'Teslim edildi', short: 'Teslim', group: 'kapanis' },
+  { value: 'iptal', label: 'İptal edildi', short: 'İptal', group: 'kapanis' },
+] as const
+export type ProjectStage = (typeof PROJECT_STAGES)[number]['value']
+export const STAGE_LABEL = Object.fromEntries(PROJECT_STAGES.map((s) => [s.value, s.label])) as Record<ProjectStage, string>
+export const isStage = (v: string): v is ProjectStage => v in STAGE_LABEL
+/** Kapanmış aşamalar (aktif iş sayılmaz) */
+export const CLOSED_STAGES: readonly ProjectStage[] = ['tamamlandi', 'teslim_edildi', 'iptal']
+export const isActiveStage = (s: ProjectStage): boolean => !CLOSED_STAGES.includes(s)
+/** Teklif bekleyen (satış) aşamaları */
+export const QUOTE_STAGES: readonly ProjectStage[] = ['yeni_firsat', 'teklif_hazirlaniyor', 'teklif_gonderildi', 'gorusme']
+/** Aşamanın asgari ilerleme yüzdesi — veritabanındaki leonx_stage_progress ile aynı */
+export const STAGE_PROGRESS: Record<ProjectStage, number> = {
+  yeni_firsat: 0,
+  teklif_hazirlaniyor: 5,
+  teklif_gonderildi: 10,
+  gorusme: 15,
+  onaylandi: 25,
+  olcu_kesif: 30,
+  uretime_hazirlik: 40,
+  uretimde: 55,
+  montajda: 80,
+  tamamlandi: 100,
+  teslim_edildi: 100,
+  iptal: 0,
+}
+
+/** Eski durum değerleri (durum geçmişi kayıtlarını göstermek için) */
 export const PROJECT_STATUSES = [
   { value: 'kesif', label: 'Keşif' },
   { value: 'olcu', label: 'Ölçü' },

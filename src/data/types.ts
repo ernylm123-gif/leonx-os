@@ -1,4 +1,4 @@
-import type { ProjectCategory, ProjectPriority, ProjectStatus } from '@/lib/domain'
+import type { ProjectCategory, ProjectPriority, ProjectStage, ProjectStatus } from '@/lib/domain'
 
 /** Veritabanı satır tipleri — supabase/migrations/20261012000100_leonx_core.sql ile uyumlu. */
 
@@ -36,12 +36,19 @@ export interface Project extends Versioned {
   name: string
   company_id: string | null
   category: ProjectCategory
+  /** Eski durum (sunucuda aşamadan türetilir; istemci yazmaz) */
   status: ProjectStatus
+  stage: ProjectStage
+  progress: number
+  on_hold: boolean
+  completed_on: string | null
   priority: ProjectPriority
   description: string | null
   start_date: string | null
   due_date: string | null
   location: string | null
+  address: string | null
+  map_url: string | null
   notes: string | null
 }
 
@@ -72,8 +79,110 @@ export type CompanyInput = Pick<Company, 'name' | 'phone' | 'email' | 'address' 
 export type ContactInput = Pick<Contact, 'company_id' | 'full_name' | 'title' | 'phone' | 'email' | 'is_primary' | 'notes'>
 export type ProjectInput = Pick<
   Project,
-  'code' | 'name' | 'company_id' | 'category' | 'status' | 'priority' | 'description' | 'start_date' | 'due_date' | 'location' | 'notes'
+  | 'code'
+  | 'name'
+  | 'company_id'
+  | 'category'
+  | 'stage'
+  | 'progress'
+  | 'on_hold'
+  | 'priority'
+  | 'description'
+  | 'start_date'
+  | 'due_date'
+  | 'completed_on'
+  | 'location'
+  | 'address'
+  | 'map_url'
+  | 'notes'
 >
+
+// ------------------------------------------------------------------ Faz 7: görevler, zaman çizelgesi, bildirimler
+// supabase/migrations/20261014000700_leonx_workflow.sql ile uyumlu
+
+export interface ProjectTask extends Versioned {
+  project_id: string
+  title: string
+  description: string | null
+  priority: ProjectPriority
+  start_date: string | null
+  due_date: string | null
+  remind_at: string | null
+  done: boolean
+  done_at: string | null
+  notes: string | null
+  sort_order: number
+}
+export type ProjectTaskInput = Pick<ProjectTask, 'project_id' | 'title' | 'description' | 'priority' | 'start_date' | 'due_date' | 'remind_at' | 'done' | 'notes' | 'sort_order'>
+
+export interface ProjectEvent {
+  id: number
+  project_id: string
+  kind: string
+  title: string
+  detail: string | null
+  ref_type: string | null
+  ref_id: string | null
+  actor: string | null
+  created_at: string
+}
+
+export type NotificationCategory = 'proje' | 'teklif' | 'cad' | 'gorev' | 'termin' | 'sistem'
+
+export interface AppNotification {
+  id: string
+  user_id: string
+  category: NotificationCategory
+  kind: string
+  title: string
+  body: string | null
+  link: string | null
+  entity_type: string | null
+  entity_id: string | null
+  actor: string | null
+  read_at: string | null
+  push_state: 'yok' | 'bekliyor' | 'gonderildi' | 'basarisiz'
+  created_at: string
+}
+
+export interface NotificationPrefs {
+  user_id: string
+  in_app: boolean
+  push: boolean
+  cat_proje: boolean
+  cat_teklif: boolean
+  cat_cad: boolean
+  cat_gorev: boolean
+  cat_termin: boolean
+  cat_sistem: boolean
+  own_actions: boolean
+  version: number
+}
+export type NotificationPrefsInput = Omit<NotificationPrefs, 'user_id' | 'version'>
+
+export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefsInput = {
+  in_app: true,
+  push: false,
+  cat_proje: true,
+  cat_teklif: true,
+  cat_cad: true,
+  cat_gorev: true,
+  cat_termin: true,
+  cat_sistem: true,
+  own_actions: true,
+}
+
+export interface PushSubscriptionRow {
+  id: string
+  endpoint: string
+  user_agent: string | null
+  device_label: string | null
+  created_at: string
+  last_seen_at: string
+  last_success_at: string | null
+  failure_count: number
+  disabled_at: string | null
+}
 
 // ------------------------------------------------------------------ CAD analizi ve metraj
 // supabase/migrations/20261012000500_leonx_quantity.sql ile uyumlu

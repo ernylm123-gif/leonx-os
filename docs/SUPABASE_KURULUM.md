@@ -67,6 +67,8 @@ sorgu olarak yapıştırın ve **Run** deyin. Her biri "Success. No rows returne
 | 4 | `supabase/migrations/20261012000400_leonx_storage.sql` | Özel `project-files` dosya deposu ve politikaları |
 | 5 | `supabase/migrations/20261012000500_leonx_quantity.sql` | CAD analizleri, metraj sürümleri, pozlar, düzeltme geçmişi (RLS + Realtime) |
 | 6 | `supabase/migrations/20261013000600_leonx_quotes.sql` | Teklifler, kalemler, revizyon geçmişi, teklif ayarları, numara sayacı (RLS + Realtime) |
+| 7 | `supabase/migrations/20261014000700_leonx_workflow.sql` | Proje aşamaları, görevler, işlem geçmişi, bildirimler, tercihler, push abonelikleri, hatırlatma taraması |
+| 8 | `supabase/migrations/20261014000800_leonx_scheduler.sql` | pg_cron + pg_net zamanlayıcı (hatırlatmalar 5 dk, push gönderimi 1 dk) |
 
 - Dosyalar **tekrar çalıştırılabilir** ve hiçbir nesneyi silmez (`DROP` içermez): tetikleyiciler
   `create or replace trigger`, politikalar "yoksa oluştur, varsa `ALTER POLICY`" ile tanımlanır.
@@ -76,6 +78,18 @@ sorgu olarak yapıştırın ve **Run** deyin. Her biri "Success. No rows returne
 Kontrol: **Table Editor**'de `app_owner, companies, contacts, projects, project_status_history, project_notes,
 project_files, activity_log, cad_analyses, quantity_takeoffs, quantity_items, quantity_item_history, quotes, quote_items, quote_history, quote_settings, quote_counters` tabloları görünmeli ve hepsinde **RLS enabled** yazmalıdır.
 **Storage**'da `project-files` bucket'ı **Private** olarak görünmelidir.
+
+### Push bildirimleri (Faz 7)
+
+1. Edge Function'ı yayımlayın: `supabase/functions/push-dispatch` (`verify_jwt = false`; istek, veritabanında
+   üretilen ve istemciye kapalı `cron_secret` başlığıyla doğrulanır).
+2. SQL Editor'da gönderim adresini girin (proje referansınızla):
+   `update leonx_private.push_config set dispatch_url = 'https://<proje-ref>.supabase.co/functions/v1/push-dispatch' where singleton;`
+3. Zamanlayıcı ilk çağrıda VAPID anahtar çiftini üretip `leonx_private.push_config` tablosuna yazar. Gizli anahtar
+   bu kapalı şemada kalır; istemciye, depoya veya Vercel'e yazılmaz. Uygulama yalnız açık anahtarı
+   `push_public_key()` ile alır.
+4. Uygulamada **Ayarlar → Bildirimler → Bu cihazda aç** ile her cihaz ayrı abone olur. iPhone/iPad'de önce
+   Safari → Paylaş → **Ana Ekrana Ekle** gerekir (iOS 16.4+).
 
 ## 5. Yetkili kullanıcıyı (sahip) tanımlayın
 
@@ -96,7 +110,8 @@ yalnızca SQL Editor'dan yapılabilir.
   **ROLLBACK** yapar: mevcut verinize ve sahip ayarınıza dokunmaz.
 - Başarılıysa çıktı/bildirimlerde **TÜM TESTLER BAŞARILI** görünür. Bir kontrol başarısız olursa
   "TEST BAŞARISIZ: …" hatasıyla durur.
-- Bağlayıcı ile uzaktan çalıştırma için silme içermeyen alt küme: `supabase/tests/rls_policies.remote_safe.sql`
+- Bağlayıcı ile uzaktan çalıştırma için silme içermeyen alt kümeler: `supabase/tests/rls_policies.remote_safe.sql`,
+  `quotes.remote_safe.sql`, `workflow.remote_safe.sql`
   (sonuçları bilinçli bir `LEONX_TEST_SONUC` hata iletisinde döndürür ve her şeyi geri alır).
 
 ## 7. Bağlantı bilgilerini alın

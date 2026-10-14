@@ -2,6 +2,7 @@ import { Menu, Search, ShieldCheck } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { LeonxSymbol, LeonxWordmark } from '@/components/brand/LeonxLogo'
 import { findNavItem } from '@/config/navigation'
+import { NotificationBell } from './NotificationBell'
 import { SyncIndicator } from './SyncIndicator'
 import { ThemeToggle } from './ThemeToggle'
 
@@ -63,6 +64,7 @@ export function Topbar({ menuOpen, onOpenMenu, onOpenSearch }: TopbarProps) {
             </kbd>
           </button>
           <SyncIndicator />
+          <NotificationBell />
           <ThemeToggle />
           <span className="hidden px-2 text-xs text-subtle first-letter:uppercase 2xl:inline">{dateFormatter.format(new Date())}</span>
           <div

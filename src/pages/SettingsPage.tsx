@@ -16,6 +16,7 @@ import { formatDateTime } from '@/lib/stats'
 import { supabaseConfig } from '@/lib/supabase'
 import { QuoteSettingsPanel } from '@/features/quotes/QuoteSettingsPanel'
 import { VersionPanel } from '@/features/system/VersionPanel'
+import { NotificationSettings } from '@/features/notifications/NotificationSettings'
 
 const THEME_OPTIONS = [
   { value: 'system' as const, label: 'Sistem', icon: Monitor },
@@ -44,7 +45,7 @@ export function SettingsPage() {
         code="M08"
         eyebrow="Sistem"
         title="Ayarlar"
-        description="Hesap ve oturum, görünüm tercihleri, firma bilgisi ve entegrasyon durumu."
+        description="Hesap ve oturum, bildirimler, görünüm tercihleri, firma bilgisi ve entegrasyon durumu."
         status="ready"
       />
 
@@ -168,6 +169,12 @@ export function SettingsPage() {
           </ul>
         </Panel>
 
+        <section id="bildirimler" aria-label="Bildirimler" className="lg:col-span-2">
+          <h2 className="mb-3 text-[13px] font-semibold tracking-[0.12em] text-subtle uppercase">Bildirimler</h2>
+          <div className="[&>div]:grid [&>div]:grid-cols-1 [&>div]:gap-6 lg:[&>div]:grid-cols-2">
+            <NotificationSettings />
+          </div>
+        </section>
         <QuoteSettingsPanel />
         <VersionPanel />
       </div>

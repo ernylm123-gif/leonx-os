@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Company, Project } from '@/data/types'
-import { addDays, computeStats, countByStatus, daysUntil, matchesSearch } from './stats'
+import { addDays, computeStats, countByStage, daysUntil, matchesSearch } from './stats'
 
 const p = (over: Partial<Project>): Project => ({
   id: crypto.randomUUID(),
@@ -9,6 +9,12 @@ const p = (over: Partial<Project>): Project => ({
   company_id: null,
   category: 'diger',
   status: 'kesif',
+  stage: 'yeni_firsat',
+  progress: 0,
+  on_hold: false,
+  completed_on: null,
+  address: null,
+  map_url: null,
   priority: 'normal',
   description: null,
   start_date: null,
@@ -28,21 +34,22 @@ describe('computeStats', () => {
   })
   it('aktif/tamamlanan/geciken/yaklaşan', () => {
     const projects = [
-      p({ code: 'A', status: 'uretim', due_date: '2026-10-15' }),
-      p({ code: 'B', status: 'tamamlandi', due_date: '2026-10-13' }),
-      p({ code: 'C', status: 'montaj', due_date: '2026-10-01' }),
-      p({ code: 'D', status: 'iptal' }),
-      p({ code: 'E', status: 'kesif', due_date: '2026-12-31' }),
-      p({ code: 'F', status: 'olcu', due_date: '2026-10-12' }),
+      p({ code: 'A', stage: 'uretimde', due_date: '2026-10-15' }),
+      p({ code: 'B', stage: 'tamamlandi', due_date: '2026-10-13' }),
+      p({ code: 'C', stage: 'montajda', due_date: '2026-10-01' }),
+      p({ code: 'D', stage: 'iptal' }),
+      p({ code: 'E', stage: 'yeni_firsat', due_date: '2026-12-31' }),
+      p({ code: 'F', stage: 'olcu_kesif', due_date: '2026-10-12' }),
     ]
     const s = computeStats(projects, [{} as Company, {} as Company], '2026-10-12')
     expect(s).toMatchObject({ total: 6, active: 4, completed: 1, companies: 2, overdue: 1 })
     expect(s.upcoming.map((x) => x.code)).toEqual(['F', 'A'])
   })
-  it('durum sayımı tüm durumları içerir', () => {
-    const c = countByStatus([p({ status: 'uretim' }), p({ status: 'uretim' })])
-    expect(c.find((x) => x.value === 'uretim')?.count).toBe(2)
-    expect(c).toHaveLength(9)
+  it('aşama sayımı 12 aşamanın tümünü içerir; teslim edilen tamamlanmış sayılır', () => {
+    const c = countByStage([p({ stage: 'uretimde' }), p({ stage: 'uretimde' })])
+    expect(c.find((x) => x.value === 'uretimde')?.count).toBe(2)
+    expect(c).toHaveLength(12)
+    expect(computeStats([p({ stage: 'teslim_edildi' })], [], '2026-10-12')).toMatchObject({ active: 0, completed: 1 })
   })
 })
 

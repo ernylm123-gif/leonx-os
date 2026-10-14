@@ -162,7 +162,8 @@ await test('Sahip girişi: hedef sayfaya döner, boş durumlar gerçek', async (
   expect(page.url().endsWith('/projeler'), `yönlendirme: ${page.url()}`)
   await eventually(() => mock.activeChannelCount === 1, 'Realtime kanalı açılmadı')
   await page.goto(`${BASE}/`)
-  await eventually(async () => /Toplam proje\s*0/.test((await page.getByRole('link', { name: /Toplam proje/ }).textContent()).replace(/\s+/g, ' ')), 'KPI sıfır göstermedi')
+  await eventually(async () => /Aktif proje\s*0/.test((await page.getByRole('link', { name: /Aktif proje/ }).textContent()).replace(/\s+/g, ' ')), 'KPI sıfır göstermedi')
+  await eventually(async () => /Geciken görev\s*0/.test((await page.getByRole('link', { name: /Geciken görev/ }).textContent()).replace(/\s+/g, ' ')), 'görev KPI sıfır göstermedi')
   await page.getByText('Önümüzdeki 14 gün içinde teslimi olan aktif proje yok.').waitFor()
 })
 
@@ -235,11 +236,11 @@ await test('Proje: oluşturma, tarih doğrulaması, durum geçmişi, not, dosya,
   const project = mock.db.projects[0]
   expect(page.url().endsWith(`/projeler/${project.id}`), 'detay sayfasına gidilmedi')
 
-  // Durum değişimi → geçmiş
-  await page.getByLabel('Proje durumunu değiştir').selectOption('uretim')
-  await page.getByText('Durum: Üretim').waitFor()
-  await eventually(async () => (await page.getByText(/Keşif → Üretim/).count()) === 1, 'durum geçmişi güncellenmedi')
-  expect(mock.db.project_status_history.length === 2, 'geçmiş kaydı sayısı hatalı')
+  // Aşama değişimi → işlem geçmişi (zaman çizelgesi) ve eski durum alanı eşitlenir
+  await page.getByLabel('Proje aşamasını değiştir').selectOption('uretimde')
+  await page.getByText('Aşama: Üretimde').waitFor()
+  await eventually(async () => (await page.getByText(/Yeni fırsat → Üretimde/).count()) === 1, 'işlem geçmişi güncellenmedi')
+  expect(mock.db.project_status_history.length === 2 && mock.db.projects[0].status === 'uretim' && mock.db.projects[0].progress >= 55, 'durum geçmişi / eski durum / ilerleme hatalı')
 
   // Not
   await page.getByLabel('Yeni not').fill('Ölçü alındı, cam tipi teyit edilecek.')
@@ -276,13 +277,15 @@ await test('Proje: oluşturma, tarih doğrulaması, durum geçmişi, not, dosya,
 
 await test('Proje listesi: arama ve filtreler', async ({ page, mock }) => {
   const c = mock.externalInsert('companies', { name: 'Kuzey İnşaat' })
-  mock.externalInsert('projects', { code: 'LX-2026-010', name: 'Çelik kapı montajı', category: 'celik_kapi', status: 'montaj', company_id: c.id })
-  mock.externalInsert('projects', { code: 'LX-2026-011', name: 'Balkon korkuluğu', category: 'korkuluk', status: 'tamamlandi' })
-  mock.externalInsert('projects', { code: 'LX-2026-012', name: 'PVC pencere', category: 'pvc_dograma', status: 'kesif', location: 'Bornova' })
+  mock.externalInsert('projects', { code: 'LX-2026-010', name: 'Çelik kapı montajı', category: 'celik_kapi', stage: 'montajda', company_id: c.id })
+  mock.externalInsert('projects', { code: 'LX-2026-011', name: 'Balkon korkuluğu', category: 'korkuluk', stage: 'teslim_edildi' })
+  mock.externalInsert('projects', { code: 'LX-2026-012', name: 'PVC pencere', category: 'pvc_dograma', stage: 'teklif_gonderildi', location: 'Bornova' })
   await login(page, OWNER, '/projeler')
   await page.getByText('Çelik kapı montajı').first().waitFor()
   expect((await page.getByText('Balkon korkuluğu').count()) === 0, 'tamamlanan proje aktif listede görünüyor')
-  await page.getByLabel('Durum filtresi').selectOption('tumu')
+  await page.getByLabel('Aşama filtresi').selectOption('teklif')
+  await eventually(async () => (await page.getByText('Çelik kapı montajı').count()) === 0 && (await page.getByText('PVC pencere').count()) > 0, 'teklif bekleyen filtresi çalışmadı')
+  await page.getByLabel('Aşama filtresi').selectOption('tumu')
   await page.getByText('Balkon korkuluğu').first().waitFor()
   await page.getByLabel('Projelerde ara').fill('celik kapi')
   await eventually(async () => (await page.getByText('PVC pencere').count()) === 0, 'arama filtrelemedi')
@@ -309,8 +312,11 @@ await test('Realtime: başka cihazdaki ekleme, güncelleme ve silme anında gör
   const p = mock.externalInsert('projects', { code: 'LX-2026-100', name: 'Uzak proje', category: 'diger', company_id: c.id })
   await page.goto(`${BASE}/projeler/${p.id}`)
   await page.getByRole('heading', { name: 'Uzak proje' }).waitFor()
-  mock.externalUpdate('projects', p.id, { status: 'montaj' })
-  await page.getByText(/Keşif → Montaj/).waitFor({ timeout: 3000 })
+  mock.externalUpdate('projects', p.id, { stage: 'montajda' })
+  await page.getByText(/Yeni fırsat → Montajda/).waitFor({ timeout: 3000 })
+  // Eski sürümde açık kalmış istemci yalnız "status" yazarsa aşama da eşitlenir
+  mock.externalUpdate('projects', p.id, { status: 'tamamlandi' })
+  await page.getByText(/Montajda → Tamamlandı/).waitFor({ timeout: 3000 })
   mock.externalInsert('project_notes', { project_id: p.id, body: 'Telefondan eklenen not' })
   await page.getByText('Telefondan eklenen not').waitFor({ timeout: 3000 })
   mock.externalDelete('projects', p.id)
@@ -533,8 +539,8 @@ await test('Çoklu cihaz: Windows, iPad ve telefon değişiklikleri yenilemeden 
     await ipad.page.getByRole('heading', { name: 'Windows’ta açılan proje' }).waitFor()
     ipadLoads = 0
     winLoads = 0
-    await ipad.page.getByLabel('Proje durumunu değiştir').selectOption('montaj')
-    await win.getByText(/Keşif → Montaj/).waitFor({ timeout: 4000 })
+    await ipad.page.getByLabel('Proje aşamasını değiştir').selectOption('montajda')
+    await win.getByText(/Yeni fırsat → Montajda/).waitFor({ timeout: 4000 })
 
     // 3) Telefon firmayı günceller → Windows ve iPad görür
     await phone.page.goto(`${BASE}/firmalar/${company.id}`)
@@ -677,6 +683,117 @@ await test('PDF çizim: üretim CSP kuralları altında açılır, vektörel alg
   expect(unexpected.length === 0, `konsol / CSP hataları: ${unexpected.join(' | ')}`)
 }, { viewport: { width: 1440, height: 900 } })
 
+
+// ================================================================== Faz 7: iş akışı, görevler, bildirimler
+await test('Faz 7: aşama panosu, görev ve termin, zaman çizelgesi; bildirim zili ve okundu durumu cihazlar arası eşitlenir', async ({ page, mock, consoleErrors }) => {
+  const c = mock.externalInsert('companies', { name: 'Akış Yapı' })
+  const p = mock.externalInsert('projects', { code: 'LX-2026-701', name: 'Akış projesi', category: 'aluminyum_dograma', company_id: c.id })
+  const ipad = await openDevice(mock, devices['iPad Pro 11 landscape'])
+  try {
+    await login(page, OWNER, '/projeler?gorunum=kanban')
+    await login(ipad.page, OWNER, '/projeler?gorunum=kanban')
+    await page.getByTestId('project-kanban').waitFor()
+    await ipad.page.locator('[data-testid="kanban-column"][data-stage="yeni_firsat"] [data-code="LX-2026-701"]').waitFor()
+    // Panoda aşama değiştir (dokunmatik uyumlu seçim) → diğer cihaz anında görür
+    await page.locator('[data-code="LX-2026-701"]').getByTestId('kanban-move').selectOption('teklif_hazirlaniyor')
+    await eventually(() => mock.db.projects[0].stage === 'teklif_hazirlaniyor' && mock.db.projects[0].status === 'teklif', 'aşama kaydedilmedi', 4000)
+    await ipad.page.locator('[data-testid="kanban-column"][data-stage="teklif_hazirlaniyor"] [data-code="LX-2026-701"]').waitFor({ timeout: 4000 })
+
+    // Görev: hazır şablon + geçmiş termin → gecikmiş olarak görünür
+    await page.goto(`${BASE}/projeler/${p.id}`)
+    await page.getByTestId('task-add').click()
+    const d = page.getByRole('dialog', { name: 'Yeni görev' })
+    await d.getByRole('button', { name: 'Yerinde ölçü alınacak' }).click()
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+    await d.getByTestId('task-due').fill(yesterday)
+    await d.getByTestId('task-submit').click()
+    await page.locator('[data-testid="task-row"][data-state="gecikti"]').getByText('Yerinde ölçü alınacak').waitFor()
+    expect(mock.db.project_tasks.length === 1, 'görev kaydedilmedi')
+
+    // Hatırlatma taraması (uygulama açılışında da çalışır): gecikme bildirimi bir kez oluşur
+    await page.reload()
+    await eventually(() => mock.db.notifications.filter((n) => n.kind === 'gorev_gecikti').length === 1, 'gecikme bildirimi oluşmadı', 6000)
+    await page.reload()
+    await page.getByRole('heading', { name: 'Akış projesi' }).waitFor()
+    await new Promise((r) => setTimeout(r, 800))
+    expect(mock.db.notifications.filter((n) => n.kind === 'gorev_gecikti').length === 1, 'gecikme bildirimi tekrarlandı')
+
+    // Görev tamamlanınca zaman çizelgesine yazılır
+    await page.getByTestId('task-toggle').first().click()
+    await page.locator('[data-testid="timeline-event"][data-kind="gorev_tamam"]').waitFor({ timeout: 4000 })
+    await page.locator('[data-testid="timeline-event"][data-kind="asama"]').waitFor()
+
+    // Bildirim zili: iki cihazda aynı okunmamış sayısı; birinde okununca diğerinde düşer
+    const unread = mock.db.notifications.filter((n) => !n.read_at).length
+    expect(unread >= 3, `okunmamış bildirim ${unread}`)
+    await ipad.page.goto(`${BASE}/`)
+    await eventually(async () => (await ipad.page.getByTestId('notification-count').textContent()) === String(unread), 'iPad okunmamış sayısı farklı', 5000)
+    await page.getByTestId('notification-bell').click()
+    await page.getByTestId('notification-panel').getByText(/Görev gecikti: Yerinde ölçü alınacak/).waitFor()
+    await page.getByTestId('notification-read-all').click()
+    await eventually(() => mock.db.notifications.every((n) => n.read_at), 'okundu sunucuya yazılmadı', 4000)
+    await eventually(async () => (await ipad.page.getByTestId('notification-count').count()) === 0, 'iPad okundu durumunu almadı', 5000)
+
+    // Bildirime dokununca ilgili ekran açılır (görevler bölümü)
+    const late = mock.db.notifications.find((n) => n.kind === 'gorev_gecikti')
+    mock.externalUpdate('notifications', late.id, { read_at: null })
+    await page.goto(`${BASE}/bildirimler`)
+    await page.getByTestId('notification-list').getByText(/Görev gecikti/).click()
+    await page.waitForURL(new RegExp(`/projeler/${p.id}\\?sekme=gorevler`))
+    await eventually(() => mock.db.notifications.find((n) => n.id === late.id).read_at, 'açılan bildirim okundu yapılmadı', 4000)
+
+    // Panel: geciken görev kartı tıklanabilir ve filtreli ekrana gider (görev tamamlandığı için 0)
+    await page.goto(`${BASE}/`)
+    await page.locator('[data-kpi="Teklif bekleyen"]').getByText('1').waitFor()
+    await page.locator('[data-kpi="Geciken görev"]').click()
+    await page.waitForURL(/\/gorevler\?filtre=geciken/)
+    await page.getByText('Geciken görev yok').waitFor()
+    const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+    expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+  } finally {
+    await ipad.ctx.close()
+  }
+}, { viewport: { width: 1440, height: 900 } })
+
+await test('Bildirim ayarları: tercihler sunucuda saklanır ve uygulanır; push sunucusu hazır değilse açıkça söylenir', async ({ page, mock }) => {
+  await login(page, OWNER, '/bildirimler')
+  await page.getByTestId('notification-settings').waitFor()
+  await page.getByRole('switch', { name: 'Proje bildirimleri' }).click()
+  await eventually(() => mock.db.notification_prefs[0]?.cat_proje === false, 'tercih kaydedilmedi', 4000)
+  mock.externalInsert('companies', { name: 'Sessiz Firma' })
+  expect(!mock.db.notifications.some((n) => n.title.includes('Sessiz Firma')), 'kapalı kategoride bildirim oluştu')
+  await page.getByRole('switch', { name: 'Proje bildirimleri' }).click()
+  await eventually(() => mock.db.notification_prefs[0]?.cat_proje === true, 'tercih geri açılmadı', 4000)
+  mock.externalInsert('companies', { name: 'Sesli Firma' })
+  await page.getByTestId('notification-list').getByText('Yeni müşteri: Sesli Firma').waitFor({ timeout: 4000 })
+  // Push: sunucu anahtarı henüz üretilmemişse izin istenmeden açıklama gösterilir
+  const enable = page.getByTestId('push-enable')
+  if (await enable.count()) {
+    await enable.click()
+    await page.getByText(/Push sunucusu henüz hazırlanıyor/).waitFor()
+  } else {
+    await page.getByTestId('push-unsupported').waitFor()
+  }
+  expect(mock.db.push_subscriptions.length === 0, 'izin/anahtar olmadan abonelik kaydedildi')
+  // Push çalışanı uygulamanın kendi kaynağından, önbellek tutmadan sunulur
+  const sw = await page.request.get(`${BASE}/sw.js`)
+  expect(sw.ok() && /javascript/.test(sw.headers()['content-type'] ?? '') && !(await sw.text()).includes("addEventListener('fetch'"), 'sw.js yok veya fetch yakalıyor')
+}, { viewport: { width: 1366, height: 900 } })
+
+await test('Teklif kabul edilince proje aşaması otomatik değişmez; kullanıcıya önerilir', async ({ page, mock }) => {
+  const c = mock.externalInsert('companies', { name: 'Kabul Müşterisi' })
+  const pr = mock.externalInsert('projects', { code: 'LX-2026-702', name: 'Kabul projesi', category: 'pvc_dograma', company_id: c.id, stage: 'teklif_gonderildi' })
+  const { quote } = seedQuote(mock, { company: c, projectId: pr.id })
+  mock.externalUpdate('quotes', quote.id, { status: 'gonderildi' })
+  await login(page, OWNER, `/teklifler/${quote.id}`)
+  await page.getByTestId('quote-no').waitFor()
+  await page.getByLabel(/Teklif durumu/).selectOption('kabul')
+  await page.getByRole('dialog', { name: 'Proje aşaması güncellensin mi?' }).waitFor()
+  expect(mock.db.projects[0].stage === 'teklif_gonderildi', 'aşama kendiliğinden değişti')
+  expect(mock.db.project_events.some((e) => e.kind === 'teklif_kabul'), 'kabul olayı zaman çizelgesine yazılmadı')
+  await page.getByTestId('confirm-ok').click()
+  await eventually(() => mock.db.projects[0].stage === 'onaylandi', 'aşama güncellenmedi', 4000)
+})
 
 // ================================================================== Faz 5.1: mimari PDF analizi
 const PDF_FX = path.join(ROOT, 'src/cad/__fixtures__/pdf')
@@ -1001,7 +1118,7 @@ for (const [name, dev] of Object.entries(SCREENS)) {
           code: 'LX-2026-300',
           name: 'Çok uzun proje adı: 24 katlı ofis kulesi giydirme cephe ve alüminyum doğrama işleri',
           category: 'cephe',
-          status: 'uretim',
+          stage: 'uretimde',
           company_id: c.id,
           due_date: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10),
           location: 'Ataşehir, İstanbul',

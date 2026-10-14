@@ -8,7 +8,7 @@ import { ErrorState, SkeletonRows } from '@/components/ui/States'
 import { SearchInput } from '@/components/ui/Toolbar'
 import { useData } from '@/context/data'
 import { CompanyForm } from '@/features/companies/CompanyForm'
-import { isActiveStatus } from '@/lib/domain'
+import { isActiveStage } from '@/lib/domain'
 import { matchesSearch } from '@/lib/stats'
 
 export function CompaniesPage() {
@@ -25,7 +25,7 @@ export function CompaniesPage() {
       if (!p.company_id) continue
       const e = m.get(p.company_id) ?? { total: 0, active: 0 }
       e.total++
-      if (isActiveStatus(p.status)) e.active++
+      if (isActiveStage(p.stage)) e.active++
       m.set(p.company_id, e)
     }
     return m

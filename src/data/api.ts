@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { contentTypeFor, STORAGE_BUCKET, storagePathFor } from '@/lib/files'
-import type { ProjectStatus } from '@/lib/domain'
+import type { ProjectStage } from '@/lib/domain'
 import { withNetworkRetry } from '@/lib/retry'
 import { runBusy } from '@/lib/unsaved'
 import type {
@@ -156,8 +156,14 @@ export function updateProject(db: SupabaseClient, id: string, version: number, i
   return versionedUpdate<Project>(db, 'projects', id, version, { ...input })
 }
 
-export function updateProjectStatus(db: SupabaseClient, id: string, version: number, status: ProjectStatus): Promise<Project> {
-  return versionedUpdate<Project>(db, 'projects', id, version, { status })
+/** Aşama / ilerleme / bekleme hızlı güncellemesi (eski "status" sunucuda türetilir) */
+export function updateProjectStage(
+  db: SupabaseClient,
+  id: string,
+  version: number,
+  patch: Partial<{ stage: ProjectStage; progress: number; on_hold: boolean; completed_on: string | null }>,
+): Promise<Project> {
+  return versionedUpdate<Project>(db, 'projects', id, version, patch)
 }
 
 /** Projeyi siler. Önce depodaki dosyaları kaldırır; meta veri, notlar ve geçmiş veritabanında zincirleme silinir. */

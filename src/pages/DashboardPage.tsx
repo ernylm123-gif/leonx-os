@@ -1,9 +1,21 @@
-import { ArrowUpRight, CalendarClock, CheckCircle2, Circle, LayoutDashboard, Layers, PlugZap } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Bell, CalendarClock, CheckCircle2, Circle, FileText, History, LayoutDashboard, Layers, PlugZap } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Panel } from '@/components/ui/Panel'
-import { StatusBadge } from '@/components/ui/ProjectBadges'
+import { StageBadge } from '@/components/ui/ProjectBadges'
+import { QuoteStatusBadge } from '@/features/quotes/shared'
+import { useNotifications } from '@/context/notifications'
+import type { ProjectEvent, ProjectTask } from '@/data/types'
+import { listAllTasks, listRecentEvents } from '@/data/workflowApi'
+import { listQuotes } from '@/data/quoteApi'
+import type { Quote } from '@/quote/types'
+import { EventLine } from '@/features/projects/ProjectTimeline'
+import { taskState } from '@/features/projects/ProjectTasks'
+import { NotificationItem } from '@/features/notifications/NotificationItem'
+import { requireSupabase } from '@/lib/supabase'
+import { useLiveQuery } from '@/lib/useLiveList'
+import { QUOTE_STAGES } from '@/lib/domain'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { ErrorState } from '@/components/ui/States'
 import { APP, COMPANY, INTEGRATIONS, ROADMAP } from '@/config/company'
@@ -22,11 +34,27 @@ export function DashboardPage() {
   const stats = computeStats(projects, companies, today)
   const ready = !loading || projects.length > 0 || companies.length > 0
 
+  const { items: notifications, unread, open } = useNotifications()
+  const live = useLiveQuery<{ tasks: ProjectTask[]; events: ProjectEvent[]; quotes: Quote[] }>(
+    ['project_tasks', 'project_events', 'quotes'],
+    async () => {
+      const db = requireSupabase()
+      const [tasks, events, quotes] = await Promise.all([listAllTasks(db), listRecentEvents(db, 10), listQuotes(db)])
+      return { tasks, events, quotes }
+    },
+    { tasks: [], events: [], quotes: [] },
+  )
+  const lateTasks = live.data.tasks.filter((t) => taskState(t, today) === 'gecikti')
+  const projectOf = new Map(projects.map((p) => [p.id, p]))
+  const recentQuotes = live.data.quotes.filter((q) => !q.superseded).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 5)
+
   const kpis = [
-    { label: 'Toplam proje', value: stats.total, to: '/projeler?durum=tumu' },
     { label: 'Aktif proje', value: stats.active, to: '/projeler' },
-    { label: 'Tamamlanan', value: stats.completed, to: '/projeler?durum=tamamlandi' },
-    { label: 'Firma', value: stats.companies, to: '/firmalar' },
+    { label: 'Teklif bekleyen', value: projects.filter((p) => QUOTE_STAGES.includes(p.stage)).length, to: '/projeler?asama=teklif' },
+    { label: 'Üretimde', value: projects.filter((p) => p.stage === 'uretimde' || p.stage === 'uretime_hazirlik').length, to: '/projeler?asama=uretimde' },
+    { label: 'Montajda', value: projects.filter((p) => p.stage === 'montajda').length, to: '/projeler?asama=montajda' },
+    { label: 'Tamamlanan', value: stats.completed, to: '/projeler?asama=kapanan' },
+    { label: 'Geciken görev', value: lateTasks.length, to: '/gorevler?filtre=geciken', danger: lateTasks.length > 0 },
   ]
 
   return (
@@ -36,7 +64,7 @@ export function DashboardPage() {
         code="M00"
         eyebrow={COMPANY.name}
         title="Dashboard"
-        description="Kayıtlı projeler ve firmalardan anlık özet. Değerler veritabanındaki gerçek kayıtlardan hesaplanır; finansal değer gösterilmez."
+        description="Projeler, görevler, teklifler ve bildirimlerden anlık özet. Değerler veritabanındaki gerçek kayıtlardan hesaplanır ve tüm cihazlarda canlı güncellenir."
         status="ready"
       />
 
@@ -46,16 +74,16 @@ export function DashboardPage() {
         </div>
       ) : null}
 
-      <section aria-label="Temel göstergeler" className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+      <section aria-label="Temel göstergeler" className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-6">
         {kpis.map((kpi, i) => (
           <motion.div key={kpi.label} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.03 * i, duration: 0.28 }}>
-            <Link to={kpi.to} className="card group relative block min-w-0 overflow-hidden p-4 transition-shadow hover:shadow-hover sm:p-5">
+            <Link to={kpi.to} className="card group relative block min-w-0 overflow-hidden p-4 transition-shadow hover:shadow-hover sm:p-5" data-testid="kpi-card" data-kpi={kpi.label}>
               <span className="brushed absolute inset-x-0 top-0 h-[2px] opacity-70" aria-hidden="true" />
               <div className="flex items-start justify-between gap-2">
                 <div className="text-[12.5px] font-medium text-muted">{kpi.label}</div>
                 <ArrowUpRight className="h-4 w-4 text-subtle transition group-hover:text-ink" aria-hidden="true" />
               </div>
-              <div className="mt-3 font-mono text-[30px] leading-none font-medium text-ink sm:text-[34px]">
+              <div className={cn('mt-3 font-mono text-[30px] leading-none font-medium sm:text-[34px]', 'danger' in kpi && kpi.danger ? 'text-danger' : 'text-ink')}>
                 {ready ? kpi.value : <span className="inline-block h-8 w-12 animate-pulse rounded-md bg-surface-2 align-middle" aria-label="Yükleniyor" />}
               </div>
             </Link>
@@ -71,7 +99,7 @@ export function DashboardPage() {
             icon={CalendarClock}
             actions={
               stats.overdue > 0 ? (
-                <Link to="/projeler" className="text-xs font-medium text-danger hover:underline">
+                <Link to="/projeler?asama=aktif" className="text-xs font-medium text-danger hover:underline">
                   {stats.overdue} geciken proje
                 </Link>
               ) : undefined
@@ -98,12 +126,89 @@ export function DashboardPage() {
                           <div className="truncate text-sm font-medium text-ink">{p.name}</div>
                           <div className="text-xs text-muted">{formatDate(p.due_date)}</div>
                         </div>
-                        <StatusBadge status={p.status} />
+                        <StageBadge stage={p.stage} onHold={p.on_hold} />
                       </Link>
                     </li>
                   )
                 })}
               </ul>
+            )}
+          </Panel>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <Panel
+              title="Geciken görevler"
+              subtitle={lateTasks.length ? `${lateTasks.length} görev terminini geçti` : 'Terminini geçen görev yok'}
+              icon={AlertTriangle}
+              actions={
+                <Link to="/gorevler" className="text-xs font-medium text-ink-2 hover:underline">
+                  Tüm görevler
+                </Link>
+              }
+              bodyClassName="p-0"
+            >
+              {lateTasks.length === 0 ? (
+                <p className="px-5 py-6 text-center text-sm text-subtle">{live.loading ? 'Yükleniyor…' : 'Geciken görev yok.'}</p>
+              ) : (
+                <ul className="divide-y divide-line" data-testid="late-tasks">
+                  {lateTasks.slice(0, 6).map((t) => {
+                    const p = projectOf.get(t.project_id)
+                    return (
+                      <li key={t.id}>
+                        <Link to={`/projeler/${t.project_id}?sekme=gorevler`} className="block px-5 py-2.5 hover:bg-surface-2/70">
+                          <div className="truncate text-sm font-medium text-ink">{t.title}</div>
+                          <div className="text-xs text-danger">
+                            {p?.code ?? ''} · termin {formatDate(t.due_date)} ({-daysUntil(t.due_date!, today)} gün gecikti)
+                          </div>
+                        </Link>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </Panel>
+            <Panel
+              title="Son teklifler"
+              icon={FileText}
+              actions={
+                <Link to="/teklifler" className="text-xs font-medium text-ink-2 hover:underline">
+                  Teklifler
+                </Link>
+              }
+              bodyClassName="p-0"
+            >
+              {recentQuotes.length === 0 ? (
+                <p className="px-5 py-6 text-center text-sm text-subtle">{live.loading ? 'Yükleniyor…' : 'Henüz teklif yok.'}</p>
+              ) : (
+                <ul className="divide-y divide-line">
+                  {recentQuotes.map((q) => (
+                    <li key={q.id}>
+                      <Link to={`/teklifler/${q.id}`} className="flex items-center gap-3 px-5 py-2.5 hover:bg-surface-2/70">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-mono text-[11px] text-subtle">
+                            {q.quote_no} · Rev {q.revision}
+                          </div>
+                          <div className="truncate text-sm font-medium text-ink">{q.title}</div>
+                        </div>
+                        <QuoteStatusBadge status={q.status} />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
+          </div>
+
+          <Panel title="Son aktiviteler" subtitle="Projelerdeki gerçek olaylar" icon={History}>
+            {live.data.events.length === 0 ? (
+              <p className="text-sm text-subtle">{live.loading ? 'Yükleniyor…' : 'Henüz aktivite yok.'}</p>
+            ) : (
+              <ol className="relative flex flex-col gap-4">
+                <span className="absolute top-3 bottom-3 left-[11px] w-px bg-line" aria-hidden="true" />
+                {live.data.events.map((e) => (
+                  <EventLine key={e.id} to={`/projeler/${e.project_id}`} e={{ ...e, detail: [projectOf.get(e.project_id)?.code, e.detail].filter(Boolean).join(' · ') || null }} />
+                ))}
+              </ol>
             )}
           </Panel>
 
@@ -134,6 +239,30 @@ export function DashboardPage() {
         </div>
 
         <div className="flex min-w-0 flex-col gap-6">
+          <Panel
+            title="Yeni bildirimler"
+            subtitle={unread ? `${unread} okunmamış` : 'Okunmamış bildirim yok'}
+            icon={Bell}
+            actions={
+              <Link to="/bildirimler" className="text-xs font-medium text-ink-2 hover:underline">
+                Tümü
+              </Link>
+            }
+            bodyClassName="p-0"
+          >
+            {notifications.filter((n) => !n.read_at).length === 0 ? (
+              <p className="px-5 py-6 text-center text-sm text-subtle">Yeni bildirim yok.</p>
+            ) : (
+              <ul className="divide-y divide-line">
+                {notifications
+                  .filter((n) => !n.read_at)
+                  .slice(0, 5)
+                  .map((n) => (
+                    <NotificationItem key={n.id} n={n} compact onOpen={() => open(n)} />
+                  ))}
+              </ul>
+            )}
+          </Panel>
           <Panel title="Sistem durumu" subtitle={`${APP.name} v${APP.version}`} icon={PlugZap}>
             <ul className="flex flex-col divide-y divide-line">
               <li className="flex items-center justify-between gap-3 pb-3 text-sm">

@@ -37,7 +37,18 @@ const TABLES = [
   'quote_items',
   'quote_history',
   'quote_settings',
+  'project_tasks',
+  'project_events',
+  'notifications',
+  'notification_prefs',
+  'push_subscriptions',
 ]
+// Faz 7: aşama → eski durum ve asgari ilerleme (supabase/migrations/20261014000700_leonx_workflow.sql ile aynı)
+const STAGE_STATUS = { yeni_firsat: 'kesif', teklif_hazirlaniyor: 'teklif', teklif_gonderildi: 'teklif', gorusme: 'teklif', onaylandi: 'teklif', olcu_kesif: 'olcu', uretime_hazirlik: 'tasarim', uretimde: 'uretim', montajda: 'montaj', tamamlandi: 'tamamlandi', teslim_edildi: 'tamamlandi', iptal: 'iptal' }
+const STATUS_STAGE = { kesif: 'olcu_kesif', olcu: 'olcu_kesif', tasarim: 'uretime_hazirlik', teklif: 'teklif_hazirlaniyor', uretim: 'uretimde', montaj: 'montajda', tamamlandi: 'tamamlandi', iptal: 'iptal', beklemede: 'gorusme' }
+const STAGE_PROGRESS = { yeni_firsat: 0, teklif_hazirlaniyor: 5, teklif_gonderildi: 10, gorusme: 15, onaylandi: 25, olcu_kesif: 30, uretime_hazirlik: 40, uretimde: 55, montajda: 80, tamamlandi: 100, teslim_edildi: 100, iptal: 0 }
+const STAGE_LABEL = { yeni_firsat: 'Yeni fırsat', teklif_hazirlaniyor: 'Teklif hazırlanıyor', teklif_gonderildi: 'Teklif gönderildi', gorusme: 'Görüşme aşamasında', onaylandi: 'Onaylandı', olcu_kesif: 'Ölçü / keşif', uretime_hazirlik: 'Üretime hazırlık', uretimde: 'Üretimde', montajda: 'Montajda', tamamlandi: 'Tamamlandı', teslim_edildi: 'Teslim edildi', iptal: 'İptal edildi' }
+const PREFS_DEFAULTS = { in_app: true, push: false, cat_proje: true, cat_teklif: true, cat_cad: true, cat_gorev: true, cat_termin: true, cat_sistem: true, own_actions: true }
 /** Gönderilmiş teklifte değişebilen alanlar (supabase/migrations/20261013000600_leonx_quotes.sql ile aynı) */
 const QUOTE_FREE = ['status', 'superseded', 'sent_at', 'decided_at', 'internal_notes', 'project_id']
 const QUOTE_DEFAULTS = {
@@ -69,6 +80,116 @@ export class MockSupabase {
     this.failNext = null
     this.quoteCounter = {}
     this.copyNote = null
+    this.eventSeq = 1
+    /** Testte push sunucusunun açık anahtarı (null: sunucu henüz hazır değil) */
+    this.vapidPublic = null
+  }
+
+  // ---------------------------------------------------------------- Faz 7 tetikleyici karşılıkları
+  syncStage(row, old) {
+    if (!old) {
+      if (row.stage === 'yeni_firsat' && row.status && row.status !== 'kesif') row.stage = STATUS_STAGE[row.status]
+    } else if (row.stage === old.stage && row.on_hold === old.on_hold && row.status !== old.status) {
+      if (row.status === 'beklemede') row.on_hold = true
+      else {
+        row.on_hold = false
+        if (STAGE_STATUS[old.stage] !== row.status) row.stage = STATUS_STAGE[row.status]
+      }
+    }
+    row.status = row.on_hold && !['tamamlandi', 'teslim_edildi', 'iptal'].includes(row.stage) ? 'beklemede' : STAGE_STATUS[row.stage]
+    row.progress = Math.max(Number(row.progress ?? 0), STAGE_PROGRESS[row.stage] ?? 0)
+    if (['tamamlandi', 'teslim_edildi'].includes(row.stage) && !row.completed_on) row.completed_on = this.now().slice(0, 10)
+    return row
+  }
+
+  event(projectId, kind, title, detail, refType, refId, actor, dedupe = null) {
+    if (!projectId) return
+    if (dedupe && this.db.project_events.some((e) => e.dedupe_key === dedupe)) return
+    const row = { id: this.eventSeq++, project_id: projectId, kind, title, detail: detail ?? null, ref_type: refType, ref_id: refId, actor, created_at: this.now(), dedupe_key: dedupe }
+    this.db.project_events.push(row)
+    this.broadcast('project_events', 'INSERT', row, null)
+  }
+
+  notify(category, kind, title, body, link, entityType, entityId, dedupe, actor, system = false) {
+    const prefs = this.db.notification_prefs.find((x) => x.user_id === OWNER.id) ?? PREFS_DEFAULTS
+    if (!prefs.in_app || !prefs[`cat_${category}`]) return
+    if (!system && !prefs.own_actions && actor === OWNER.id) return
+    if (this.db.notifications.some((n) => n.dedupe_key === dedupe)) return
+    const push = prefs.push && this.db.push_subscriptions.some((x) => !x.disabled_at)
+    const row = { id: randomUUID(), user_id: OWNER.id, category, kind, title: String(title).slice(0, 200), body: body ?? null, link, entity_type: entityType, entity_id: entityId, dedupe_key: dedupe, actor: system ? null : actor, read_at: null, push_state: push ? 'bekliyor' : 'yok', push_attempts: 0, created_at: this.now() }
+    this.db.notifications.push(row)
+    this.broadcast('notifications', 'INSERT', row, null)
+  }
+
+  afterInsert(table, row, actor) {
+    if (table === 'companies') this.notify('proje', 'musteri_yeni', `Yeni müşteri: ${row.name}`, null, `/firmalar/${row.id}`, 'company', row.id, `company:${row.id}:yeni`, actor)
+    if (table === 'projects') {
+      this.event(row.id, 'proje_olustu', 'Proje oluşturuldu', STAGE_LABEL[row.stage], 'project', row.id, actor, `project:${row.id}:yeni`)
+      this.notify('proje', 'proje_yeni', `Yeni proje: ${row.code} · ${row.name}`, null, `/projeler/${row.id}`, 'project', row.id, `project:${row.id}:yeni`, actor)
+    }
+    if (table === 'project_files') {
+      this.event(row.project_id, 'dosya', 'Dosya yüklendi', row.file_name, 'project_file', row.id, actor, `file:${row.id}`)
+      this.notify('proje', 'dosya_yeni', `Yeni dosya: ${row.file_name}`, null, `/projeler/${row.project_id}`, 'project', row.project_id, `file:${row.id}`, actor)
+    }
+    if (table === 'cad_analyses') {
+      this.event(row.project_id, 'cad_analiz', 'CAD analizi kaydedildi', `${row.file_name} · ${row.candidate_count ?? 0} aday`, 'cad_analysis', row.id, actor, `cad:${row.id}`)
+      this.notify('cad', 'cad_tamam', `CAD analizi tamamlandı: ${row.file_name}`, null, `/projeler/${row.project_id}`, 'project', row.project_id, `cad:${row.id}`, actor)
+    }
+    if (table === 'quantity_takeoffs') {
+      this.event(row.project_id, 'metraj', row.revision > 1 ? 'Metraj revize edildi' : 'Metraj hazırlandı', `Rev ${row.revision} · ${row.name}`, 'takeoff', row.id, actor, `takeoff:${row.id}`)
+      this.notify('cad', row.revision > 1 ? 'metraj_revize' : 'metraj_yeni', `${row.revision > 1 ? 'Metraj revize edildi' : 'Metraj hazırlandı'}: Rev ${row.revision}`, row.name, `/metraj?proje=${row.project_id}&surum=${row.id}`, 'project', row.project_id, `takeoff:${row.id}`, actor)
+    }
+    if (table === 'quotes') {
+      this.event(row.project_id, 'teklif', row.revision > 1 ? 'Teklif revizyonu eklendi' : 'Teklif eklendi', `${row.quote_no} Rev ${row.revision} · ${row.title}`, 'quote', row.id, actor, `quote:${row.id}:yeni`)
+      this.notify('teklif', 'teklif_yeni', `${row.revision > 1 ? 'Teklif revizyonu' : 'Teklif oluşturuldu'}: ${row.quote_no} Rev ${row.revision}`, row.title, `/teklifler/${row.id}`, 'quote', row.id, `quote:${row.id}:yeni`, actor)
+    }
+    if (table === 'project_tasks') {
+      this.event(row.project_id, 'gorev_eklendi', 'Görev eklendi', row.title, 'task', row.id, actor, `task:${row.id}:yeni`)
+      if (row.done) this.event(row.project_id, 'gorev_tamam', 'Görev tamamlandı', row.title, 'task', row.id, actor, `task:${row.id}:tamam:${row.done_at}`)
+    }
+  }
+
+  afterUpdate(table, old, next, actor) {
+    if (table === 'projects') {
+      if (next.stage !== old.stage) {
+        this.event(next.id, 'asama', STAGE_LABEL[next.stage], `${STAGE_LABEL[old.stage]} → ${STAGE_LABEL[next.stage]}`, 'project', next.id, actor)
+        this.notify('proje', 'proje_asama', `${next.code} · ${next.name}: ${STAGE_LABEL[next.stage]}`, `${STAGE_LABEL[old.stage]} → ${STAGE_LABEL[next.stage]}`, `/projeler/${next.id}`, 'project', next.id, `project:${next.id}:asama:${next.stage}:${this.now().slice(0, 16)}`, actor)
+      }
+      if (next.on_hold !== old.on_hold) this.event(next.id, 'beklemede', next.on_hold ? 'Beklemeye alındı' : 'Beklemeden çıkarıldı', null, 'project', next.id, actor)
+    }
+    if (table === 'quotes' && next.status !== old.status && ['gonderildi', 'kabul', 'red'].includes(next.status)) {
+      const label = { gonderildi: 'Teklif gönderildi', kabul: 'Teklif kabul edildi', red: 'Teklif reddedildi' }[next.status]
+      this.event(next.project_id, `teklif_${next.status}`, label, `${next.quote_no} Rev ${next.revision} · ${next.title}`, 'quote', next.id, actor, `quote:${next.id}:${next.status}`)
+      this.notify('teklif', `teklif_${next.status}`, `${label}: ${next.quote_no} Rev ${next.revision}`, next.title, next.status === 'kabul' && next.project_id ? `/projeler/${next.project_id}` : `/teklifler/${next.id}`, 'quote', next.id, `quote:${next.id}:${next.status}`, actor)
+    }
+    if (table === 'quantity_takeoffs' && next.status === 'onaylandi' && old.status !== 'onaylandi') {
+      this.event(next.project_id, 'metraj_onay', 'Metraj onaylandı', `Rev ${next.revision} · ${next.name}`, 'takeoff', next.id, actor, `takeoff:${next.id}:onay`)
+      this.notify('cad', 'metraj_onay', `Metraj onaylandı: Rev ${next.revision}`, next.name, `/metraj?proje=${next.project_id}&surum=${next.id}`, 'project', next.project_id, `takeoff:${next.id}:onay`, actor)
+    }
+    if (table === 'project_tasks' && next.done && !old.done) {
+      this.event(next.project_id, 'gorev_tamam', 'Görev tamamlandı', next.title, 'task', next.id, actor, `task:${next.id}:tamam:${next.done_at}`)
+    }
+  }
+
+  /** public.leonx_run_reminders karşılığı (tekilleştirilmiş) */
+  runReminders() {
+    const today = this.now().slice(0, 10)
+    const before = this.db.notifications.length
+    const plus = (d, n) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10)
+    for (const t of this.db.project_tasks.filter((x) => !x.done)) {
+      const p = this.db.projects.find((x) => x.id === t.project_id)
+      const link = `/projeler/${t.project_id}?sekme=gorevler`
+      if (t.remind_at && t.remind_at <= this.now()) this.notify('gorev', 'gorev_hatirlatma', `Görev zamanı: ${t.title}`, p?.code ?? null, link, 'task', t.id, `task:${t.id}:hatirlatma:${t.remind_at.slice(0, 16)}`, null, true)
+      if (t.due_date === today) this.notify('gorev', 'gorev_bugun', `Bugün bitmesi gereken görev: ${t.title}`, p?.code ?? null, link, 'task', t.id, `task:${t.id}:bugun:${t.due_date}`, null, true)
+      if (t.due_date && t.due_date < today) this.notify('gorev', 'gorev_gecikti', `Görev gecikti: ${t.title}`, p?.code ?? null, link, 'task', t.id, `task:${t.id}:gecikti:${t.due_date}`, null, true)
+    }
+    for (const p of this.db.projects.filter((x) => x.due_date && !['tamamlandi', 'teslim_edildi', 'iptal'].includes(x.stage))) {
+      if (p.due_date >= today && p.due_date <= plus(today, 3)) this.notify('termin', 'teslim_yaklasiyor', `Teslim tarihi yaklaşıyor: ${p.code}`, p.name, `/projeler/${p.id}`, 'project', p.id, `project:${p.id}:termin:${p.due_date}`, null, true)
+    }
+    for (const q of this.db.quotes.filter((x) => x.valid_until && !x.superseded && ['gonderildi', 'gorusmede'].includes(x.status))) {
+      if (q.valid_until >= today && q.valid_until <= plus(today, 2)) this.notify('teklif', 'teklif_suresi', `Teklif geçerliliği bitiyor: ${q.quote_no}`, q.title, `/teklifler/${q.id}`, 'quote', q.id, `quote:${q.id}:gecerlilik:${q.valid_until}`, null, true)
+    }
+    return this.db.notifications.length - before
   }
 
   // ---------------------------------------------------------------- yardımcılar
@@ -148,11 +269,24 @@ export class MockSupabase {
       if (!(Number(row.quantity) > 0)) return guardError('quote_items_quantity_check')
     }
     if (table === 'projects') {
-      row = { status: 'kesif', priority: 'normal', company_id: null, description: null, start_date: null, due_date: null, location: null, notes: null, ...row }
+      row = { status: 'kesif', stage: 'yeni_firsat', progress: 0, on_hold: false, completed_on: null, address: null, map_url: null, priority: 'normal', company_id: null, description: null, start_date: null, due_date: null, location: null, notes: null, ...row }
       if (this.db.projects.some((p) => p.code === row.code)) return { error: { status: 409, code: '23505', message: 'duplicate key value violates unique constraint "projects_code_key"' } }
+      if (row.progress > 100 || row.progress < 0) return guardError('projects_progress_check')
+      row = this.syncStage(row, null)
     }
+    if (table === 'project_tasks') {
+      if (!this.db.projects.some((p) => p.id === row.project_id)) return { error: { status: 409, code: '23503', message: 'Proje bulunamadı' } }
+      row = { description: null, priority: 'normal', start_date: null, due_date: null, remind_at: null, done: false, done_at: null, notes: null, sort_order: 0, ...row }
+      row.done_at = row.done ? this.now() : null
+    }
+    if (table === 'notification_prefs') {
+      if (this.db.notification_prefs.some((x) => x.user_id === actor)) return { error: { status: 409, code: '23505', message: 'duplicate key value violates unique constraint "notification_prefs_pkey"' } }
+      row = { ...PREFS_DEFAULTS, ...row, user_id: actor }
+    }
+    if (table === 'notifications' || table === 'project_events') return { error: { status: 403, code: '42501', message: 'permission denied' } }
     this.db[table].push(row)
     this.broadcast(table, 'INSERT', row, null)
+    this.afterInsert(table, row, actor)
     if (table === 'quantity_items') this.insertRow('quantity_item_history', { item_id: row.id, takeoff_id: row.takeoff_id, project_id: row.project_id, poz_code: row.poz_code, action: 'ekle', changes: {} }, actor)
     if (table === 'projects') this.insertRow('project_status_history', { project_id: row.id, from_status: null, to_status: row.status }, actor)
     if (table === 'quotes') {
@@ -198,16 +332,23 @@ export class MockSupabase {
       if (old.status === 'arsiv' && patch.status && patch.status !== 'arsiv') return guardError('Arşivlenmiş sürüm yeniden açılamaz; yeni sürüm oluşturun')
       if (patch.status === 'onaylandi' && old.status === 'taslak') patch = { ...patch, approved_at: this.now(), approved_by: actor }
     }
-    const next = { ...old, ...patch, id: old.id, created_at: old.created_at, created_by: old.created_by, updated_at: this.now(), version: old.version + 1 }
+    if (table === 'notifications' && Object.keys(patch).some((k) => k !== 'read_at')) return { error: { status: 403, code: '42501', message: 'permission denied for table notifications' } }
+    let next = { ...old, ...patch, id: old.id, created_at: old.created_at, created_by: old.created_by, updated_at: this.now(), version: (old.version ?? 0) + 1 }
+    if (table === 'projects') {
+      if (next.progress > 100 || next.progress < 0) return guardError('projects_progress_check')
+      next = this.syncStage(next, old)
+    }
+    if (table === 'project_tasks') next.done_at = next.done ? (old.done ? old.done_at : this.now()) : null
     this.db[table][i] = next
     this.broadcast(table, 'UPDATE', next, { id: old.id })
+    this.afterUpdate(table, old, next, actor)
     if (table === 'quantity_items') {
       const changes = {}
       for (const k of Object.keys(patch)) if (JSON.stringify(old[k]) !== JSON.stringify(next[k])) changes[k] = { eski: old[k] ?? null, yeni: next[k] ?? null }
       if (Object.keys(changes).length) this.insertRow('quantity_item_history', { item_id: next.id, takeoff_id: next.takeoff_id, project_id: next.project_id, poz_code: next.poz_code, action: 'guncelle', changes }, actor)
     }
-    if (table === 'projects' && patch.status && patch.status !== old.status) {
-      this.insertRow('project_status_history', { project_id: id, from_status: old.status, to_status: patch.status }, actor)
+    if (table === 'projects' && next.status !== old.status) {
+      this.insertRow('project_status_history', { project_id: id, from_status: old.status, to_status: next.status }, actor)
     }
     if (table === 'quotes' && patch.status && patch.status !== old.status) {
       this.insertRow('quote_history', { quote_id: id, root_id: old.root_id, action: 'durum', from_status: old.status, to_status: patch.status, note: null }, actor)
@@ -243,7 +384,7 @@ export class MockSupabase {
     // ON DELETE CASCADE karşılıkları
     if (table === 'companies') for (const c of this.db.contacts.filter((x) => x.company_id === id)) this.deleteRow('contacts', c.id)
     if (table === 'projects') {
-      for (const t of ['project_notes', 'project_files', 'project_status_history', 'quantity_items', 'quantity_takeoffs', 'cad_analyses', 'quantity_item_history']) {
+      for (const t of ['project_notes', 'project_files', 'project_status_history', 'quantity_items', 'quantity_takeoffs', 'cad_analyses', 'quantity_item_history', 'project_tasks', 'project_events']) {
         for (const r of this.db[t].filter((x) => x.project_id === id)) this.deleteRow(t, r.id, true)
       }
     }
@@ -403,6 +544,30 @@ export class MockSupabase {
       return json(200, row.id)
     }
 
+    if (p === '/rest/v1/rpc/check_reminders') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      return json(200, this.runReminders())
+    }
+    if (p === '/rest/v1/rpc/notify_client_event') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      const b = req.postDataJSON()
+      if (!['surum_yeni', 'cad_hata', 'push_test'].includes(b.p_kind)) return json(400, { code: '22023', message: 'Geçersiz olay türü' })
+      this.notify(b.p_kind === 'cad_hata' ? 'cad' : 'sistem', b.p_kind, b.p_title, b.p_body, b.p_link, null, null, `${b.p_kind}:${b.p_key}`, user.id, b.p_kind !== 'cad_hata')
+      return json(200, null)
+    }
+    if (p === '/rest/v1/rpc/push_public_key') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      return json(200, this.vapidPublic)
+    }
+    if (p === '/rest/v1/rpc/register_push_subscription') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      const b = req.postDataJSON()
+      const ex = this.db.push_subscriptions.find((x) => x.endpoint === b.p_endpoint)
+      if (ex) this.updateRow('push_subscriptions', ex.id, { p256dh: b.p_p256dh, auth_key: b.p_auth, last_seen_at: this.now(), disabled_at: null, failure_count: 0 })
+      else this.insertRow('push_subscriptions', { user_id: user.id, endpoint: b.p_endpoint, p256dh: b.p_p256dh, auth_key: b.p_auth, user_agent: b.p_user_agent, device_label: b.p_label, last_seen_at: this.now(), last_success_at: null, failure_count: 0, disabled_at: null })
+      return json(200, (ex ?? this.db.push_subscriptions.at(-1)).id)
+    }
+
     if (p === '/rest/v1/rpc/copy_quote') {
       if (!user) return json(401, { code: '42501', message: 'permission denied' })
       const { p_source, p_mode } = req.postDataJSON()
@@ -468,7 +633,8 @@ export class MockSupabase {
     }
     const filters = []
     for (const [k, v] of url.searchParams) {
-      if (['select', 'order', 'offset', 'limit', 'columns', 'on_conflict'].includes(k)) continue
+      if (['select', 'order', 'offset', 'limit', 'columns', 'on_conflict', 'or'].includes(k)) continue
+      if (v === 'is.null') filters.push((r) => r[k] == null)
       const fm = v.match(/^eq\.(.*)$/)
       if (fm) filters.push((r) => String(r[k]) === fm[1])
       const im = v.match(/^in\.\((.*)\)$/)

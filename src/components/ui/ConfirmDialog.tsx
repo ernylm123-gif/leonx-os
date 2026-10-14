@@ -12,7 +12,7 @@ interface ConfirmDialogProps {
   onClose: () => void
 }
 
-export function ConfirmDialog({ open, title, message, confirmLabel = 'Sil', busy, onConfirm, onClose }: ConfirmDialogProps) {
+export function ConfirmDialog({ open, title, message, confirmLabel = 'Sil', busy, onConfirm, onClose, tone = 'danger' }: ConfirmDialogProps & { tone?: 'danger' | 'primary' }) {
   return (
     <Modal
       open={open}
@@ -24,7 +24,7 @@ export function ConfirmDialog({ open, title, message, confirmLabel = 'Sil', busy
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Vazgeç
           </Button>
-          <Button variant="danger" onClick={onConfirm} disabled={busy}>
+          <Button variant={tone} onClick={onConfirm} disabled={busy} data-testid="confirm-ok">
             {busy ? 'Siliniyor…' : confirmLabel}
           </Button>
         </>

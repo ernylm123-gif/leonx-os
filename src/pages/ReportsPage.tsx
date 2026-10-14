@@ -4,7 +4,7 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { Panel } from '@/components/ui/Panel'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { useData } from '@/context/data'
-import { countByCategory, countByStatus } from '@/lib/stats'
+import { countByCategory, countByStage } from '@/lib/stats'
 
 function BarList({ rows, total, hrefFor }: { rows: { value: string; label: string; count: number }[]; total: number; hrefFor: (v: string) => string }) {
   return (
@@ -40,7 +40,7 @@ const PLANNED = [
 export function ReportsPage() {
   const { projects, loading } = useData()
   const total = projects.length
-  const byStatus = countByStatus(projects)
+  const byStatus = countByStage(projects)
   const byCategory = countByCategory(projects).filter((c) => c.count > 0)
 
   return (
@@ -55,13 +55,13 @@ export function ReportsPage() {
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Panel title="Durumlara göre projeler" subtitle={`R01 · ${total} proje`} icon={ListChecks}>
+        <Panel title="Aşamalara göre projeler" subtitle={`R01 · ${total} proje`} icon={ListChecks}>
           {loading && !total ? (
             <div className="h-48 animate-pulse rounded-xl bg-surface-2" />
           ) : total === 0 ? (
             <p className="py-8 text-center text-sm text-subtle">Rapor için henüz proje kaydı yok.</p>
           ) : (
-            <BarList rows={byStatus} total={total} hrefFor={(v) => `/projeler?durum=${v}`} />
+            <BarList rows={byStatus} total={total} hrefFor={(v) => `/projeler?asama=${v}`} />
           )}
         </Panel>
         <Panel title="Kategorilere göre projeler" subtitle={`R02 · ${byCategory.length} kategori`} icon={Layers}>
@@ -70,7 +70,7 @@ export function ReportsPage() {
           ) : total === 0 ? (
             <p className="py-8 text-center text-sm text-subtle">Rapor için henüz proje kaydı yok.</p>
           ) : (
-            <BarList rows={byCategory} total={total} hrefFor={(v) => `/projeler?durum=tumu&kategori=${v}`} />
+            <BarList rows={byCategory} total={total} hrefFor={(v) => `/projeler?asama=tumu&kategori=${v}`} />
           )}
         </Panel>
       </div>

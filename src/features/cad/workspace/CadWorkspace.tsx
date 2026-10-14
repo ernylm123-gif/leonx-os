@@ -26,6 +26,7 @@ import type { PdfPageEntry } from '@/cad/pdf/pdfLoader'
 import { type DisplayUnitId, DISPLAY_UNITS } from '@/cad/units'
 import type { Measurement, Pt, ViewerTheme, ViewerTool } from '@/cad/viewer/engine'
 import { cn } from '@/lib/cn'
+import { requireSupabase } from '@/lib/supabase'
 import { CadCanvas, type CadCanvasHandle } from '../CadCanvas'
 import { formatAreaWorld, formatCoord, formatLengthWorld, type UnitState } from '../format'
 import { type CadSource, initialUnits, type LoadedCad, UNKNOWN_UNITS, unitsFromPdfScale, useCadDocument } from '../useCadDocument'
@@ -187,6 +188,19 @@ export function CadWorkspace({
   }, [openFile, addLog, fail, pending])
 
   const zoomTo = useCallback((b: [number, number, number, number]) => canvasRef.current?.zoomToBox(b), [])
+
+  // Dosya açılamadıysa bildirim merkezine kaydedilir (tüm cihazlarda görünür; aynı dakikada tek kayıt)
+  const errorKey = state.status === 'error' ? `${state.fileName}|${state.code}` : null
+  useEffect(() => {
+    if (state.status !== 'error') return
+    const minute = new Date().toISOString().slice(0, 16)
+    void import('@/data/workflowApi')
+      .then(({ notifyClientEvent }) =>
+        notifyClientEvent(requireSupabase(), 'cad_hata', `CAD analizi hata verdi: ${state.fileName}`.slice(0, 200), state.message.slice(0, 400), '/cad-analiz', `${state.fileName}:${state.code}:${minute}`),
+      )
+      .catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorKey])
 
   // PDF: her sayfanın ölçeği ayrı tutulur (paftalar farklı ölçekte olabilir)
   const unitsByPage = useRef(new Map<string, UnitState>())

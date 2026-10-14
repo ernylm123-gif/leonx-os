@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Panel } from '@/components/ui/Panel'
-import { StatusBadge } from '@/components/ui/ProjectBadges'
+import { StageBadge } from '@/components/ui/ProjectBadges'
 import { ErrorState, LoadingState } from '@/components/ui/States'
 import { useData } from '@/context/data'
 import { useToast } from '@/context/toast'
@@ -168,7 +168,7 @@ export function CompanyDetailPage() {
                           {CATEGORY_LABEL[p.category]} · Teslim {formatDate(p.due_date)}
                         </div>
                       </div>
-                      <StatusBadge status={p.status} />
+                      <StageBadge stage={p.stage} onHold={p.on_hold} />
                     </Link>
                   </li>
                 ))}

@@ -12,6 +12,7 @@ import {
   originStatus,
   parseBuildInfo,
   recordReloadAttempt,
+  isPushWorker,
 } from './appVersion'
 
 function memoryStore(): KeyValueStore & { data: Map<string, string> } {
@@ -139,5 +140,14 @@ describe('önbelleği atlayan yeniden yükleme adresi', () => {
     expect(cleanReloadParam('https://leonx-os.vercel.app/ayarlar?_surum=x')).toBe('/ayarlar')
     expect(cleanReloadParam('https://leonx-os.vercel.app/ayarlar')).toBeNull()
     expect(reloadUrl('https://a.test/', '<script>')).toContain('_surum=script')
+  })
+})
+
+describe('push service worker korunur', () => {
+  it('yalnız /sw.js push çalışanı sayılır; diğer eski çalışanlar temizlenir', () => {
+    expect(isPushWorker('https://leonx-os.vercel.app/sw.js')).toBe(true)
+    expect(isPushWorker('https://leonx-os.vercel.app/service-worker.js')).toBe(false)
+    expect(isPushWorker('https://leonx-os.vercel.app/assets/sw.js')).toBe(false)
+    expect(isPushWorker(undefined)).toBe(false)
   })
 })

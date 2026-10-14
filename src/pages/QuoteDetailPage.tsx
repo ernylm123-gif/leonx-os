@@ -9,7 +9,7 @@ import { ErrorState, LoadingState } from '@/components/ui/States'
 import { FilterSelect } from '@/components/ui/Toolbar'
 import { useData } from '@/context/data'
 import { useToast } from '@/context/toast'
-import { ConflictError, listContacts } from '@/data/api'
+import { ConflictError, listContacts, updateProjectStage } from '@/data/api'
 import { copyQuote, createQuoteItems, deleteQuote, deleteQuoteItems, getQuote, listQuoteHistory, listQuoteItems, listQuoteRevisions, updateQuote, updateQuoteItem } from '@/data/quoteApi'
 import type { Contact } from '@/data/types'
 import { ProjectForm } from '@/features/projects/ProjectForm'
@@ -22,6 +22,7 @@ import { QuoteItemsTable } from '@/features/quotes/QuoteItemsTable'
 import { QuoteTotalsCard } from '@/features/quotes/QuoteTotalsCard'
 import { QuoteStatusBadge, useQuoteSettings } from '@/features/quotes/shared'
 import { dataErrorMessage } from '@/lib/errors'
+import { QUOTE_STAGES, STAGE_LABEL } from '@/lib/domain'
 import { formatDate, formatDateTime } from '@/lib/stats'
 import { requireSupabase } from '@/lib/supabase'
 import { useUnsavedChanges } from '@/lib/unsaved'
@@ -37,7 +38,7 @@ export function QuoteDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { notify } = useToast()
-  const { companies, projects } = useData()
+  const { companies, projects, upsertProject } = useData()
   const { values: settings } = useQuoteSettings()
 
   const quoteQ = useLiveList<Quote>('quotes', 'id', id, async (qid) => {
@@ -126,6 +127,8 @@ export function QuoteDetailPage() {
   const [importOpen, setImportOpen] = useState(false)
   const [confirm, setConfirm] = useState<null | { kind: 'deleteItem'; item: QuoteItem } | { kind: 'deleteQuote' } | { kind: 'status'; status: QuoteStatus }>(null)
   const [projectFormOpen, setProjectFormOpen] = useState(false)
+  /** Teklif kabul edildi: proje aşamasını güncellemeyi ÖNER (otomatik ticari karar verilmez) */
+  const [stagePrompt, setStagePrompt] = useState(false)
 
   const guard = async (fn: () => Promise<void>, ctx: string) => {
     setBusy(true)
@@ -144,6 +147,7 @@ export function QuoteDetailPage() {
       const saved = await updateQuote(db(), quote, { status })
       quoteQ.setItems([saved])
       notify(`Durum: ${QUOTE_STATUS_LABEL[status]}`)
+      if (status === 'kabul' && project && QUOTE_STAGES.includes(project.stage)) setStagePrompt(true)
     }, 'Durum değiştirme')
 
   const requestStatus = (status: QuoteStatus) => {
@@ -484,6 +488,24 @@ export function QuoteDetailPage() {
           else void setStatus(c.status)
         }}
       />
+      {project && (
+        <ConfirmDialog
+          open={stagePrompt}
+          title="Proje aşaması güncellensin mi?"
+          message={`Teklif kabul edildi. "${project.code} · ${project.name}" projesi şu an "${STAGE_LABEL[project.stage]}" aşamasında. "Onaylandı" aşamasına alınsın mı? (Otomatik yapılmaz; isterseniz daha sonra proje sayfasından değiştirebilirsiniz.)`}
+          confirmLabel="Onaylandı aşamasına al"
+          tone="primary"
+          onClose={() => setStagePrompt(false)}
+          onConfirm={() => {
+            setStagePrompt(false)
+            void guard(async () => {
+              const saved = await updateProjectStage(db(), project.id, project.version, { stage: 'onaylandi' })
+              upsertProject(saved)
+              notify(`${project.code}: Onaylandı`)
+            }, 'Proje aşaması')
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import type { Company, Project } from '@/data/types'
-import { isActiveStatus, PROJECT_CATEGORIES, PROJECT_STATUSES, type ProjectCategory, type ProjectStatus } from './domain'
+import { isActiveStage, PROJECT_CATEGORIES, PROJECT_STAGES, type ProjectCategory, type ProjectStage } from './domain'
 
 /** Yerel saatle YYYY-MM-DD */
 export function localISODate(d: Date = new Date()): string {
@@ -26,11 +26,11 @@ export interface DashboardStats {
 /** Gerçek kayıtlardan özet. Finansal değer üretilmez. */
 export function computeStats(projects: Project[], companies: Company[], today = localISODate(), windowDays = 14): DashboardStats {
   const limit = addDays(today, windowDays)
-  const active = projects.filter((p) => isActiveStatus(p.status))
+  const active = projects.filter((p) => isActiveStage(p.stage))
   return {
     total: projects.length,
     active: active.length,
-    completed: projects.filter((p) => p.status === 'tamamlandi').length,
+    completed: projects.filter((p) => p.stage === 'tamamlandi' || p.stage === 'teslim_edildi').length,
     companies: companies.length,
     overdue: active.filter((p) => p.due_date !== null && p.due_date < today).length,
     upcoming: active
@@ -39,8 +39,8 @@ export function computeStats(projects: Project[], companies: Company[], today = 
   }
 }
 
-export function countByStatus(projects: Project[]): { value: ProjectStatus; label: string; count: number }[] {
-  return PROJECT_STATUSES.map((s) => ({ ...s, count: projects.filter((p) => p.status === s.value).length }))
+export function countByStage(projects: Project[]): { value: ProjectStage; label: string; count: number }[] {
+  return PROJECT_STAGES.map((s) => ({ value: s.value, label: s.label, count: projects.filter((p) => p.stage === s.value).length }))
 }
 
 export function countByCategory(projects: Project[]): { value: ProjectCategory; label: string; count: number }[] {

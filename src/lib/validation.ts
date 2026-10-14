@@ -1,5 +1,5 @@
 import type { CompanyInput, ContactInput, ProjectInput } from '@/data/types'
-import { isCategory, isPriority, isStatus } from './domain'
+import { isCategory, isPriority, isStage } from './domain'
 
 /**
  * Form doğrulamaları. Kurallar veritabanı CHECK kısıtlarıyla aynıdır; istemci
@@ -86,19 +86,26 @@ export function validateContact(
 export function validateProject(input: Partial<Record<keyof ProjectInput, string | null>>): ValidationResult<ProjectInput> {
   const code = clean(input.code)?.toUpperCase() ?? ''
   const category = clean(input.category) ?? ''
-  const status = clean(input.status) ?? 'kesif'
+  const stage = clean(input.stage) ?? 'yeni_firsat'
   const priority = clean(input.priority) ?? 'normal'
+  const progressRaw = clean(input.progress)
+  const progress = progressRaw == null ? 0 : Number(progressRaw)
   const value = {
     code,
     name: clean(input.name) ?? '',
     company_id: clean(input.company_id),
     category,
-    status,
+    stage,
+    progress: Number.isFinite(progress) ? Math.round(progress) : 0,
+    on_hold: input.on_hold === 'true',
     priority,
     description: clean(input.description),
     start_date: clean(input.start_date),
     due_date: clean(input.due_date),
+    completed_on: clean(input.completed_on),
     location: clean(input.location),
+    address: clean(input.address),
+    map_url: clean(input.map_url),
     notes: clean(input.notes),
   } as ProjectInput
   const errors: Record<string, string> = {}
@@ -108,7 +115,13 @@ export function validateProject(input: Partial<Record<keyof ProjectInput, string
   checkLength(errors, 'name', value.name, 200, 'Proje adı')
   if (!category) errors.category = 'İş kategorisi seçin.'
   else if (!isCategory(category)) errors.category = 'Geçersiz kategori.'
-  if (!isStatus(status)) errors.status = 'Geçersiz durum.'
+  if (!isStage(stage)) errors.stage = 'Geçersiz aşama.'
+  if (!Number.isFinite(progress) || progress < 0 || progress > 100) errors.progress = 'İlerleme 0–100 arasında olmalı.'
+  if (value.completed_on && !isValidDate(value.completed_on)) errors.completed_on = 'Geçerli bir tarih girin.'
+  else if (value.completed_on && value.start_date && value.completed_on < value.start_date) errors.completed_on = 'Bitiş tarihi başlangıçtan önce olamaz.'
+  if (value.map_url && !/^https:\/\/\S+$/i.test(value.map_url)) errors.map_url = 'Harita bağlantısı https:// ile başlamalı.'
+  checkLength(errors, 'map_url', value.map_url, 500, 'Harita bağlantısı')
+  checkLength(errors, 'address', value.address, 500, 'Adres')
   if (!isPriority(priority)) errors.priority = 'Geçersiz öncelik.'
   if (value.start_date && !isValidDate(value.start_date)) errors.start_date = 'Geçerli bir tarih girin.'
   if (value.due_date && !isValidDate(value.due_date)) errors.due_date = 'Geçerli bir tarih girin.'
