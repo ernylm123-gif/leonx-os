@@ -43,7 +43,8 @@ begin
     raise notice 'pg_cron / pg_net bulunamadı; sunucu zamanlayıcısı kurulmadı (uygulama açılışındaki kontrol yine çalışır).';
     return;
   end if;
-  execute 'create extension if not exists pg_net';
+  execute 'create schema if not exists extensions';
+  execute 'create extension if not exists pg_net with schema extensions';
   execute 'create extension if not exists pg_cron';
   execute $q$select cron.schedule('leonx-hatirlatmalar', '*/5 * * * *', 'select public.leonx_run_reminders()')$q$;
   execute $q$select cron.schedule('leonx-push', '* * * * *', 'select leonx_private.dispatch_push()')$q$;

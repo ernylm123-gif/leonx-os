@@ -19,7 +19,7 @@ Tek üretim adresi: <https://leonx-os.vercel.app> (yalnızca `main` dalından). 
 
 ## Veritabanı
 
-Migration'lar `supabase/migrations/` altında, sırasıyla 001–008. Hepsi gerçek Supabase projesine uygulandı; tümü
+Migration'lar `supabase/migrations/` altında, sırasıyla 001–009. Hepsi gerçek Supabase projesine uygulandı; tümü
 tekrar çalıştırılabilir ve DROP/veri silme içermez.
 
 ## Testler

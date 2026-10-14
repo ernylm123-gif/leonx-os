@@ -69,6 +69,7 @@ sorgu olarak yapıştırın ve **Run** deyin. Her biri "Success. No rows returne
 | 6 | `supabase/migrations/20261013000600_leonx_quotes.sql` | Teklifler, kalemler, revizyon geçmişi, teklif ayarları, numara sayacı (RLS + Realtime) |
 | 7 | `supabase/migrations/20261014000700_leonx_workflow.sql` | Proje aşamaları, görevler, işlem geçmişi, bildirimler, tercihler, push abonelikleri, hatırlatma taraması |
 | 8 | `supabase/migrations/20261014000800_leonx_scheduler.sql` | pg_cron + pg_net zamanlayıcı (hatırlatmalar 5 dk, push gönderimi 1 dk) |
+| 9 | `supabase/migrations/20261014000900_leonx_hardening.sql` | Tetikleyici fonksiyonlarının istemciden çağrılmasını kapatır |
 
 - Dosyalar **tekrar çalıştırılabilir** ve hiçbir nesneyi silmez (`DROP` içermez): tetikleyiciler
   `create or replace trigger`, politikalar "yoksa oluştur, varsa `ALTER POLICY`" ile tanımlanır.
