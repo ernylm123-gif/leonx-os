@@ -1,5 +1,5 @@
 import { CheckCircle2, ChevronDown, Crosshair, Loader2, Plus, Sparkles, X } from 'lucide-react'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import { cn } from '@/lib/cn'
 import type { DetectionResult, PozCandidate } from '@/quantity/detect'
 import { candidateToInput, canApprove } from '@/quantity/fromDetection'
@@ -12,7 +12,7 @@ const LEVEL = {
   dusuk: { label: 'Düşük', cls: 'border-danger/30 bg-danger-soft text-danger' },
 } as const
 
-const SOURCE = { blok: 'Blok', kapali_cizgi: 'Kapalı çizgi', cizgi_dortgen: '4 çizgi', cokgen: 'Çokgen', elle: 'Elle', olcum: 'Ölçüm' } as const
+const SOURCE = { blok: 'Blok', kapali_cizgi: 'Kapalı çizgi', cizgi_dortgen: '4 çizgi', cokgen: 'Çokgen', elle: 'Elle', olcum: 'Ölçüm', etiket: 'PDF etiketi', cizelge: 'Çizelge' } as const
 
 export function PozPanel({
   available,
@@ -26,6 +26,7 @@ export function PozPanel({
   onAdd,
   onShow,
   selectedKey,
+  controls,
 }: {
   available: boolean
   unavailableReason?: string
@@ -38,6 +39,8 @@ export function PozPanel({
   onAdd: (c: PozCandidate[], opts: { approve: boolean; category?: QuantityCategory }) => void
   onShow: (c: PozCandidate) => void
   selectedKey: string | null
+  /** Varsayılan "Pozları tespit et" düğmesi yerine özel denetimler (PDF: sayfa seçimi, OCR, tanılama) */
+  controls?: ReactNode
 }) {
   const [cats, setCats] = useState<Record<string, QuantityCategory>>({})
   const [open, setOpen] = useState<string | null>(null)
@@ -47,23 +50,26 @@ export function PozPanel({
   const addable = list.filter((c) => !addedKeys.has(c.key))
   return (
     <div className="flex min-h-full flex-col" data-testid="poz-panel">
-      <div className="space-y-2 border-b border-line p-3">
-        <button
-          type="button"
-          onClick={onDetect}
-          disabled={running}
-          className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-primary text-[12.5px] font-semibold text-primary-ink hover:bg-primary-hover disabled:opacity-60"
-          data-testid="poz-detect"
-        >
-          {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Sparkles className="h-4 w-4" aria-hidden="true" />}
-          {detection ? 'Yeniden tespit et' : 'Pozları tespit et'}
-        </button>
+      {controls}
+      <div className={cn('space-y-2 border-b border-line p-3', !!controls && !detection && 'hidden')}>
+        {!controls && (
+          <button
+            type="button"
+            onClick={onDetect}
+            disabled={running}
+            className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-primary text-[12.5px] font-semibold text-primary-ink hover:bg-primary-hover disabled:opacity-60"
+            data-testid="poz-detect"
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Sparkles className="h-4 w-4" aria-hidden="true" />}
+            {detection ? 'Yeniden tespit et' : 'Pozları tespit et'}
+          </button>
+        )}
         {detection && (
           <>
             <p className="text-[11.5px] text-muted">
               {detection.candidates.length} aday · {detection.labelsFound} poz etiketi. Tespitler <strong className="text-ink">öneridir</strong>; malzeme ve ölçüler onaylanmadan kesin metraja girmez.
             </p>
-            {!detection.unitsVerified && <p className="text-[11.5px] text-danger">Çizim birimi doğrulanmadı: önce Dosya sekmesinden birimi onaylayın.</p>}
+            {!detection.unitsVerified && !detection.pdf && <p className="text-[11.5px] text-danger">Çizim birimi doğrulanmadı: önce Dosya sekmesinden birimi onaylayın.</p>}
             {detection.skipped.length > 0 && (
               <button type="button" onClick={() => setShowSkipped((v) => !v)} className="flex items-center gap-1 text-[11.5px] font-semibold text-muted hover:text-ink">
                 <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', showSkipped && 'rotate-180')} aria-hidden="true" />
@@ -182,7 +188,7 @@ export function PozPanel({
             </li>
           )
         })}
-        {detection && list.length === 0 && <li className="px-4 py-6 text-center text-[12.5px] text-muted">Doğrama pozu adayı bulunamadı. Pozları elle ekleyebilirsiniz.</li>}
+        {detection && list.length === 0 && !controls && <li className="px-4 py-6 text-center text-[12.5px] text-muted">Doğrama pozu adayı bulunamadı. Pozları elle ekleyebilirsiniz.</li>}
       </ul>
     </div>
   )

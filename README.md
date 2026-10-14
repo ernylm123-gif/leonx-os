@@ -100,7 +100,7 @@ kurulmadı ve doğrulanmadı. Gerçek müşteri verisi girmeden önce:
 | Veri sızıntısı | Realtime olayları abone başına RLS ile süzülür; silme olaylarında yalnızca kimlik gider. Hata iletileri tablo/SQL ayrıntısı göstermez. Yayın paketinde gizli anahtar yok |
 | Gizli anahtarın sızması | Yalnızca publishable anahtar kullanılır; `sb_secret_` veya `service_role` anahtarı algılanırsa uygulama çalışmayı reddeder |
 | Hatalı dosya erişimi | Özel bucket; okuma/yazma yalnızca sahip; yükleme yalnızca mevcut bir projenin klasörüne; uzantı izin listesi, 50 MB sınırı, içerik türü uzantıdan belirlenir; indirme yetkili oturumla yapılır, herkese açık bağlantı üretilmez |
-| XSS / oturum çalınması | Oturum belirteci tarayıcıda saklanır (Supabase varsayılanı). Katı CSP satır içi betiği yasaklar; React çıktıyı kaçışlar; `dangerouslySetInnerHTML` kullanılmaz |
+| XSS / oturum çalınması | Oturum belirteci tarayıcıda saklanır (Supabase varsayılanı). Katı CSP satır içi betiği yasaklar (yalnız `'wasm-unsafe-eval'` açık: taranmış PDF OCR'ı WebAssembly derlemesi için; `eval` kapalı kalır); React çıktıyı kaçışlar; `dangerouslySetInnerHTML` kullanılmaz |
 | Kaba kuvvet giriş denemeleri | Supabase Auth hız sınırları; hatalı denemede şifre alanı temizlenir |
 | Sessiz veri kaybı | Sürüm tabanlı çakışma kontrolü; projesi olan firma silinemez (veritabanı kısıtı) |
 

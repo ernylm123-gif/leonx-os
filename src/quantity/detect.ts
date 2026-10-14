@@ -26,6 +26,10 @@ export interface PozInstance {
   bbox: BBox
   handle: string | null
   mirrored?: boolean
+  /** PDF: örneğin bulunduğu sayfa (vurgulama ve konuma gitme için) */
+  page?: number
+  /** PDF: örneğin rolü — plan etiketi (sayılır), çizelge satırı, görünüş */
+  role?: 'plan' | 'cizelge' | 'gorunus' | 'diger'
 }
 
 export interface PozCandidate {
@@ -59,6 +63,8 @@ export interface DetectionResult {
   skipped: { reason: string; count: number }[]
   labelsFound: number
   unitsVerified: boolean
+  /** PDF analizi tanılaması (sayfalar, ölçek, sonuç yoksa nedenleri) */
+  pdf?: import('@/cad/pdf/archAnalyze').PdfDiagnostics
 }
 
 export interface DetectOptions {

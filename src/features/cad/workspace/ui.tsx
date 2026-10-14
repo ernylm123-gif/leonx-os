@@ -131,7 +131,23 @@ export function KV({ k, v, mono }: { k: string; v: ReactNode; mono?: boolean }) 
   )
 }
 
-export function MiniButton({ children, onClick, disabled, tone = 'default', title, testId }: { children: ReactNode; onClick: () => void; disabled?: boolean; tone?: 'default' | 'primary' | 'danger'; title?: string; testId?: string }) {
+export function MiniButton({
+  children,
+  onClick,
+  disabled,
+  tone = 'default',
+  title,
+  testId,
+  className,
+}: {
+  children: ReactNode
+  onClick: () => void
+  disabled?: boolean
+  tone?: 'default' | 'primary' | 'danger'
+  title?: string
+  testId?: string
+  className?: string
+}) {
   return (
     <button
       type="button"
@@ -144,6 +160,7 @@ export function MiniButton({ children, onClick, disabled, tone = 'default', titl
         tone === 'primary' && 'bg-primary text-primary-ink hover:bg-primary-hover',
         tone === 'default' && 'border border-line bg-surface text-ink hover:bg-surface-2',
         tone === 'danger' && 'border border-danger/30 bg-danger-soft text-danger hover:brightness-95',
+        className,
       )}
     >
       {children}

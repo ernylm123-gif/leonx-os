@@ -12,7 +12,7 @@ import { describeUnitCode, unitByCode } from './units'
 export class CadAnalysisError extends Error {
   constructor(
     message: string,
-    public readonly code: 'dwg' | 'dxf-binary' | 'pdf' | 'unknown' | 'syntax' | 'empty' | 'too-large',
+    public readonly code: 'dwg' | 'dxf-binary' | 'pdf' | 'pdf-open' | 'pdf-pages' | 'unknown' | 'syntax' | 'empty' | 'too-large',
     public readonly detail?: string,
   ) {
     super(message)

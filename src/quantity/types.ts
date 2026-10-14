@@ -62,12 +62,14 @@ export interface DrawingRef {
   key?: string | null
   analysis_id?: string | null
   file_name?: string | null
-  source: 'blok' | 'kapali_cizgi' | 'cizgi_dortgen' | 'cokgen' | 'elle' | 'olcum'
+  source: 'blok' | 'kapali_cizgi' | 'cizgi_dortgen' | 'cokgen' | 'elle' | 'olcum' | 'etiket' | 'cizelge'
   handles?: string[]
   layer?: string | null
   block?: string | null
   /** Dünya koordinatında sınır kutuları (her örnek için) */
   boxes?: [number, number, number, number][]
+  /** PDF: her kutunun sayfa numarası (boxes ile aynı sıra) */
+  box_pages?: number[]
 }
 
 export interface DetectionInfo {
