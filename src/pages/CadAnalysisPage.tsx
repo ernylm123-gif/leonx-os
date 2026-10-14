@@ -1,12 +1,16 @@
-import { FolderKanban, History, ListChecks, Save, ScanLine, Table2 } from 'lucide-react'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { FileSpreadsheet, FolderKanban, History, ListChecks, Save, ScanLine, Send, Table2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Measurement } from '@/cad/viewer/engine'
 import { useData } from '@/context/data'
 import { useToast } from '@/context/toast'
 import { downloadProjectFile, listProjectFiles } from '@/data/api'
 import { CadWorkspace, type WorkspaceContext } from '@/features/cad/workspace/CadWorkspace'
+import { PdfAnalysisControls, type PdfRunProgress } from '@/features/cad/quantity/PdfAnalysisControls'
+import { type CandidateEdit, PdfResultsTable } from '@/features/cad/quantity/PdfResultsTable'
 import { PozPanel } from '@/features/cad/quantity/PozPanel'
+import { DetectionCancelled, runPdfDetection } from '@/features/cad/quantity/runPdfDetection'
+import { SendToQuoteDialog } from '@/features/cad/quantity/SendToQuoteDialog'
 import { ProjectBindingDialog } from '@/features/cad/quantity/ProjectBindingDialog'
 import { ProjectHistoryPanel } from '@/features/cad/quantity/ProjectHistoryPanel'
 import { useCadProject } from '@/features/cad/quantity/useCadProject'
@@ -20,6 +24,9 @@ import { requireSupabase } from '@/lib/supabase'
 import { type DetectionResult, detectPoz, type PozCandidate } from '@/quantity/detect'
 import { areaMeasurementToInput, candidateToInput, distanceMeasurementToInput } from '@/quantity/fromDetection'
 import type { QuantityCategory, QuantityItem, QuantityItemInput } from '@/quantity/types'
+
+type Box = [number, number, number, number]
+const unionBox = (boxes: Box[]): Box => [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))]
 
 export function CadAnalysisPage() {
   const [params] = useSearchParams()
@@ -43,9 +50,20 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const [bindOpen, setBindOpen] = useState(false)
   const [measureForm, setMeasureForm] = useState<QuantityItemInput | null>(null)
+  const [edits, setEdits] = useState<Record<string, CandidateEdit>>({})
+  const [pdfPages, setPdfPages] = useState<Set<number>>(new Set())
+  const [ocr, setOcr] = useState(false)
+  const [progress, setProgress] = useState<PdfRunProgress | null>(null)
+  const [analyzedAt, setAnalyzedAt] = useState<Date | null>(null)
+  const [viewPage, setViewPage] = useState<number | null>(null)
+  const [quoteOpen, setQuoteOpen] = useState(false)
+  const [loadedDocId, setLoadedDocId] = useState<string | null>(null)
+  const runAbort = useRef<AbortController | null>(null)
+  const pendingZoom = useRef<{ page: number; box: Box } | null>(null)
+  const autoRunFor = useRef<string | null>(null)
   const ctxRef = useRef<WorkspaceContext | null>(null)
   useUnsavedChanges(store.kind === 'local' && local.items.length > 0, 'Projeye kaydedilmemiş metraj')
-  const docRef = useRef<unknown>(null)
+  const docRef = useRef<string | null>(null)
 
   const initialFile = useMemo(() => {
     if (!projectParam || !fileParam) return null
@@ -65,16 +83,30 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
   const onContext = useCallback(
     (c: WorkspaceContext) => {
       ctxRef.current = c
-      if (c.doc !== docRef.current) {
+      const id = c.doc?.docId ?? null
+      if (id !== docRef.current) {
         const prev = docRef.current
-        docRef.current = c.doc
+        docRef.current = id
         if (prev !== null || c.doc) {
+          runAbort.current?.abort()
           setDetection(null)
           setIgnored(new Set())
           setSelectedCand(null)
+          setEdits({})
+          setAnalyzedAt(null)
+          setOcr(false)
+          setPdfPages(new Set(c.doc?.pdfDoc?.pages.filter((p) => !p.error && p.kind !== 'bos').map((p) => p.page) ?? []))
         }
         // Yerel dosya açıldıysa analiz bağı sıfırlanır (proje ve sürüm korunur)
         if (prev !== null && c.doc) project.resetDocument(c.doc.source.type === 'project' ? (c.doc.source.fileId ?? null) : null)
+      }
+      setViewPage(c.doc?.pdfDoc?.current ?? null)
+      setLoadedDocId(id)
+      // Sayfa değişiminden sonra bekleyen yakınlaştırma (görüntüleyici yeni sahneyi yükledi)
+      const pz = pendingZoom.current
+      if (pz && c.doc?.pdfDoc?.current === pz.page) {
+        pendingZoom.current = null
+        c.zoomTo(pz.box)
       }
     },
     [project],
@@ -84,9 +116,61 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
   const selectedItem = store.items.find((i) => i.id === selectedItemId) ?? null
   const boundProject = projects.find((p) => p.id === project.projectId) ?? null
 
+  const runPdf = useCallback(
+    async (pages: number[], withOcr: boolean) => {
+      const c = ctxRef.current
+      if (!c?.doc?.pdfDoc) return
+      runAbort.current?.abort()
+      const ac = new AbortController()
+      runAbort.current = ac
+      setDetecting(true)
+      setProgress({ stage: 'Analiz başlatıldı', fraction: 0 })
+      c.log(`PDF analizi başlatıldı: ${pages.length} sayfa${withOcr ? ' (OCR açık)' : ''}`)
+      try {
+        const result = await runPdfDetection(c.doc, {
+          pages,
+          ocr: withOcr,
+          units: c.units,
+          signal: ac.signal,
+          onProgress: (stage, fraction) => !ac.signal.aborted && setProgress({ stage, fraction }),
+          onPage: (p, patch) => ctxRef.current?.setPageAnalysis(p, patch),
+        })
+        if (ac.signal.aborted) return
+        setDetection(result)
+        setAnalyzedAt(new Date())
+        setSelectedCand(null)
+        c.log(`PDF analizi bitti: ${result.candidates.length} aday${result.candidates.length ? '' : ` — ${result.pdf?.whyNone[0] ?? ''}`}`)
+      } catch (e) {
+        if (e instanceof DetectionCancelled || (e instanceof DOMException && e.name === 'AbortError') || ac.signal.aborted) c.log('PDF analizi iptal edildi')
+        else {
+          c.log(`PDF analizi başarısız: ${e instanceof Error ? e.message : 'bilinmeyen hata'}`)
+          notify(`PDF analizi tamamlanamadı: ${e instanceof Error ? e.message : 'bilinmeyen hata'}`, 'error')
+        }
+      } finally {
+        if (runAbort.current === ac) runAbort.current = null
+        setDetecting(false)
+        setProgress(null)
+      }
+    },
+    [notify],
+  )
+
+  // PDF yüklenince vektörel sayfalar otomatik analiz edilir (OCR kullanıcı isteğiyle)
+  useEffect(() => {
+    const c = ctxRef.current
+    if (!c?.doc?.pdfDoc || !loadedDocId || autoRunFor.current === loadedDocId) return
+    autoRunFor.current = loadedDocId
+    const pages = c.doc.pdfDoc.pages.filter((p) => !p.error && p.kind !== 'bos').map((p) => p.page)
+    void runPdf(pages.length ? pages : c.doc.pdfDoc.pages.filter((p) => !p.error).map((p) => p.page), false)
+  }, [loadedDocId, runPdf])
+
   const runDetection = () => {
     const c = ctxRef.current
     if (!c?.doc) return
+    if (c.doc.kind === 'pdf') {
+      void runPdf([...pdfPages], ocr)
+      return
+    }
     setDetecting(true)
     // Arayüzün güncellenmesi için bir sonraki karede çalıştırılır
     window.setTimeout(() => {
@@ -99,6 +183,12 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
       }
     }, 30)
   }
+
+  const candidates = useMemo(
+    () => (detection?.candidates ?? []).map((c) => (edits[c.key] ? { ...c, ...edits[c.key], ...(edits[c.key].category ? { category: edits[c.key].category! } : {}) } : c)),
+    [detection, edits],
+  )
+  const effDetection = useMemo(() => (detection ? { ...detection, candidates } : null), [detection, candidates])
 
   const addCandidates = async (cands: PozCandidate[], opts: { approve: boolean; category?: QuantityCategory }) => {
     const c = ctxRef.current
@@ -117,11 +207,23 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
     }
   }
 
+  /** Çizimde göster: PDF'te ilgili sayfaya geçilir (önce görüntülenen sayfadaki örnekler) */
+  const goToBoxes = (instances: { bbox: Box; page?: number }[]) => {
+    const c = ctxRef.current
+    if (!c?.doc || !instances.length) return
+    const cur = c.doc.pdfDoc?.current
+    const page = cur != null && instances.some((i) => i.page === cur) ? cur : (instances[0].page ?? cur)
+    const box = unionBox(instances.filter((i) => i.page == null || i.page === page).map((i) => i.bbox))
+    if (c.doc.pdfDoc && page != null && page !== cur) {
+      pendingZoom.current = { page, box }
+      void c.selectPage(page)
+    } else c.zoomTo(box)
+  }
+
   const showCandidate = (cand: PozCandidate) => {
     setSelectedCand(cand)
-    const boxes = cand.instances.map((i) => i.bbox)
-    const bb: [number, number, number, number] = [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))]
-    ctxRef.current?.zoomTo(bb)
+    const plan = cand.instances.filter((i) => i.role === 'plan' || i.role == null)
+    goToBoxes(plan.length ? plan : cand.instances)
   }
 
   const locateItem = (item: QuantityItem) => {
@@ -132,8 +234,8 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
       notify(`Bu poz "${item.drawing_ref.file_name}" çiziminden; açık çizim farklı.`, 'info')
       return
     }
-    const bb: [number, number, number, number] = [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))]
-    c.zoomTo(bb)
+    const pages = item.drawing_ref?.box_pages
+    goToBoxes(boxes.map((b, i) => ({ bbox: b, page: pages?.[i] })))
   }
 
   const measurementToItem = (m: Measurement) => {
@@ -150,7 +252,17 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
     setMeasureForm({ ...input, sort_order: store.items.reduce((s, i) => Math.max(s, i.sort_order), 0) + 10 })
   }
 
-  const highlights = useMemo(() => (selectedCand ? [{ ids: selectedCand.instances.flatMap((i) => i.entityIds), color: '#3ddc97' }] : []), [selectedCand])
+  const highlights = useMemo(() => {
+    const onPage = (i: { page?: number }) => viewPage == null || i.page == null || i.page === viewPage
+    const out: { ids: number[]; color: string }[] = []
+    // PDF: görüntülenen sayfadaki tüm adaylar işaretlenir, seçili aday ayrı renkte
+    if (viewPage != null) {
+      const ids = candidates.filter((c) => !ignored.has(c.key) && c.key !== selectedCand?.key).flatMap((c) => c.instances.filter(onPage).flatMap((i) => i.entityIds))
+      if (ids.length) out.push({ ids, color: '#f5a524' })
+    }
+    if (selectedCand) out.push({ ids: selectedCand.instances.filter(onPage).flatMap((i) => i.entityIds), color: '#3ddc97' })
+    return out
+  }, [selectedCand, candidates, ignored, viewPage])
 
   const bindingChip = (
     <button
@@ -185,7 +297,27 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
         initialFile={initialFile}
         onContext={onContext}
         headerExtra={bindingChip}
-        extensions={(ctx) => ({
+        extensions={(ctx) => {
+          const resultsTab = {
+              id: 'sonuclar',
+              label: 'Tespit sonuçları',
+              icon: FileSpreadsheet,
+              badge: detection ? candidates.filter((c) => !ignored.has(c.key)).length : null,
+              render: () => (
+                <PdfResultsTable
+                  candidates={candidates}
+                  items={store.items}
+                  ignored={ignored}
+                  selectedKey={selectedCand?.key ?? null}
+                  readOnly={store.readOnly}
+                  onSelect={showCandidate}
+                  onEdit={(key, patch) => setEdits((m) => ({ ...m, [key]: { ...m[key], ...patch } }))}
+                  onAdd={(c, o) => void addCandidates(c, o)}
+                  onIgnore={(k) => setIgnored((s) => new Set(s).add(k))}
+                />
+              ),
+            }
+          return {
           leftTabs: [
             {
               id: 'pozlar',
@@ -194,11 +326,9 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
               badge: detection ? detection.candidates.filter((c) => !ignored.has(c.key)).length : null,
               render: () => (
                 <PozPanel
-                  available={!!ctx.doc && ctx.doc.kind === 'dxf'}
-                  unavailableReason={
-                    !ctx.doc ? 'Dosya açıldığında pozlar burada tespit edilir.' : 'Otomatik poz tespiti DXF çizimlerinde çalışır. PDF\'de alan veya mesafe ölçüp "Metraja ekle" ile poz oluşturun.'
-                  }
-                  detection={detection}
+                  available={!!ctx.doc}
+                  unavailableReason="Dosya açıldığında pozlar burada tespit edilir."
+                  detection={effDetection}
                   running={detecting}
                   onDetect={runDetection}
                   addedKeys={addedKeys}
@@ -207,6 +337,31 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
                   onAdd={(c, o) => void addCandidates(c, o)}
                   onShow={showCandidate}
                   selectedKey={selectedCand?.key ?? null}
+                  controls={
+                    ctx.doc?.pdfDoc ? (
+                      <PdfAnalysisControls
+                        pages={ctx.doc.pdfDoc.pages}
+                        currentPage={ctx.doc.pdfDoc.current}
+                        selected={pdfPages}
+                        onSelectedChange={setPdfPages}
+                        ocr={ocr}
+                        onOcrChange={setOcr}
+                        detection={detection}
+                        analyzedAt={analyzedAt}
+                        running={detecting}
+                        progress={progress}
+                        onRun={runDetection}
+                        onCancel={() => runAbort.current?.abort()}
+                        onGoPage={(p) => void ctx.selectPage(p)}
+                        onCalibrate={ctx.startCalibrate}
+                        onConfirmScale={(page, den) => {
+                          if (ctx.doc?.pdfDoc?.current !== page) {
+                            void ctx.selectPage(page).then((d) => d && ctxRef.current?.applyScale(den, true))
+                          } else ctx.applyScale(den, true)
+                        }}
+                      />
+                    ) : undefined
+                  }
                 />
               ),
             },
@@ -224,6 +379,7 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
               : []),
           ],
           bottomTabs: [
+            ...(ctx.doc?.kind === 'pdf' ? [resultsTab] : []),
             {
               id: 'metraj',
               label: project.takeoff ? `Metraj · Rev ${project.takeoff.revision}` : 'Metraj (kaydedilmedi)',
@@ -240,15 +396,32 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
                       </button>
                     </div>
                   )}
+                  {project.takeoff && project.projectId && store.items.length > 0 && (
+                    <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-1.5 text-[12px] text-muted">
+                      <span>
+                        {store.items.filter((i) => i.verification === 'onaylandi').length}/{store.items.length} poz onaylı
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setQuoteOpen(true)}
+                        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2.5 font-semibold text-primary-ink hover:bg-primary-hover"
+                        data-testid="send-to-quote"
+                      >
+                        <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                        Teklife aktar
+                      </button>
+                    </div>
+                  )}
                   <QuantityTable store={store} compact onLocate={locateItem} onSelectItem={(i) => setSelectedItemId(i?.id ?? null)} selectedId={selectedItemId} />
                 </div>
               ),
             },
-          ],
+          ].concat(ctx.doc?.kind === 'pdf' ? [] : [resultsTab]),
           rightTop: selectedItem ? <ItemDetail item={selectedItem} store={store} onClose={() => setSelectedItemId(null)} /> : undefined,
           highlights,
           measurementAction: store.readOnly ? undefined : { label: 'Metraja ekle', run: measurementToItem },
-        })}
+          }
+        }}
       />
       <ProjectBindingDialog
         open={bindOpen}
@@ -268,6 +441,9 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
           }
         }}
       />
+      {quoteOpen && project.takeoff && project.projectId && (
+        <SendToQuoteDialog open onClose={() => setQuoteOpen(false)} projectId={project.projectId} takeoff={project.takeoff} items={store.items} />
+      )}
       {measureForm && (
         <QuantityItemForm
           open

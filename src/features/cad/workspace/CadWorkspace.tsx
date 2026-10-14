@@ -22,6 +22,7 @@ import {
   FileText,
 } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { PdfPageEntry } from '@/cad/pdf/pdfLoader'
 import { type DisplayUnitId, DISPLAY_UNITS } from '@/cad/units'
 import type { Measurement, Pt, ViewerTheme, ViewerTool } from '@/cad/viewer/engine'
 import { cn } from '@/lib/cn'
@@ -31,6 +32,7 @@ import { type CadSource, initialUnits, type LoadedCad, UNKNOWN_UNITS, unitsFromP
 import { CalibrationDialog } from './CalibrationDialog'
 import { FilePanel, HistoryPanel, LayersPanel, type LogEntry, MeasurementsPanel, PropertiesPanel, UnitsCard, WarningsPanel } from './panels'
 import { CAD_ACCEPT, DropZone, DwgGuide, ErrorView, LoadingView } from './states'
+import { PageSelect } from './PageSelect'
 import { PanelTabs, StatusChip, ToolButton, ToolDivider } from './ui'
 
 const THEMES: Record<'koyu' | 'acik', ViewerTheme> = {
@@ -79,6 +81,15 @@ export interface WorkspaceContext {
   zoomTo: (bbox: [number, number, number, number]) => void
   log: (message: string) => void
   openFile: (name: string, bytes: ArrayBuffer, source?: CadSource) => Promise<LoadedCad | null>
+  /** PDF: görüntülenen sayfayı değiştir */
+  selectPage: (page: number) => Promise<LoadedCad | null>
+  /** PDF: sayfa özetini/analizini güncelle (OCR / kullanıcı ölçeği) */
+  setPageAnalysis: (page: number, patch: Partial<PdfPageEntry>) => void
+  pageBusy: number | null
+  /** PDF ölçeğini uygula (öneri onaylanınca) */
+  applyScale: (denominator: number, verified: boolean) => void
+  /** İki noktalı kalibrasyon aracını başlat */
+  startCalibrate: () => void
 }
 
 /**
@@ -97,7 +108,7 @@ export function CadWorkspace({
   initialFile?: { load: () => Promise<{ name: string; bytes: ArrayBuffer }>; source: CadSource } | null
   headerExtra?: ReactNode
 }) {
-  const { state, load, cancel, reset, fail, pending } = useCadDocument()
+  const { state, load, cancel, reset, fail, pending, selectPage, setPageAnalysis, pageBusy } = useCadDocument()
   const doc = state.status === 'ready' ? state.doc : null
   const canvasRef = useRef<CadCanvasHandle>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -137,7 +148,7 @@ export function CadWorkspace({
         addLog(
           d.kind === 'dxf'
             ? `DXF analiz edildi: ${d.report?.stats.entities.toLocaleString('tr-TR')} nesne, ${d.scene.layers.length} katman`
-            : `PDF açıldı: ${d.pdf?.kind === 'taranmis' ? 'taranmış' : d.pdf?.kind === 'karma' ? 'karma' : 'vektörel'} sayfa`,
+            : `PDF açıldı: ${d.pdfDoc?.pages.length ?? 1} sayfa okundu (${d.pdfDoc?.pages.filter((p) => p.kind === 'vektorel' || p.kind === 'karma').length ?? 0} vektörel, ${d.pdfDoc?.pages.filter((p) => p.kind === 'taranmis').length ?? 0} taranmış, ${d.pdfDoc?.pages.filter((p) => p.kind === 'bos').length ?? 0} boş${d.pdfDoc?.pages.some((p) => p.error) ? `, ${d.pdfDoc.pages.filter((p) => p.error).length} okunamadı` : ''}); sayfa ${d.pdf?.pageNumber ?? 1} görüntüleniyor`,
         )
       }
       return d
@@ -177,9 +188,40 @@ export function CadWorkspace({
 
   const zoomTo = useCallback((b: [number, number, number, number]) => canvasRef.current?.zoomToBox(b), [])
 
+  // PDF: her sayfanın ölçeği ayrı tutulur (paftalar farklı ölçekte olabilir)
+  const unitsByPage = useRef(new Map<string, UnitState>())
+  const unitsRef = useRef(units)
+  unitsRef.current = units
+  const gotoPage = useCallback(
+    async (page: number) => {
+      const cur = doc
+      if (!cur?.pdfDoc || cur.pdfDoc.current === page) return cur
+      unitsByPage.current.set(`${cur.docId}:${cur.pdfDoc.current}`, unitsRef.current)
+      const next = await selectPage(page)
+      if (next) {
+        setUnits(unitsByPage.current.get(`${next.docId}:${page}`) ?? initialUnits(next))
+        setSelection([])
+        setHidden(new Set())
+        const e = next.pdfDoc?.pages[page - 1]
+        addLog(`Sayfa ${page} görüntüleniyor${e?.analysis?.title ? ` (${e.analysis.title})` : ''}`)
+      } else addLog(`Sayfa ${page} açılamadı`)
+      return next
+    },
+    [doc, selectPage, addLog],
+  )
+
+  const startCalibrate = useCallback(() => setTool('calibrate'), [])
+  const applyScaleCb = useCallback(
+    (den: number, verified: boolean) => {
+      setUnits(unitsFromPdfScale(den, verified))
+      addLog(`PDF ölçeği 1/${den} olarak ${verified ? 'onaylandı' : 'girildi (doğrulanmadı)'}`)
+    },
+    [addLog],
+  )
+
   const ctx: WorkspaceContext = useMemo(
-    () => ({ doc, units, unit, selection, setSelection, zoomTo, log: addLog, openFile }),
-    [doc, units, unit, selection, zoomTo, addLog, openFile],
+    () => ({ doc, units, unit, selection, setSelection, zoomTo, log: addLog, openFile, selectPage: gotoPage, setPageAnalysis, pageBusy, applyScale: applyScaleCb, startCalibrate }),
+    [doc, units, unit, selection, zoomTo, addLog, openFile, gotoPage, setPageAnalysis, pageBusy, applyScaleCb, startCalibrate],
   )
   useEffect(() => onContext?.(ctx), [ctx, onContext])
   const ext = extensions?.(ctx) ?? {}
@@ -375,6 +417,14 @@ export function CadWorkspace({
             <span className="hidden sm:inline">Aç</span>
           </span>
         </label>
+        {doc?.pdfDoc && doc.pdfDoc.pages.length > 1 && (
+          <PageSelect
+            pages={doc.pdfDoc.pages}
+            current={doc.pdfDoc.current}
+            busy={pageBusy}
+            onChange={(p) => void gotoPage(p)}
+          />
+        )}
         {ext.toolbarExtra}
         <ToolDivider />
         <ToolButton icon={MousePointer2} label="Seç" shortcut="V" active={tool === 'select'} disabled={!doc} onClick={() => setTool('select')} testId="tool-select" />
@@ -433,7 +483,7 @@ export function CadWorkspace({
                 <p className="px-4 py-6 text-center text-[12.5px] text-muted">Dosya açıldığında bilgiler burada görünür.</p>
               ) : leftTab === 'dosya' ? (
                 <FilePanel doc={doc} units={units} unit={unit}>
-                  <UnitsCard doc={doc} units={units} onChoose={chooseUnits} onCalibrate={() => setTool('calibrate')} onScale={applyScale} />
+                  <UnitsCard doc={doc} units={units} onChoose={chooseUnits} onCalibrate={() => setTool('calibrate')} onScale={applyScale} onConfirmScale={(d) => applyScaleCb(d, true)} />
                 </FilePanel>
               ) : leftTab === 'katmanlar' ? (
                 <LayersPanel scene={doc.scene} hidden={hidden} onChange={setHidden} />
@@ -499,9 +549,25 @@ export function CadWorkspace({
                           ))}
                         </span>
                       ) : (
-                        <button type="button" className="rounded-md border border-line bg-surface px-2 py-0.5 font-semibold text-ink hover:bg-surface-2" onClick={() => setTool('calibrate')}>
-                          Kalibre et
-                        </button>
+                        <span className="flex flex-wrap gap-1">
+                          {(() => {
+                            const inf = doc.pdfDoc?.pages[doc.pdfDoc.current - 1]?.analysis?.scale.inferred
+                            return inf ? (
+                              <button
+                                type="button"
+                                className="rounded-md border border-ok/40 bg-ok-soft px-2 py-0.5 font-semibold text-ok hover:brightness-95"
+                                onClick={() => applyScaleCb(inf.denominator, true)}
+                                title={`${inf.support}/${inf.total} ölçü yazısı çizgi uzunluğuyla bu ölçekte uyumlu`}
+                                data-testid="banner-scale-confirm"
+                              >
+                                1/{inf.denominator} onayla
+                              </button>
+                            ) : null
+                          })()}
+                          <button type="button" className="rounded-md border border-line bg-surface px-2 py-0.5 font-semibold text-ink hover:bg-surface-2" onClick={() => setTool('calibrate')}>
+                            Kalibre et
+                          </button>
+                        </span>
                       )}
                     </div>
                   )}

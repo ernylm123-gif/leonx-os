@@ -39,7 +39,10 @@ const servers = [
 const ALT_HOST = 'leonx-abc123.vercel.test'
 const browser = await chromium.launch({ args: [`--host-resolver-rules=MAP ${ALT_HOST} 127.0.0.1`] })
 const results = []
+// Geliştirme kolaylığı: E2E_ONLY="PDF" yalnız adı eşleşen testleri çalıştırır (CI tümünü çalıştırır)
+const ONLY = process.env.E2E_ONLY ? new RegExp(process.env.E2E_ONLY, 'i') : null
 async function test(name, fn, contextOptions = { viewport: { width: 1366, height: 900 } }) {
+  if (ONLY && !ONLY.test(name)) return
   const ctx = await browser.newContext(contextOptions)
   const page = await ctx.newPage()
   const mock = new MockSupabase()
@@ -674,6 +677,107 @@ await test('PDF çizim: üretim CSP kuralları altında açılır, vektörel alg
   expect(unexpected.length === 0, `konsol / CSP hataları: ${unexpected.join(' | ')}`)
 }, { viewport: { width: 1440, height: 900 } })
 
+
+// ================================================================== Faz 5.1: mimari PDF analizi
+const PDF_FX = path.join(ROOT, 'src/cad/__fixtures__/pdf')
+
+await test('Mimari PDF: tüm sayfalar okunur, otomatik analiz, çizelge+plan adetleri, sayfa geçişi, düzenleme, onay, projeye kayıt ve teklife aktarma', async ({ page, mock, consoleErrors }) => {
+  const company = mock.externalInsert('companies', { name: 'Örnek Konut Yapı' })
+  const project = mock.externalInsert('projects', { code: 'LX-2026-551', name: 'Örnek konut doğramaları', category: 'pvc_dograma', company_id: company.id })
+  await login(page, OWNER, '/cad-analiz')
+  await page.getByTestId('cad-workspace').waitFor()
+  await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(PDF_FX, 'mimari_cok_sayfali.pdf'))
+  await page.getByTestId('cad-canvas').waitFor({ timeout: 20000 })
+  // Sayfa seçici: 5 sayfa, pafta adlarıyla
+  const options = await page.getByTestId('pdf-page-select').locator('option').allInnerTexts()
+  expect(options.length === 5, `sayfa sayısı ${options.length}`)
+  expect(options.some((o) => /ZEMİN KAT PLANI/.test(o)) && options.some((o) => /DOĞRAMA ÇİZELGESİ/.test(o)) && options.some((o) => /boş/.test(o)), `sayfa adları: ${options.join(' | ')}`)
+  // Analiz kendiliğinden başlar ve sonuç tablosu dolar (boş ekran yok)
+  await page.getByTestId('result-row').first().waitFor({ timeout: 20000 })
+  const rows = await page.getByTestId('result-row').count()
+  expect(rows === 6, `aday satırı ${rows}`)
+  const p1 = page.locator('[data-testid="result-row"][data-poz="P1"]')
+  expect((await p1.getByTestId('result-total').innerText()).includes('9,00 m²'), `P1 toplamı: ${await p1.getByTestId('result-total').innerText()}`)
+  const s1 = page.locator('[data-testid="result-row"][data-poz="S1"]')
+  expect(/çizelge 2 \/ plan 1/.test(await s1.innerText()), 'S1 çizelge/plan farkı gösterilmedi')
+  // Sol panel: okuma özeti ve analiz durumu
+  await page.getByRole('tab', { name: /Pozlar/ }).click()
+  expect(/5 sayfa/.test(await page.getByTestId('pdf-read-summary').innerText()), 'okuma özeti yok')
+  expect(/Analiz yapıldı · 4 sayfa · 6 aday/.test(await page.getByTestId('pdf-analysis-status').innerText()), `durum: ${await page.getByTestId('pdf-analysis-status').innerText()}`)
+  // Satıra dokununca planın bulunduğu sayfaya geçilir
+  await page.getByTestId('pdf-page-select').locator('select').selectOption('4')
+  await eventually(async () => (await page.getByTestId('pdf-page-select').locator('select').inputValue()) === '4', 'sayfa 4 açılmadı', 8000)
+  await p1.click()
+  await eventually(async () => ['1', '2'].includes(await page.getByTestId('pdf-page-select').locator('select').inputValue()), 'P1 için plan sayfasına geçilmedi', 8000)
+  // Düzenleme: S1 adedini 1 yap, onayla
+  await s1.getByTestId('result-count').fill('1')
+  await s1.getByTestId('result-count').press('Enter')
+  await eventually(async () => /3,00 × 2,20|6,60 m²/.test(await s1.getByTestId('result-total').innerText()), `S1 toplamı güncellenmedi: ${await s1.getByTestId('result-total').innerText()}`, 3000)
+  await s1.getByTestId('result-approve').click()
+  await p1.getByTestId('result-approve').click()
+  // Kapsam dışı/malzemesiz aday onaylanamaz
+  expect(await page.locator('[data-testid="result-row"][data-poz="K1"]').getByTestId('result-approve').isDisabled(), 'K1 (ahşap) onaylanabiliyor')
+  await eventually(async () => /Metrajda · Onaylı/.test(await p1.innerText()), 'P1 metraja onaylı eklenmedi', 4000)
+  // Projeye kaydet → teklife aktar
+  await page.getByTestId('bind-open').click()
+  await page.getByTestId('bind-project').selectOption(project.id)
+  await page.getByTestId('bind-submit').click()
+  await eventually(() => mock.db.quantity_items.length === 2, `sunucuya yazılan poz ${mock.db.quantity_items.length}`, 8000)
+  const p1row = mock.db.quantity_items.find((i) => i.poz_code === 'P1')
+  expect(p1row.width_mm === 1200 && p1row.height_mm === 1500 && p1row.quantity === 5 && p1row.verification === 'onaylandi' && p1row.category === 'pvc_pencere', `P1 kaydı: ${JSON.stringify(p1row)}`)
+  expect(p1row.drawing_ref?.source === 'cizelge' && p1row.drawing_ref.box_pages?.length > 0, 'P1 çizim bağlantısı/sayfa bilgisi yok')
+  const s1row = mock.db.quantity_items.find((i) => i.poz_code === 'S1')
+  expect(s1row.quantity === 1 && s1row.category === 'surme', `S1 kaydı: ${JSON.stringify(s1row)}`)
+  expect(mock.db.cad_analyses[0]?.summary?.pdf?.sayfalar?.length === 5, 'analiz kaydında sayfa özeti yok')
+  await page.getByRole('tab', { name: /Metraj · Rev 1/ }).click()
+  await page.getByTestId('send-to-quote').click()
+  await page.getByTestId('send-quote-submit').click()
+  await page.waitForURL(/\/teklifler\/[0-9a-f-]+$/, { timeout: 10000 })
+  await eventually(() => mock.db.quote_items.length === 2, `teklif kalemi ${mock.db.quote_items.length}`, 6000)
+  const qi = mock.db.quote_items.find((i) => i.poz_code === 'P1')
+  expect(qi.width_mm === 1200 && qi.height_mm === 1500 && qi.quantity === 5 && qi.unit === 'm2' && qi.source === 'metraj' && qi.measure_verified === true, `teklif kalemi: ${JSON.stringify(qi)}`)
+  expect(mock.db.quotes[0].project_id === project.id && mock.db.quotes[0].company_id === company.id, 'teklif projeye/müşteriye bağlanmadı')
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+}, { viewport: { width: 1440, height: 900 } })
+
+await test('Taranmış PDF: OCR olmadan nedeni açıklanır; OCR (üretim CSP altında, kendi sunucudan) ile poz etiketleri okunur', async ({ page, consoleErrors }) => {
+  const external = []
+  page.on('request', (r) => !r.url().startsWith('http://localhost') && !r.url().includes('supabase') && external.push(r.url()))
+  await login(page, OWNER, '/cad-analiz')
+  await page.getByTestId('cad-workspace').waitFor()
+  await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(PDF_FX, 'taranmis_plan.pdf'))
+  await page.getByTestId('cad-canvas').waitFor({ timeout: 20000 })
+  await page.getByRole('tab', { name: /Pozlar/ }).click()
+  await page.getByTestId('pdf-why-none').waitFor({ timeout: 15000 })
+  expect(/OCR/.test(await page.getByTestId('pdf-why-none').innerText()), 'OCR önerisi yok')
+  await page.getByTestId('pdf-ocr-toggle').check()
+  await page.getByTestId('poz-detect').click()
+  await page.getByTestId('result-row').first().waitFor({ timeout: 120000 })
+  const codes = await page.getByTestId('result-row').evaluateAll((els) => els.map((e) => e.getAttribute('data-poz')))
+  expect(codes.includes('P1') && codes.includes('KP1'), `OCR adayları: ${codes.join(', ')}`)
+  expect(/OCR/.test(await page.getByTestId('pdf-diagnostics').innerText()), 'OCR uyarısı gösterilmedi')
+  expect(external.length === 0, `harici istek: ${external.join(', ')}`)
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+  expect(unexpected.length === 0, `konsol / CSP hataları: ${unexpected.join(' | ')}`)
+}, { viewport: { width: 1440, height: 900 } })
+
+await test('PDF tanılama: yazısız planda neden ve elle ölçüm seçeneği; bozuk PDF açıklamalı hata; iPad yerleşimi taşmaz', async ({ page, consoleErrors }) => {
+  await login(page, OWNER, '/cad-analiz')
+  await page.getByTestId('cad-workspace').waitFor()
+  await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(PDF_FX, 'plan_etiketsiz.pdf'))
+  await page.getByTestId('cad-canvas').waitFor({ timeout: 20000 })
+  await page.getByRole('tab', { name: /Pozlar/ }).click()
+  await page.getByTestId('pdf-why-none').waitFor({ timeout: 15000 })
+  expect(/yazı yok/.test(await page.getByTestId('pdf-why-none').innerText()), 'neden açıklanmadı')
+  await page.getByTestId('pdf-manual-calibrate').waitFor()
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+  expect(overflow <= 1, `yatay taşma ${overflow}px`)
+  await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(PDF_FX, 'bozuk.pdf'))
+  await page.getByText(/PDF okunamadı/).first().waitFor({ timeout: 15000 })
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime|Invalid PDF|PDF header|XRef|Warning/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+}, { viewport: { width: 1180, height: 820 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 })
 
 // ================================================================== Teklifler (Faz 6)
 const YEAR = new Date().getFullYear()

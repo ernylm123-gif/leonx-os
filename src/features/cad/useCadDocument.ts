@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { analyzeDxfBytes, CadAnalysisError, MAX_CAD_BYTES } from '@/cad/analyze'
 import { detectCadFile } from '@/cad/fileType'
+import type { OpenedPdf, PdfPageEntry } from '@/cad/pdf/pdfLoader'
 import type { PdfPageInfo } from '@/cad/pdf/pdfScene'
 import { PT_TO_MM } from '@/cad/pdf/pdfScene'
 import type { CadReport, Scene } from '@/cad/types'
@@ -14,6 +15,8 @@ export interface CadSource {
 }
 
 export interface LoadedCad {
+  /** Dosya yüklemesinin kimliği: sayfa değişince aynı kalır, yeni dosyada değişir */
+  docId: string
   kind: 'dxf' | 'pdf'
   fileName: string
   size: number
@@ -22,9 +25,14 @@ export interface LoadedCad {
   bytes: ArrayBuffer
   scene: Scene
   report: CadReport | null
+  /** Görüntülenen PDF sayfası */
   pdf: (PdfPageInfo & { background: HTMLCanvasElement | null }) | null
+  /** Çok sayfalı PDF: açık belge ve tüm sayfaların özeti/analizi */
+  pdfDoc: { handle: OpenedPdf; pages: PdfPageEntry[]; current: number } | null
   loadedAt: Date
 }
+
+const newDocId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
 export type CadLoadState =
   | { status: 'empty' }
@@ -61,6 +69,8 @@ export function unitsFromPdfScale(denominator: number, verified: boolean): UnitS
 export function useCadDocument() {
   const [state, setState] = useState<CadLoadState>({ status: 'empty' })
   const abortRef = useRef<AbortController | null>(null)
+  const docRef = useRef<LoadedCad | null>(null)
+  const [pageBusy, setPageBusy] = useState<number | null>(null)
 
   const cancel = useCallback(() => {
     abortRef.current?.abort()
@@ -81,32 +91,72 @@ export function useCadDocument() {
       const keep = bytes.slice(0)
       try {
         if (kind.kind === 'pdf') {
-          setState({ status: 'loading', fileName, stage: 'PDF açılıyor', fraction: 0.1 })
-          const { openPdf, analyzePdfPage, renderPdfPage } = await import('@/cad/pdf/pdfLoader')
-          const pdf = await openPdf(bytes.slice(0))
+          setState({ status: 'loading', fileName, stage: 'PDF açılıyor', fraction: 0.05 })
+          const { openPdf, analyzePdfPage, renderPdfPage, summarizePage, MAX_SUMMARY_PAGES } = await import('@/cad/pdf/pdfLoader')
+          let pdf: OpenedPdf
+          try {
+            pdf = await openPdf(bytes.slice(0))
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : ''
+            throw new CadAnalysisError(
+              /password/i.test(msg) ? 'PDF parola korumalı; parolasız bir kopyasını yükleyin.' : 'PDF okunamadı: dosya bozuk veya eksik indirilmiş olabilir.',
+              'pdf-open',
+              msg || undefined,
+            )
+          }
           if (ac.signal.aborted) throw new AnalysisCancelled()
-          setState({ status: 'loading', fileName, stage: 'Sayfa çözümleniyor', fraction: 0.4 })
-          const info = await analyzePdfPage(pdf, 1)
+          // Tüm sayfalar (en fazla MAX_SUMMARY_PAGES) okunur: tür, pafta, ölçek, etiket ve çizelge
+          const n = pdf.pageCount
+          const pages: PdfPageEntry[] = []
+          let shown: PdfPageInfo | null = null
+          for (let p = 1; p <= n; p++) {
+            if (ac.signal.aborted) throw new AnalysisCancelled()
+            if (p > MAX_SUMMARY_PAGES) {
+              pages.push({ page: p, widthPt: 0, heightPt: 0, kind: null, stats: null, analysis: null, error: null, truncated: false })
+              continue
+            }
+            setState({ status: 'loading', fileName, stage: `Sayfa ${p}/${n} çözümleniyor`, fraction: 0.08 + (0.8 * (p - 1)) / Math.min(n, MAX_SUMMARY_PAGES) })
+            let info: PdfPageInfo | null = null
+            try {
+              info = await analyzePdfPage(pdf, p)
+            } catch {
+              info = null
+            }
+            const entry = await summarizePage(pdf, p, info ?? undefined)
+            pages.push(entry)
+            // İlk boş olmayan sayfa gösterilir; sahnesi bellekte tutulur, diğerlerininki bırakılır
+            if (info && !shown && info.kind !== 'bos') shown = info
+            else if (info && !shown && p === 1) shown = info
+            else if (shown?.kind === 'bos' && info && info.kind !== 'bos') shown = info
+          }
+          if (!shown) {
+            const firstOk = pages.find((x) => !x.error)
+            if (!firstOk) throw new CadAnalysisError('PDF açıldı ancak hiçbir sayfası okunamadı (dosya bozuk veya şifreli olabilir).', 'pdf-pages')
+            shown = await analyzePdfPage(pdf, firstOk.page)
+          }
           if (ac.signal.aborted) throw new AnalysisCancelled()
-          setState({ status: 'loading', fileName, stage: 'Sayfa görüntüsü hazırlanıyor', fraction: 0.75 })
+          setState({ status: 'loading', fileName, stage: 'Sayfa görüntüsü hazırlanıyor', fraction: 0.92 })
           let background: HTMLCanvasElement | null = null
           try {
-            background = await renderPdfPage(pdf, 1)
+            background = await renderPdfPage(pdf, shown.pageNumber)
           } catch {
             background = null
           }
           if (ac.signal.aborted) throw new AnalysisCancelled()
           const doc: LoadedCad = {
+            docId: newDocId(),
             kind: 'pdf',
             fileName,
             size: keep.byteLength,
             source,
             bytes: keep,
-            scene: info.scene,
+            scene: shown.scene,
             report: null,
-            pdf: { ...info, background },
+            pdf: { ...shown, background },
+            pdfDoc: { handle: pdf, pages, current: shown.pageNumber },
             loadedAt: new Date(),
           }
+          docRef.current = doc
           setState({ status: 'ready', doc })
           return doc
         }
@@ -120,6 +170,7 @@ export function useCadDocument() {
           onProgress: (stage, fraction) => setState({ status: 'loading', fileName, stage: STAGE_LABEL[stage] ?? stage, fraction }),
         })
         const doc: LoadedCad = {
+          docId: newDocId(),
           kind: 'dxf',
           fileName,
           size: keep.byteLength,
@@ -128,8 +179,10 @@ export function useCadDocument() {
           scene: result.scene,
           report: result.report,
           pdf: null,
+          pdfDoc: null,
           loadedAt: new Date(),
         }
+        docRef.current = doc
         setState({ status: 'ready', doc })
         return doc
       } catch (e) {
@@ -155,8 +208,50 @@ export function useCadDocument() {
     [cancel],
   )
 
+  /** PDF'te başka sayfayı görüntüle (dosya yeniden yüklenmez; analiz durumu korunur) */
+  const selectPage = useCallback(async (page: number): Promise<LoadedCad | null> => {
+    const cur = docRef.current
+    if (!cur?.pdfDoc || page < 1 || page > cur.pdfDoc.pages.length) return null
+    if (cur.pdfDoc.current === page) return cur
+    setPageBusy(page)
+    try {
+      const { analyzePdfPage, renderPdfPage, summarizePage } = await import('@/cad/pdf/pdfLoader')
+      const info = await analyzePdfPage(cur.pdfDoc.handle, page)
+      let background: HTMLCanvasElement | null = null
+      try {
+        background = await renderPdfPage(cur.pdfDoc.handle, page)
+      } catch {
+        background = null
+      }
+      const latest = docRef.current
+      if (!latest || latest.docId !== cur.docId) return null
+      const pages = latest.pdfDoc!.pages.slice()
+      if (!pages[page - 1].analysis) pages[page - 1] = await summarizePage(latest.pdfDoc!.handle, page, info)
+      const next: LoadedCad = { ...latest, scene: info.scene, pdf: { ...info, background }, pdfDoc: { ...latest.pdfDoc!, pages, current: page } }
+      docRef.current = next
+      setState({ status: 'ready', doc: next })
+      return next
+    } catch {
+      return null
+    } finally {
+      setPageBusy(null)
+    }
+  }, [])
+
+  /** Sayfa özetini/analizini güncelle (ör. OCR sonucu, kullanıcı ölçeğiyle yeniden analiz) */
+  const setPageAnalysis = useCallback((page: number, patch: Partial<PdfPageEntry>) => {
+    const cur = docRef.current
+    if (!cur?.pdfDoc) return
+    const pages = cur.pdfDoc.pages.slice()
+    pages[page - 1] = { ...pages[page - 1], ...patch }
+    const next: LoadedCad = { ...cur, pdfDoc: { ...cur.pdfDoc, pages } }
+    docRef.current = next
+    setState({ status: 'ready', doc: next })
+  }, [])
+
   const reset = useCallback(() => {
     cancel()
+    docRef.current = null
     setState({ status: 'empty' })
   }, [cancel])
 
@@ -165,5 +260,5 @@ export function useCadDocument() {
 
   const pending = useCallback((fileName: string, stage: string) => setState({ status: 'loading', fileName, stage, fraction: 0.02 }), [])
 
-  return { state, load, cancel, reset, fail, pending }
+  return { state, load, cancel, reset, fail, pending, selectPage, setPageAnalysis, pageBusy }
 }

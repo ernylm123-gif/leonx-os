@@ -35,8 +35,39 @@ export function analysisRecord(doc: LoadedCad, units: UnitState, projectId: stri
     katman_sayisi: doc.scene.layers.length,
     blok_sayisi: r?.blocks.length ?? 0,
     eksik: r?.truncated ?? false,
-    pdf: doc.pdf ? { tur: doc.pdf.kind, sayfa: doc.pdf.pageNumber, sayfa_sayisi: doc.pdf.pageCount, istatistik: doc.pdf.stats, olcek_ipuclari: doc.pdf.scaleHints } : null,
-    tespit: detection ? { aday: detection.candidates.length, etiket: detection.labelsFound, elenen: detection.skipped } : null,
+    pdf: doc.pdf
+      ? {
+          tur: doc.pdf.kind,
+          sayfa: doc.pdf.pageNumber,
+          sayfa_sayisi: doc.pdf.pageCount,
+          istatistik: doc.pdf.stats,
+          olcek_ipuclari: doc.pdf.scaleHints,
+          // Tüm sayfaların özeti (pafta türü, yazı/etiket sayısı, ölçek)
+          sayfalar: (doc.pdfDoc?.pages ?? []).slice(0, 200).map((p) => ({
+            sayfa: p.page,
+            tur: p.kind,
+            hata: p.error,
+            pafta: p.analysis?.sheet ?? null,
+            baslik: p.analysis?.title ?? null,
+            yazi: p.analysis?.textCount ?? 0,
+            kaynak: p.analysis?.textSource ?? null,
+            etiket: p.analysis?.labelCount ?? 0,
+            cizelge: p.analysis?.scheduleRows ?? 0,
+            olcek: p.analysis?.scale.used ?? null,
+            olcek_kaynagi: p.analysis?.scale.usedFrom ?? null,
+          })),
+        }
+      : null,
+    tespit: detection
+      ? {
+          aday: detection.candidates.length,
+          etiket: detection.labelsFound,
+          elenen: detection.skipped,
+          ...(detection.pdf
+            ? { analiz_edilen_sayfalar: detection.pdf.analyzedPages, neden_yok: detection.pdf.whyNone, uyarilar: detection.pdf.warnings, ocr: detection.pdf.ocrUsed }
+            : {}),
+        }
+      : null,
   }
   return {
     project_id: projectId,

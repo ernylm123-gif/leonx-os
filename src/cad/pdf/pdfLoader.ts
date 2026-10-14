@@ -3,6 +3,7 @@
  * Güvenlik: pdf.js 6 eval kullanmaz; XFA formları kapalı, betik çalıştırılmaz, harici kaynak
  * istenmez. pdf.js çalışanı aynı kaynaktan yüklenir (CSP 'self' ile uyumlu).
  */
+import { analyzePage, type PdfPageAnalysis } from './archAnalyze'
 import { buildPdfScene, findScaleHints, type PdfPageInfo } from './pdfScene'
 
 // Eski tarayıcılar (iPadOS Safari dahil) için polyfill içeren "legacy" derleme kullanılır;
@@ -43,7 +44,7 @@ export async function analyzePdfPage(pdf: OpenedPdf, pageNumber: number): Promis
   const page = await pdf.doc.getPage(pageNumber)
   const viewport = page.getViewport({ scale: 1 })
   const [ops, text] = await Promise.all([page.getOperatorList(), page.getTextContent()])
-  const items = (text.items as { str?: string; transform?: number[] }[]).filter((i) => typeof i.str === 'string')
+  const items = (text.items as { str?: string; transform?: number[]; width?: number }[]).filter((i) => typeof i.str === 'string')
   const built = buildPdfScene(
     { fnArray: ops.fnArray, argsArray: ops.argsArray },
     items,
@@ -61,6 +62,40 @@ export async function analyzePdfPage(pdf: OpenedPdf, pageNumber: number): Promis
     scene: built.scene,
     scaleHints: findScaleHints(items.map((i) => i.str ?? '')),
     truncated: built.truncated,
+  }
+}
+
+/** Sayfa özeti: tür, pafta, ölçek ve mimari analiz (etiketler, çizelge) — sahne saklanmaz */
+export interface PdfPageEntry {
+  page: number
+  widthPt: number
+  heightPt: number
+  kind: PdfPageInfo['kind'] | null
+  stats: PdfPageInfo['stats'] | null
+  analysis: PdfPageAnalysis | null
+  /** Sayfa okunamadıysa nedeni */
+  error: string | null
+  truncated: boolean
+}
+
+/** Yüklemede özetlenen en fazla sayfa (daha fazlası seçilince ayrıca analiz edilir) */
+export const MAX_SUMMARY_PAGES = 80
+
+export async function summarizePage(pdf: OpenedPdf, pageNumber: number, info?: PdfPageInfo): Promise<PdfPageEntry> {
+  try {
+    const i = info ?? (await analyzePdfPage(pdf, pageNumber))
+    return {
+      page: pageNumber,
+      widthPt: i.widthPt,
+      heightPt: i.heightPt,
+      kind: i.kind,
+      stats: i.stats,
+      analysis: analyzePage({ page: pageNumber, kind: i.kind, scene: i.scene }),
+      error: null,
+      truncated: i.truncated,
+    }
+  } catch (e) {
+    return { page: pageNumber, widthPt: 0, heightPt: 0, kind: null, stats: null, analysis: null, error: e instanceof Error ? e.message : 'Sayfa okunamadı', truncated: false }
   }
 }
 

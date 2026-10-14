@@ -1,6 +1,6 @@
 import { computeItem } from './engine'
 import type { PozCandidate } from './detect'
-import { emptyItem, type QuantityItemInput } from './types'
+import { CATEGORY_INFO, emptyItem, type QuantityItemInput } from './types'
 
 const MAX_HANDLES = 50
 const MAX_BOXES = 200
@@ -12,6 +12,9 @@ export function candidateToInput(
 ): QuantityItemInput {
   const category = opts.category ?? c.category
   const handles = c.instances.map((i) => i.handle).filter((h): h is string => !!h)
+  const info = CATEGORY_INFO[category]
+  const boxes = c.instances.slice(0, MAX_BOXES)
+  const pdf = boxes.some((i) => i.page != null)
   const input = emptyItem({
     poz_code: c.code,
     category,
@@ -22,8 +25,10 @@ export function candidateToInput(
     vertices: c.vertices,
     manual_area_m2: c.manual_area_m2,
     quantity: c.count,
+    // Doğrusal işler (korkuluk) mtül, diğerleri iş grubunun birimiyle
+    unit: info.unit === 'serbest' ? 'm2' : info.unit,
     verification: 'bekliyor',
-    description: c.block ? `Blok: ${c.block}` : null,
+    description: c.block ? `Blok: ${c.block}` : c.label ? c.label.slice(0, 200) : null,
     drawing_ref: {
       key: c.key,
       analysis_id: opts.analysisId,
@@ -32,7 +37,8 @@ export function candidateToInput(
       handles: handles.slice(0, MAX_HANDLES),
       layer: c.layer,
       block: c.block,
-      boxes: c.instances.slice(0, MAX_BOXES).map((i) => i.bbox),
+      boxes: boxes.map((i) => i.bbox),
+      ...(pdf ? { box_pages: boxes.map((i) => i.page ?? 1) } : {}),
     },
     detection: {
       confidence: c.confidence,

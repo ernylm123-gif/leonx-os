@@ -17,14 +17,18 @@ export function UnitsCard({
   onChoose,
   onCalibrate,
   onScale,
+  onConfirmScale,
 }: {
   doc: LoadedCad
   units: UnitState
   onChoose: (mm: number, label: string) => void
   onCalibrate: () => void
   onScale: (denominator: number) => void
+  /** Ölçü yazılarıyla doğrulanan ölçeği onayla */
+  onConfirmScale?: (denominator: number) => void
 }) {
   const [custom, setCustom] = useState('')
+  const pageScale = doc.pdfDoc?.pages[doc.pdfDoc.current - 1]?.analysis?.scale ?? null
   return (
     <Section title={doc.kind === 'pdf' ? 'Ölçek' : 'Çizim birimi'}>
       <div className="flex flex-wrap items-center gap-2">
@@ -68,6 +72,21 @@ export function UnitsCard({
               ? 'Taranmış PDF: ölçü yalnızca kalibrasyondan sonra alınabilir ve görüntü çözünürlüğü kadar hassastır.'
               : 'PDF kâğıt birimindedir. Çizimdeki bilinen bir ölçüyle kalibre edin veya ölçeği girin.'}
           </p>
+          {pageScale?.inferred && (
+            <div className="mt-2 rounded-lg border border-ok/30 bg-ok-soft px-2.5 py-2 text-[12px] text-ink" data-testid="scale-suggestion">
+              <p>
+                Bu sayfadaki <strong>{pageScale.inferred.support}/{pageScale.inferred.total}</strong> ölçü yazısı, çizgi uzunluklarıyla{' '}
+                <strong>1/{pageScale.inferred.denominator}</strong> ölçeğinde uyumlu
+                {pageScale.title ? (pageScale.title === pageScale.inferred.denominator ? ' (antetteki ölçekle aynı)' : ` (antette 1/${pageScale.title} yazıyor!)`) : ''}.
+              </p>
+              {onConfirmScale && (
+                <MiniButton tone="primary" className="mt-1.5" onClick={() => onConfirmScale(pageScale.inferred!.denominator)} testId="scale-confirm">
+                  1/{pageScale.inferred.denominator} ölçeğini onayla
+                </MiniButton>
+              )}
+            </div>
+          )}
+          {pageScale?.conflict && <p className="mt-2 text-[11.5px] text-danger">{pageScale.conflict}</p>}
           <div className="mt-2 flex flex-wrap gap-1.5">
             <MiniButton tone="primary" onClick={onCalibrate} testId="pdf-calibrate">
               İki noktayla kalibre et

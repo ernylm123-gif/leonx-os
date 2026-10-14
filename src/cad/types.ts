@@ -49,6 +49,8 @@ export interface TextInfo {
   baseline: number
   /** Satır aralığı (yerel birim) */
   lineHeight: number
+  /** Yazı yönündeki gerçek uzunluk (PDF metinlerinde pdf.js verir) */
+  advance?: number
 }
 
 export interface DimInfo {

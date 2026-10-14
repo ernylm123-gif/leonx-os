@@ -260,3 +260,32 @@ export function distToSegment(px: number, py: number, x1: number, y1: number, x2
 export function isFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v)
 }
+
+/** Kapalı dört köşeli şekil dik açılı mı? Dikdörtgense genişlik/yükseklik/açı döner. */
+export function rectOf(w: ArrayLike<number>): { w: number; h: number; angle: number } | null {
+  if (w.length !== 8) return null
+  const vx: number[] = []
+  const vy: number[] = []
+  for (let i = 0; i < 4; i++) {
+    vx.push(w[((i + 1) % 4) * 2] - w[i * 2])
+    vy.push(w[((i + 1) % 4) * 2 + 1] - w[i * 2 + 1])
+  }
+  const lens = vx.map((x, i) => Math.hypot(x, vy[i]))
+  if (lens.some((l) => l === 0)) return null
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4
+    const cos = (vx[i] * vx[j] + vy[i] * vy[j]) / (lens[i] * lens[j])
+    if (Math.abs(cos) > 1e-6) return null
+  }
+  if (Math.abs(lens[0] - lens[2]) > 1e-6 * lens[0] || Math.abs(lens[1] - lens[3]) > 1e-6 * lens[1]) return null
+  let angle = Math.atan2(vy[0], vx[0])
+  let wd = lens[0]
+  let ht = lens[1]
+  // Yatay yakın kenar genişlik kabul edilir
+  const norm = ((angle % Math.PI) + Math.PI) % Math.PI
+  if (norm > Math.PI / 4 && norm < (3 * Math.PI) / 4) {
+    ;[wd, ht] = [ht, wd]
+    angle = Math.atan2(vy[1], vx[1])
+  }
+  return { w: wd, h: ht, angle }
+}

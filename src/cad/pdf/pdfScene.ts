@@ -9,7 +9,7 @@
  *
  * Kalibrasyon yapılmadan hiçbir PDF ölçüsü kesin kabul edilmez.
  */
-import { type BBox, bboxOf, bboxUnion, bboxValid, EMPTY_BBOX, type Mat, mul, polylineLength, signedArea } from '../geometry'
+import { type BBox, bboxOf, bboxUnion, bboxValid, EMPTY_BBOX, type Mat, mul, polylineLength, rectOf, signedArea } from '../geometry'
 import type { Scene, SceneEntity, TextInfo } from '../types'
 
 export type PdfKind = 'vektorel' | 'taranmis' | 'karma' | 'bos'
@@ -84,6 +84,8 @@ interface OperatorList {
 interface TextItemLike {
   str?: string
   transform?: number[]
+  /** Yazının yön boyunca uzunluğu (sayfa birimi) — pdf.js verir */
+  width?: number
 }
 
 /**
@@ -139,6 +141,11 @@ export function buildPdfScene(
       length: polylineLength(pts, closed),
       area: closed && count >= 3 ? Math.abs(signedArea(pts)) : null,
       exact: true,
+      // Dikdörtgen tanıma (poz tespiti ve görünüş paftalarındaki doğrama çerçeveleri için)
+      ...(closed && count === 4 ? (() => {
+        const r = rectOf(pts)
+        return r ? { rect: r } : {}
+      })() : {}),
     })
   }
 
@@ -272,8 +279,9 @@ export function buildPdfScene(
     const h = Math.hypot(t[2], t[3]) || Math.hypot(t[0], t[1]) || 1
     const norm: Mat = [t[0] / h, t[1] / h, t[2] / h, t[3] / h, t[4], t[5]]
     const m = mul(W, norm)
-    const info: TextInfo = { value: str, lines: [str], m, height: h, ax: 0, baseline: 0, lineHeight: h }
-    const w = h * 0.55 * str.length
+    // pdf.js genişliği sayfa biriminde verir; yoksa yaklaşık genişlik
+    const w = typeof item.width === 'number' && item.width > 0 && item.str === item.str?.trimStart() ? item.width : h * 0.55 * str.length
+    const info: TextInfo = { value: str, lines: [str], m, height: h, ax: 0, baseline: 0, lineHeight: h, advance: w }
     const corners: number[] = []
     for (const [x, y] of [[0, -0.2 * h], [w, -0.2 * h], [w, h], [0, h]]) corners.push(...tx(m, x, y))
     const start = coords.length
