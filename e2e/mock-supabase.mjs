@@ -33,7 +33,29 @@ const TABLES = [
   'quantity_takeoffs',
   'quantity_items',
   'quantity_item_history',
+  'quotes',
+  'quote_items',
+  'quote_history',
+  'quote_settings',
 ]
+/** Gönderilmiş teklifte değişebilen alanlar (supabase/migrations/20261013000600_leonx_quotes.sql ile aynı) */
+const QUOTE_FREE = ['status', 'superseded', 'sent_at', 'decided_at', 'internal_notes', 'project_id']
+const QUOTE_DEFAULTS = {
+  superseded: false, contact_id: null, project_id: null, scope: null, status: 'taslak', valid_until: null, currency: 'TRY', pricing_mode: 'detayli',
+  lump_sum: null, lump_cost: null, waste_pct: 0, overhead_pct: 0, profit_pct: 0, shipping_amount: 0, other_amount: 0, other_label: null,
+  discount_kind: 'yok', discount_value: 0, vat_pct: 20, hide_unit_prices: false, payment_terms: null, delivery_terms: null, notes: null,
+  internal_notes: null, sent_at: null, decided_at: null, revision: 1,
+}
+const ITEM_DEFAULTS = {
+  sort_order: 0, poz_code: null, system_type: null, width_mm: null, height_mm: null, dim_unit: 'mm', quantity: 1, unit: 'adet', manual_measure: null,
+  material_cost: 0, labor_cost: 0, install_cost: 0, other_cost: 0, unit_price: null, notes: null, source: 'elle', source_item_id: null,
+  source_takeoff_id: null, source_label: null, measure_verified: true,
+}
+const SETTINGS_DEFAULTS = {
+  legal_name: null, address: null, phone: null, email: null, website: null, tax_office: null, tax_number: null, bank_name: null, iban: null,
+  quote_prefix: 'TKL', default_validity_days: 15, default_vat_pct: 20, default_currency: 'TRY', default_payment_terms: null,
+  default_delivery_terms: null, closing_text: null,
+}
 const guardError = (message) => ({ error: { status: 400, code: '23514', message } })
 
 export class MockSupabase {
@@ -45,6 +67,8 @@ export class MockSupabase {
     this.historySeq = 1
     this.requests = []
     this.failNext = null
+    this.quoteCounter = {}
+    this.copyNote = null
   }
 
   // ---------------------------------------------------------------- yardımcılar
@@ -70,10 +94,10 @@ export class MockSupabase {
   }
 
   /** Sunucu tarafı tetikleyicilerin karşılığı: id, zaman damgaları, sürüm, durum geçmişi */
-  insertRow(table, input, actor = OWNER.id) {
+  insertRow(table, input, actor = OWNER.id, system = false) {
     const now = this.now()
     let row
-    if (table === 'project_status_history' || table === 'quantity_item_history') {
+    if (table === 'project_status_history' || table === 'quantity_item_history' || table === 'quote_history') {
       row = { id: this.historySeq++, changed_at: now, changed_by: actor, ...input }
     } else {
       // İstemcinin ürettiği UUID kabul edilir (idempotent yeniden deneme); aynı id ikinci kez eklenemez
@@ -94,6 +118,35 @@ export class MockSupabase {
       if (t.status !== 'taslak') return guardError('Onaylanmış veya arşivlenmiş metraj sürümü değiştirilemez; yeni sürüm oluşturun')
       row.project_id = t.project_id
     }
+    if (table === 'quote_settings') row = { ...SETTINGS_DEFAULTS, ...row }
+    if (table === 'quotes') {
+      row = { ...QUOTE_DEFAULTS, ...row }
+      if (row.status !== 'taslak') return guardError('Yeni teklif veya revizyon taslak olarak oluşturulur')
+      if (row.valid_until && row.valid_until < row.quote_date) return guardError('quotes_validity_check')
+      row.quote_date = row.quote_date ?? this.now().slice(0, 10)
+      row.superseded = false
+      row.sent_at = null
+      row.decided_at = null
+      if (row.revision === 1) {
+        const year = Number(row.quote_date.slice(0, 4))
+        this.quoteCounter[year] = (this.quoteCounter[year] ?? 0) + 1
+        const prefix = this.db.quote_settings[0]?.quote_prefix ?? 'TKL'
+        row.root_id = row.id
+        row.quote_no = `${prefix}-${year}-${String(this.quoteCounter[year]).padStart(4, '0')}`
+      } else {
+        const root = this.db.quotes.find((q) => q.id === row.root_id && q.revision === 1)
+        if (!root) return { error: { status: 409, code: '23503', message: 'Revizyonun bağlı olduğu teklif bulunamadı' } }
+        row.quote_no = root.quote_no
+        if (this.db.quotes.some((q) => q.root_id === row.root_id && q.revision === row.revision)) return { error: { status: 409, code: '23505', message: 'duplicate key value violates unique constraint "quotes_root_revision_unique"' } }
+      }
+    }
+    if (table === 'quote_items') {
+      row = { ...ITEM_DEFAULTS, ...row }
+      const q = this.db.quotes.find((x) => x.id === row.quote_id)
+      if (!q) return { error: { status: 409, code: '23503', message: 'Teklif bulunamadı' } }
+      if (!system && (q.superseded || q.status !== 'taslak')) return guardError('Gönderilmiş veya eski revizyon teklifin kalemleri değiştirilemez; revizyon oluşturun')
+      if (!(Number(row.quantity) > 0)) return guardError('quote_items_quantity_check')
+    }
     if (table === 'projects') {
       row = { status: 'kesif', priority: 'normal', company_id: null, description: null, start_date: null, due_date: null, location: null, notes: null, ...row }
       if (this.db.projects.some((p) => p.code === row.code)) return { error: { status: 409, code: '23505', message: 'duplicate key value violates unique constraint "projects_code_key"' } }
@@ -102,16 +155,43 @@ export class MockSupabase {
     this.broadcast(table, 'INSERT', row, null)
     if (table === 'quantity_items') this.insertRow('quantity_item_history', { item_id: row.id, takeoff_id: row.takeoff_id, project_id: row.project_id, poz_code: row.poz_code, action: 'ekle', changes: {} }, actor)
     if (table === 'projects') this.insertRow('project_status_history', { project_id: row.id, from_status: null, to_status: row.status }, actor)
+    if (table === 'quotes') {
+      const copy = this.copyNote
+      this.insertRow('quote_history', {
+        quote_id: row.id, root_id: row.root_id, action: row.revision > 1 ? 'revizyon' : copy ? 'kopya' : 'olustur', from_status: null, to_status: row.status,
+        note: row.revision > 1 ? `Rev ${row.revision}` : copy ? `${copy} kopyası` : null,
+      }, actor)
+    }
     return { row }
   }
 
-  updateRow(table, id, patch, actor = OWNER.id) {
+  updateRow(table, id, patch, actor = OWNER.id, system = false) {
     const i = this.db[table].findIndex((r) => r.id === id)
     if (i === -1) return null
     const old = this.db[table][i]
     if (table === 'quantity_items') {
       const t = this.db.quantity_takeoffs.find((x) => x.id === old.takeoff_id)
       if (t && t.status !== 'taslak') return guardError('Onaylanmış veya arşivlenmiş metraj sürümü değiştirilemez; yeni sürüm oluşturun')
+    }
+    if (table === 'quotes' && !system) {
+      const changed = (keys) => Object.keys(patch).filter((k) => !keys.includes(k) && JSON.stringify(patch[k]) !== JSON.stringify(old[k]))
+      if (['root_id', 'quote_no', 'revision'].some((k) => k in patch && patch[k] !== old[k])) return guardError('Teklif numarası ve revizyonu değiştirilemez')
+      if (old.superseded && changed(['project_id', 'internal_notes']).length) return guardError('Eski teklif revizyonu değiştirilemez; güncel revizyonu kullanın')
+      if (!old.superseded && patch.superseded === false && old.superseded !== false) return guardError('Teklif revizyon kilidi kaldırılamaz')
+      if (old.status !== 'taslak') {
+        if (patch.status === 'taslak') return guardError('Gönderilmiş teklif taslağa döndürülemez; değişiklik için revizyon oluşturun')
+        if (changed(QUOTE_FREE).length) return guardError('Gönderilmiş teklifin içeriği değiştirilemez; revizyon oluşturun')
+      }
+      if (patch.status && patch.status !== old.status) {
+        patch = { ...patch }
+        if (patch.status !== 'taslak' && !old.sent_at) patch.sent_at = this.now()
+        if (['kabul', 'red'].includes(patch.status)) patch.decided_at = this.now()
+        else if (['kabul', 'red'].includes(old.status)) patch.decided_at = null
+      }
+    }
+    if (table === 'quote_items' && !system) {
+      const q = this.db.quotes.find((x) => x.id === old.quote_id)
+      if (q && (q.superseded || q.status !== 'taslak')) return guardError('Gönderilmiş veya eski revizyon teklifin kalemleri değiştirilemez; revizyon oluşturun')
     }
     if (table === 'quantity_takeoffs') {
       if (old.status === 'onaylandi' && patch.status && !['onaylandi', 'arsiv'].includes(patch.status)) return guardError('Onaylanmış metraj sürümü değiştirilemez; yeni sürüm oluşturun')
@@ -129,6 +209,9 @@ export class MockSupabase {
     if (table === 'projects' && patch.status && patch.status !== old.status) {
       this.insertRow('project_status_history', { project_id: id, from_status: old.status, to_status: patch.status }, actor)
     }
+    if (table === 'quotes' && patch.status && patch.status !== old.status) {
+      this.insertRow('quote_history', { quote_id: id, root_id: old.root_id, action: 'durum', from_status: old.status, to_status: patch.status, note: null }, actor)
+    }
     return next
   }
 
@@ -140,6 +223,18 @@ export class MockSupabase {
       if (t && t.status !== 'taslak') return guardError('Onaylanmış veya arşivlenmiş metraj sürümündeki poz silinemez')
     }
     if (!cascade && table === 'quantity_takeoffs' && this.db[table][i].status === 'onaylandi') return guardError('Onaylanmış metraj sürümü silinemez; arşivleyebilirsiniz')
+    if (!cascade && table === 'quotes') {
+      const q = this.db[table][i]
+      if (q.superseded) return guardError('Eski teklif revizyonu silinemez; geçmiş olarak saklanır')
+      if (q.status !== 'taslak') return guardError('Gönderilmiş teklif silinemez; durumunu "Reddedildi" yapabilirsiniz')
+    }
+    if (!cascade && table === 'quote_items') {
+      const q = this.db.quotes.find((x) => x.id === this.db[table][i].quote_id)
+      if (q && (q.superseded || q.status !== 'taslak')) return guardError('Gönderilmiş veya eski revizyon teklifin kalemleri değiştirilemez; revizyon oluşturun')
+    }
+    if (table === 'companies' && this.db.quotes.some((q) => q.company_id === id)) {
+      return { error: { status: 409, code: '23503', message: 'update or delete on table "companies" violates foreign key constraint "quotes_company_id_fkey"' } }
+    }
     if (table === 'companies' && this.db.projects.some((p) => p.company_id === id)) {
       return { error: { status: 409, code: '23503', message: 'update or delete on table "companies" violates foreign key constraint' } }
     }
@@ -153,6 +248,17 @@ export class MockSupabase {
       }
     }
     if (table === 'quantity_takeoffs') for (const r of this.db.quantity_items.filter((x) => x.takeoff_id === id)) this.deleteRow('quantity_items', r.id, true)
+    if (table === 'projects') for (const q of this.db.quotes.filter((x) => x.project_id === id)) this.updateRow('quotes', q.id, { project_id: null }, OWNER.id, true)
+    if (table === 'quantity_items') for (const qi of this.db.quote_items.filter((x) => x.source_item_id === id)) this.updateRow('quote_items', qi.id, { source_item_id: null }, OWNER.id, true)
+    if (table === 'quantity_takeoffs') for (const qi of this.db.quote_items.filter((x) => x.source_takeoff_id === id)) this.updateRow('quote_items', qi.id, { source_takeoff_id: null }, OWNER.id, true)
+    if (table === 'quotes') {
+      for (const r of this.db.quote_items.filter((x) => x.quote_id === id)) this.deleteRow('quote_items', r.id, true)
+      for (const r of this.db.quote_history.filter((x) => x.quote_id === id)) this.deleteRow('quote_history', r.id, true)
+      if (row.revision > 1) {
+        const prev = this.db.quotes.filter((q) => q.root_id === row.root_id).sort((a, b) => b.revision - a.revision)[0]
+        if (prev?.superseded) this.updateRow('quotes', prev.id, { superseded: false }, OWNER.id, true)
+      }
+    }
     if (table === 'project_files') for (const a of this.db.cad_analyses.filter((x) => x.file_id === id)) this.updateRow('cad_analyses', a.id, { file_id: null })
     if (table === 'cad_analyses') for (const t of this.db.quantity_takeoffs.filter((x) => x.analysis_id === id)) this.updateRow('quantity_takeoffs', t.id, { analysis_id: null })
     if (table === 'quantity_items' && !cascade) this.insertRow('quantity_item_history', { item_id: row.id, takeoff_id: row.takeoff_id, project_id: row.project_id, poz_code: row.poz_code, action: 'sil', changes: {} })
@@ -295,6 +401,29 @@ export class MockSupabase {
         this.insertRow('quantity_items', { ...rest, takeoff_id: row.id })
       }
       return json(200, row.id)
+    }
+
+    if (p === '/rest/v1/rpc/copy_quote') {
+      if (!user) return json(401, { code: '42501', message: 'permission denied' })
+      const { p_source, p_mode } = req.postDataJSON()
+      const src = this.isOwner(user) ? this.db.quotes.find((q) => q.id === p_source) : null
+      if (!src) return json(400, { code: 'P0002', message: 'Kaynak teklif bulunamadı' })
+      if (p_mode === 'revizyon' && src.superseded) return json(400, { code: '23514', message: 'Eski revizyondan yeni revizyon oluşturulamaz; güncel revizyonu kullanın' })
+      const { id: _i, created_at: _c, updated_at: _u, version: _v, created_by: _b, quote_no: _n, root_id, revision: _r, status: _s, superseded: _x, sent_at: _sa, decided_at: _d, ...content } = src
+      const today = this.now().slice(0, 10)
+      const days = src.valid_until ? Math.round((Date.parse(src.valid_until) - Date.parse(src.quote_date)) / 86400000) : null
+      const validUntil = days == null ? null : new Date(Date.parse(today) + days * 86400000).toISOString().slice(0, 10)
+      const revision = p_mode === 'revizyon' ? Math.max(...this.db.quotes.filter((q) => q.root_id === root_id).map((q) => q.revision)) + 1 : 1
+      this.copyNote = p_mode === 'kopya' ? `${src.quote_no} Rev ${src.revision}` : null
+      const r = this.insertRow('quotes', { ...content, root_id: p_mode === 'revizyon' ? root_id : undefined, revision, title: p_mode === 'kopya' ? `${src.title} (kopya)`.slice(0, 200) : src.title, quote_date: today, valid_until: validUntil }, user.id)
+      this.copyNote = null
+      if (r.error) return json(r.error.status, { code: r.error.code, message: r.error.message })
+      for (const it of this.db.quote_items.filter((x) => x.quote_id === src.id)) {
+        const { id: _ii, created_at: _ci, updated_at: _ui, version: _vi, created_by: _bi, ...rest } = it
+        this.insertRow('quote_items', { ...rest, quote_id: r.row.id }, user.id, true)
+      }
+      if (p_mode === 'revizyon') this.updateRow('quotes', src.id, { superseded: true }, user.id, true)
+      return json(200, r.row.id)
     }
 
     // ---------------- Storage

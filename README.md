@@ -4,23 +4,24 @@ LEONX Metal'in **iç kullanımına özel** proje, CAD analiz, metraj ve teklif y
 
 > Firma: **LEONX METAL** · [leonxmetal.com](https://www.leonxmetal.com)
 
-## Durum — Faz 5: CAD analizi ve metraj + tüm cihazlarda tek sürüm
+## Durum — Faz 6: teklif, maliyet ve poz yönetimi
 
-LEONX OS gerçek veriyle çalışan, **tek kişiye ait** bir proje, CAD analizi ve metraj sistemidir:
+LEONX OS gerçek veriyle çalışan, **tek kişiye ait** bir proje, CAD analizi, metraj ve teklif sistemidir:
 
 - Supabase Auth ile e-posta/şifre girişi (herkese açık kayıt yok, tek hesap, çoklu cihaz oturumu)
 - Veritabanında tek yetkili kullanıcı UUID'si üzerinden **Row Level Security** (varsayılan erişim kapalı)
-- Firmalar, ilgili kişiler, projeler, durum geçmişi, notlar ve özel depoda dosyalar
-- **CAD analizi:** DXF okuma (katman, blok, birim, ölçü), PDF vektör/raster ayrımı ve iki noktalı kalibrasyon,
-  görüntüleyici (yakınlaştırma, ölçüm, katman, arama). DWG doğrudan okunmaz; DXF'e dönüştürme rehberi gösterilir
-- **Metraj:** poz bazlı alan/çevre/adet hesapları, otomatik poz önerisi (her zaman kullanıcı onayıyla),
-  sürümler, onay kilidi, düzeltme geçmişi, Excel ve PDF çıktıları (ekran toplamı = dosya toplamı)
-- Cihazlar arası **anlık senkronizasyon** (Supabase Realtime), kopmada otomatik yeniden bağlanma,
-  sürüm tabanlı çakışma kontrolü, bağlantı kopmasında **çift kayıt oluşturmayan** otomatik yeniden deneme
-- **Tek sürüm:** her derlemenin kimliği vardır; açık uygulamalar yeni dağıtımı algılayıp
-  "Yeni sürüm hazır — Güncelle" bildirimi gösterir (bkz. [Sürüm ve güncelleme](#sürüm-ve-güncelleme))
+- Firmalar (müşteriler), ilgili kişiler, projeler, durum geçmişi, notlar ve özel depoda dosyalar
+- **CAD analizi:** DXF okuma (katman, blok, birim, ölçü), PDF vektör/raster ayrımı ve kalibrasyon, görüntüleyici.
+  DWG doğrudan okunmaz; DXF'e dönüştürme rehberi gösterilir
+- **Metraj:** poz bazlı alan/çevre/adet, otomatik poz önerisi (kullanıcı onayıyla), sürümler, onay kilidi, Excel/PDF
+- **Teklifler:** müşteri ve projeye bağlı teklif, sunucuda atanan benzersiz numara (ör. `TKL-2026-0001`), elle veya
+  CAD metrajından kalem, mm/cm/m ölçü, m²/mtül/adet hesapları, maliyet (malzeme, işçilik, montaj, fire, genel gider),
+  kâr oranı ve kâr marjı ayrı, nakliye, indirim, değiştirilebilir KDV, TRY/EUR/USD, durumlar (taslak → gönderildi →
+  görüşmede → kabul/red), gönderilen teklifte içerik kilidi, revizyon ve kopya, geçmiş, kurumsal PDF ve Excel
+- Cihazlar arası **anlık senkronizasyon** (Supabase Realtime), çakışma kontrolü, çift kayıt oluşturmayan yeniden deneme
+- **Tek sürüm:** yeni dağıtım açık uygulamalarda "LEONX OS — Yeni sürüm hazır" bildirimiyle algılanır
 
-Teklif/fiyatlandırma ve LEONX AI **henüz geliştirilmedi**; arayüzde "Geliştirme aşamasında" olarak gösterilir.
+LEONX AI **henüz geliştirilmedi**; arayüzde "Geliştirme aşamasında" olarak gösterilir.
 
 | Faz | Kapsam | Durum |
 | --- | --- | --- |
@@ -28,8 +29,8 @@ Teklif/fiyatlandırma ve LEONX AI **henüz geliştirilmedi**; arayüzde "Gelişt
 | 2A | Güvenli web dağıtım hazırlığı (Vercel, mobil uyumluluk) | ✅ |
 | 3 | Kurumsal arayüz, orijinal logo, açık/koyu/sistem teması | ✅ |
 | 4 | Giriş, Supabase veritabanı, RLS, firmalar, projeler, dosyalar, Realtime | ✅ |
-| 5 | CAD analizi (DXF/PDF), metraj, Excel/PDF çıktıları, sürüm/güncelleme sistemi | ✅ (kod) |
-| — | Teklif hazırlama ve fiyatlandırma | Planlandı |
+| 5 | CAD analizi (DXF/PDF), metraj, Excel/PDF çıktıları, sürüm/güncelleme sistemi | ✅ |
+| 6 | Teklif, maliyet, fiyatlandırma, revizyon, kurumsal PDF/Excel | ✅ |
 | — | LEONX AI entegrasyonu | Planlandı |
 
 > **Kurulum:** Uygulamanın çalışması için Supabase projesi, migration'lar ve ortam değişkenleri gereklidir.

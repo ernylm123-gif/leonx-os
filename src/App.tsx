@@ -65,6 +65,13 @@ const router = createBrowserRouter([
               })),
           },
           {
+            path: 'teklifler/:id',
+            lazy: () =>
+              import('@/pages/QuoteDetailPage').then((m) => ({
+                Component: m.QuoteDetailPage,
+              })),
+          },
+          {
             path: 'firmalar',
             lazy: () =>
               import('@/pages/CompaniesPage').then((m) => ({

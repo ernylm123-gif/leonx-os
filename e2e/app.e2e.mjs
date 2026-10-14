@@ -360,7 +360,7 @@ await test('Oturum sayfa yenilemede ve yeni sekmede korunur (aynı cihaz)', asyn
   await login(page, OWNER, '/ayarlar')
   await page.getByText(OWNER.email).first().waitFor()
   await page.reload()
-  await page.getByRole('heading', { name: 'Ayarlar' }).waitFor()
+  await page.getByRole('heading', { name: 'Ayarlar', exact: true }).waitFor()
   const second = await ctx.newPage()
   await mock.attach(second)
   await second.goto(`${BASE}/projeler`)
@@ -408,7 +408,7 @@ await test('Yeni dağıtım algılanır: "Yeni sürüm hazır — Güncelle", so
   expect((await page.getByTestId('update-apply').count()) === 0, 'deneme sınırından sonra hâlâ güncelle düğmesi var')
   await page.waitForTimeout(1500)
   expect(loads === 2, `beklenmeyen yeniden yükleme sayısı: ${loads}`)
-  await page.getByRole('heading', { name: 'Ayarlar' }).waitFor()
+  await page.getByRole('heading', { name: 'Ayarlar', exact: true }).waitFor()
 })
 
 await test('Güncelleme kaydedilmemiş formu korur: önce uyarı, form verisi kaybolmaz', async ({ page }) => {
@@ -674,6 +674,209 @@ await test('PDF çizim: üretim CSP kuralları altında açılır, vektörel alg
   expect(unexpected.length === 0, `konsol / CSP hataları: ${unexpected.join(' | ')}`)
 }, { viewport: { width: 1440, height: 900 } })
 
+
+// ================================================================== Teklifler (Faz 6)
+const YEAR = new Date().getFullYear()
+function seedQuote(mock, o = {}) {
+  const company = o.company ?? mock.externalInsert('companies', { name: 'Güneş Yapı A.Ş.', city: 'İzmir' })
+  const quote = mock.externalInsert('quotes', { company_id: company.id, project_id: o.projectId ?? null, title: o.title ?? 'Ofis binası doğrama teklifi', quote_date: new Date().toISOString().slice(0, 10), vat_pct: 20, ...o.quote })
+  for (const [i, it] of (o.items ?? [{ poz_code: 'P1', description: 'Alüminyum pencere', unit: 'm2', width_mm: 1500, height_mm: 2000, quantity: 4, unit_price: 1000 }]).entries()) {
+    mock.externalInsert('quote_items', { quote_id: quote.id, sort_order: i, ...it })
+  }
+  return { company, quote }
+}
+
+await test('Teklif: oluşturma, otomatik numara, kalem (150×200 cm×4 = 12 m²), maliyet, indirim, KDV, kaydet, PDF ve Excel', async ({ page, mock, consoleErrors }) => {
+  const company = mock.externalInsert('companies', { name: 'Örnek İnşaat Ltd. Şti.' })
+  const project = mock.externalInsert('projects', { code: 'LX-2026-700', name: 'Güneş Bloğu', category: 'cephe', company_id: company.id })
+  await login(page, OWNER, '/teklifler')
+  await page.getByRole('heading', { name: 'Henüz teklif yok' }).waitFor()
+  await page.getByTestId('quote-new').click()
+  const d = page.getByRole('dialog', { name: 'Yeni teklif' })
+  await d.getByTestId('quote-create').click()
+  await d.getByText('Müşteri (firma) seçin.').waitFor()
+  await d.getByLabel('Proje').selectOption(project.id)
+  expect((await d.getByLabel('Müşteri (firma)').inputValue()) === company.id, 'proje seçilince müşteri dolmadı')
+  expect((await d.getByLabel('Teklif başlığı').inputValue()) === 'Güneş Bloğu', 'başlık projeden gelmedi')
+  await d.getByTestId('quote-create').click()
+  await page.getByTestId('quote-no').getByText(`TKL-${YEAR}-0001 · Rev 1`).waitFor()
+  const q = mock.db.quotes[0]
+  expect(q.project_id === project.id && q.vat_pct === 20 && q.status === 'taslak', 'teklif alanları hatalı')
+
+  // Kalem 1: cm ile ölçü, elle birim fiyat
+  await page.getByTestId('quote-add-item').click()
+  const f = page.getByRole('dialog', { name: 'Kalem ekle' })
+  await f.getByTestId('qi-poz').fill('P1')
+  await f.getByTestId('qi-description').fill('Isı yalıtımlı alüminyum pencere')
+  await f.getByTestId('qi-unit').selectOption('m2')
+  await f.getByTestId('qi-dimunit').selectOption('cm')
+  await f.getByTestId('qi-width').fill('150')
+  await f.getByTestId('qi-height').fill('200')
+  await f.getByTestId('qi-quantity').fill('4')
+  await f.getByTestId('qi-manual-price').check()
+  await f.getByTestId('qi-price').fill('1000')
+  await f.getByTestId('qi-preview').getByText(/12,000/).waitFor()
+  await f.getByTestId('qi-save').click()
+  await page.getByTestId('qi-qty').first().getByText('12,000 m²').waitFor()
+  const it1 = mock.db.quote_items[0]
+  expect(it1.width_mm === 1500 && it1.height_mm === 2000 && it1.dim_unit === 'cm', `ölçü mm olarak kaydedilmedi: ${it1.width_mm}×${it1.height_mm}`)
+
+  // Kalem 2: maliyetten fiyat (fire malzemeye, genel gider, kâr oranı)
+  await page.getByTestId('quote-add-item').click()
+  await f.getByTestId('qi-description').fill('Çelik kapı')
+  await f.getByTestId('qi-unit').selectOption('adet')
+  await f.getByTestId('qi-quantity').fill('2')
+  await f.getByTestId('qi-material').fill('1000')
+  await f.getByTestId('qi-labor').fill('200')
+  await f.getByTestId('qi-install').fill('150')
+  await f.getByTestId('qi-save').click()
+  await eventually(() => mock.db.quote_items.length === 2, 'ikinci kalem kaydedilmedi')
+
+  // Fiyatlandırma: fire %5, genel gider %10, kâr %25, nakliye 500, %10 indirim, KDV %20
+  await page.getByTestId('qe-waste').fill('5')
+  await page.getByTestId('qe-overhead').fill('10')
+  await page.getByTestId('qe-profit').fill('25')
+  await page.getByTestId('qe-shipping').fill('500')
+  await page.getByTestId('qe-discount-kind').selectOption('yuzde')
+  await page.getByTestId('qe-discount').fill('10')
+  await page.getByTestId('quote-savebar').waitFor()
+  // canlı önizleme: 12.000 + 2×1.925 = 15.850 + 500 = 16.350 − 1.635 = 14.715 + KDV 2.943 = 17.658
+  await page.getByTestId('tot-grand').getByText(/17\.658,00/).waitFor()
+  await page.getByTestId('tot-markup').waitFor()
+  await page.getByTestId('quote-save').click()
+  await page.getByText('Teklif kaydedildi.').waitFor()
+  const saved = mock.db.quotes[0]
+  expect(saved.waste_pct === 5 && saved.overhead_pct === 10 && saved.profit_pct === 25 && saved.discount_kind === 'yuzde' && saved.discount_value === 10 && saved.shipping_amount === 500, 'fiyatlandırma kaydedilmedi')
+  expect((await page.getByTestId('quote-savebar').count()) === 0, 'kaydettikten sonra kaydet çubuğu kaldı')
+  await page.getByTestId('qi-total').nth(1).getByText(/3\.850,00/).waitFor()
+
+  // Çıktılar
+  const [pdf] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), page.getByTestId('quote-pdf').click()])
+  expect(new RegExp(`^TKL-${YEAR}-0001-Rev1-Gunes-Blogu\\.pdf$`).test(pdf.suggestedFilename()), `PDF adı: ${pdf.suggestedFilename()}`)
+  const fs = await import('node:fs/promises')
+  const pbytes = await fs.readFile(await pdf.path())
+  expect(pbytes.subarray(0, 5).toString() === '%PDF-', 'PDF geçersiz')
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  const doc = await getDocument({ data: new Uint8Array(pbytes) }).promise
+  let text = ''
+  for (let i = 1; i <= doc.numPages; i++) text += (await (await doc.getPage(i)).getTextContent()).items.map((x) => x.str).join(' ')
+  text = text.replace(/[  ]/g, ' ')
+  expect(text.includes('FİYAT TEKLİFİ') && text.includes('Örnek İnşaat Ltd. Şti.') && /17\.658,00/.test(text), 'PDF içeriği/toplamı hatalı')
+  const [xlsx] = await Promise.all([page.waitForEvent('download'), page.getByTestId('quote-xlsx').click()])
+  expect((await fs.readFile(await xlsx.path())).subarray(0, 2).toString() === 'PK', 'Excel geçersiz')
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+}, { viewport: { width: 1440, height: 900 }, acceptDownloads: true })
+
+await test('Teklif: gönderildi kilidi, revizyon, kopya, silme; diğer cihaz anında görür', async ({ page, mock }) => {
+  const { quote } = seedQuote(mock)
+  const ipad = await openDevice(mock, devices['iPad Pro 11'])
+  try {
+    await login(ipad.page, OWNER, '/teklifler')
+    await ipad.page.getByText('Ofis binası doğrama teklifi').filter({ visible: true }).first().waitFor()
+    await login(page, OWNER, `/teklifler/${quote.id}`)
+    await page.getByTestId('quote-add-item').waitFor()
+    await page.getByLabel('Teklif durumu').selectOption('gonderildi')
+    await page.getByRole('button', { name: 'Onayla' }).click()
+    await page.getByTestId('quote-locked').waitFor()
+    expect((await page.getByTestId('quote-add-item').count()) === 0, 'kilitli teklifte kalem eklenebiliyor')
+    expect(mock.db.quotes[0].status === 'gonderildi' && mock.db.quotes[0].sent_at, 'durum veya gönderim zamanı yazılmadı')
+    await ipad.page.getByTestId('quote-status').filter({ visible: true }).getByText('Gönderildi').first().waitFor({ timeout: 5000 })
+
+    // Revizyon: aynı numara Rev 2, eski kilitli
+    await page.getByTestId('quote-revise').click()
+    await page.getByTestId('quote-no').getByText(`TKL-${YEAR}-0001 · Rev 2`).waitFor()
+    await page.getByTestId('quote-add-item').waitFor()
+    const rev1 = mock.db.quotes.find((q) => q.revision === 1)
+    const rev2 = mock.db.quotes.find((q) => q.revision === 2)
+    expect(rev1.superseded && !rev2.superseded && mock.db.quote_items.filter((i) => i.quote_id === rev2.id).length === 1, 'revizyon kopyalanmadı veya eski kilitlenmedi')
+    await page.getByTestId('quote-revisions').getByText('Rev 1').waitFor()
+    await ipad.page.getByText('Rev 2').filter({ visible: true }).first().waitFor({ timeout: 5000 })
+
+    // Rev 2'de fiyat değişikliği eski revizyonu etkilemez
+    await page.getByTestId('qi-edit').first().click()
+    const f = page.getByRole('dialog', { name: 'Kalemi düzenle' })
+    await f.getByTestId('qi-price').fill('1100')
+    await f.getByTestId('qi-save').click()
+    await page.getByTestId('qi-total').first().getByText(/13\.200,00/).waitFor()
+    expect(mock.db.quote_items.find((i) => i.quote_id === rev1.id).unit_price === 1000, 'eski revizyonun kalemi değişti')
+
+    // Eski revizyon sayfası: salt okunur
+    await page.goto(`${BASE}/teklifler/${rev1.id}`)
+    await page.getByTestId('quote-superseded').waitFor()
+    expect((await page.getByTestId('quote-revise').count()) === 0, 'eski revizyondan revizyon düğmesi var')
+
+    // Kopya: yeni numara; taslak kopya silinebilir
+    await page.getByTestId('quote-copy').click()
+    await page.getByTestId('quote-no').getByText(`TKL-${YEAR}-0002 · Rev 1`).waitFor()
+    await page.getByTestId('quote-delete').click()
+    await page.getByRole('dialog', { name: 'Teklif silinsin mi?' }).getByRole('button', { name: 'Sil', exact: true }).click()
+    await page.getByRole('heading', { name: 'Teklifler', exact: true }).waitFor()
+    expect(mock.db.quotes.length === 2 && !mock.db.quotes.some((q) => q.quote_no.endsWith('0002')), 'kopya silinmedi')
+    expect(mock.db.quote_history.some((h) => h.action === 'durum' && h.to_status === 'gonderildi'), 'durum geçmişi yazılmadı')
+  } finally {
+    await ipad.ctx.close()
+  }
+}, { viewport: { width: 1440, height: 900 } })
+
+await test('Teklif: CAD metrajından aktarma; doğrulanmamış ölçü işaretlenir, reddedilen ve tekrar aktarım engellenir', async ({ page, mock }) => {
+  const company = mock.externalInsert('companies', { name: 'Metraj Müşterisi' })
+  const project = mock.externalInsert('projects', { code: 'LX-2026-710', name: 'Metraj projesi', category: 'pvc_dograma', company_id: company.id })
+  const tk = mock.externalInsert('quantity_takeoffs', { project_id: project.id, name: 'Uygulama', revision: 1 })
+  const base = { takeoff_id: tk.id, shape: 'dikdortgen', unit: 'm2', measure_basis: 'dograma', glass_mode: 'yok', quantity: 1, floor: null, space: null, description: null }
+  mock.externalInsert('quantity_items', { ...base, poz_code: 'P1', category: 'al_pencere', width_mm: 1500, height_mm: 2000, quantity: 4, verification: 'onaylandi' })
+  mock.externalInsert('quantity_items', { ...base, poz_code: 'KR1', category: 'korkuluk', unit: 'mtul', width_mm: 8400, height_mm: null, verification: 'bekliyor' })
+  mock.externalInsert('quantity_items', { ...base, poz_code: 'X9', category: 'al_pencere', width_mm: 1000, height_mm: 1000, verification: 'reddedildi' })
+  const { quote } = seedQuote(mock, { company, projectId: project.id, items: [] })
+  await login(page, OWNER, `/teklifler/${quote.id}`)
+  await page.getByTestId('quote-import').click()
+  const d = page.getByRole('dialog', { name: 'Metrajdan aktar' })
+  await d.getByTestId('import-row').nth(2).waitFor()
+  await d.getByTestId('import-submit').getByText('2 pozu aktar').waitFor()
+  await d.getByTestId('import-submit').click()
+  await eventually(() => mock.db.quote_items.length === 2, 'pozlar aktarılmadı')
+  const p1 = mock.db.quote_items.find((i) => i.poz_code === 'P1')
+  const kr = mock.db.quote_items.find((i) => i.poz_code === 'KR1')
+  expect(p1.source === 'metraj' && p1.measure_verified === true && p1.unit === 'm2' && kr.unit === 'mtul' && kr.measure_verified === false, 'kaynak/doğrulama aktarılmadı')
+  await page.getByTestId('qi-row').filter({ hasText: 'P1' }).getByTestId('qi-qty').getByText('12,000 m²').waitFor()
+  await page.getByTestId('qi-row').filter({ hasText: 'KR1' }).getByText('Ölçü doğrulanmadı').waitFor()
+  await page.getByTestId('quote-warnings').getByText(/1 kalemin ölçüsü doğrulanmadı/).waitFor()
+  // Tekrar açınca daha önce aktarılanlar seçili gelmez
+  await page.getByTestId('quote-import').click()
+  await d.getByTestId('import-row').nth(2).waitFor()
+  await d.getByText('aktarıldı').first().waitFor()
+  expect(await d.getByTestId('import-submit').isDisabled(), 'aynı pozlar yeniden seçili geldi')
+}, { viewport: { width: 1440, height: 900 } })
+
+await test('Teklif: tekliften proje oluşturma; proje ve firma sayfasında görünür; ayarlar yeni teklife uygulanır', async ({ page, mock }) => {
+  mock.externalInsert('quote_settings', { id: 1, quote_prefix: 'LXT', default_vat_pct: 10, default_validity_days: 30, default_payment_terms: '%50 peşin, %50 teslimde.' })
+  const company = mock.externalInsert('companies', { name: 'Ayar Test Firması' })
+  await login(page, OWNER, `/firmalar/${company.id}`)
+  await page.getByTestId('related-new-quote').click()
+  const d = page.getByRole('dialog', { name: 'Yeni teklif' })
+  await d.getByLabel('Teklif başlığı').fill('Cephe kaplama')
+  await d.getByTestId('quote-create').click()
+  await page.getByTestId('quote-no').getByText(`LXT-${YEAR}-0001 · Rev 1`).waitFor()
+  const q = mock.db.quotes[0]
+  expect(q.vat_pct === 10 && q.payment_terms === '%50 peşin, %50 teslimde.' && q.valid_until, 'ayarlardaki varsayılanlar uygulanmadı')
+  await page.getByTestId('quote-create-project').click()
+  const pd = page.getByRole('dialog', { name: 'Yeni proje' })
+  expect((await pd.getByLabel('Proje adı').inputValue()) === 'Cephe kaplama', 'proje adı tekliften gelmedi')
+  await pd.getByLabel('İş kategorisi').selectOption('cephe')
+  await pd.getByRole('button', { name: 'Projeyi oluştur' }).click()
+  await page.getByTestId('quote-project-link').waitFor()
+  const project = mock.db.projects[0]
+  expect(mock.db.quotes[0].project_id === project.id && project.company_id === company.id, 'proje oluşturulmadı veya bağlanmadı')
+  await page.getByTestId('quote-project-link').click()
+  await page.getByTestId('related-quotes').getByText('Cephe kaplama').waitFor()
+  await page.goto(`${BASE}/firmalar/${company.id}`)
+  await page.getByTestId('related-quotes').getByText('Cephe kaplama').waitFor()
+  // Teklifi olan firma silinemez (veri korunur)
+  await page.getByRole('button', { name: 'Sil', exact: true }).click()
+  await eventually(async () => (await page.getByRole('dialog').count()) > 0, 'silme diyaloğu açılmadı')
+  expect(mock.db.companies.length === 1, 'teklifi olan firma silindi')
+}, { viewport: { width: 1440, height: 900 } })
+
 // ================================================================== Duyarlı ekranlar ve temalar
 const SCREENS = {
   'iphone-se': devices['iPhone SE'],
@@ -699,6 +902,7 @@ for (const [name, dev] of Object.entries(SCREENS)) {
           due_date: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10),
           location: 'Ataşehir, İstanbul',
         })
+        const { quote: sq } = seedQuote(mock, { company: c, projectId: p.id, title: 'Çok uzun teklif başlığı: 24 katlı ofis kulesi giydirme cephe, alüminyum doğrama ve cam korkuluk işleri' })
         const vw = opts.viewport.width
         const overflow = () => page.evaluate((w) => window.innerWidth > w || document.documentElement.scrollWidth > w + 1, vw)
         const theme = () => page.evaluate(() => document.documentElement.getAttribute('data-theme'))
@@ -716,6 +920,8 @@ for (const [name, dev] of Object.entries(SCREENS)) {
           ['/firmalar', 'Firmalar'],
           [`/firmalar/${c.id}`, c.name],
           ['/raporlar', 'Raporlar'],
+          ['/teklifler', 'Teklifler'],
+          [`/teklifler/${sq.id}`, sq.title],
           ['/ayarlar', 'Ayarlar'],
         ]) {
           await page.goto(`${BASE}${route}`)

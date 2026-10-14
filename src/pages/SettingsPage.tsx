@@ -14,6 +14,7 @@ import { useData } from '@/context/data'
 import { usePreferences, type ThemePreference } from '@/context/preferences'
 import { formatDateTime } from '@/lib/stats'
 import { supabaseConfig } from '@/lib/supabase'
+import { QuoteSettingsPanel } from '@/features/quotes/QuoteSettingsPanel'
 import { VersionPanel } from '@/features/system/VersionPanel'
 
 const THEME_OPTIONS = [
@@ -167,6 +168,7 @@ export function SettingsPage() {
           </ul>
         </Panel>
 
+        <QuoteSettingsPanel />
         <VersionPanel />
       </div>
 

@@ -16,7 +16,7 @@ export function Panel({ title, subtitle, icon: Icon, actions, children, classNam
   return (
     <section className={cn('card min-w-0', className)}>
       {(title || actions) && (
-        <header className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
+        <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 border-b border-line px-5 py-4">
           <div className="flex min-w-0 items-center gap-3">
             {Icon && (
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-line bg-surface-2">
@@ -28,7 +28,7 @@ export function Panel({ title, subtitle, icon: Icon, actions, children, classNam
               {subtitle && <p className="mt-0.5 text-xs text-muted">{subtitle}</p>}
             </div>
           </div>
-          {actions && <div className="shrink-0">{actions}</div>}
+          {actions && <div className="max-w-full shrink-0">{actions}</div>}
         </header>
       )}
       <div className={cn('p-5', bodyClassName)}>{children}</div>
