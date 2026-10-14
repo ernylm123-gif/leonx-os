@@ -1,27 +1,27 @@
-import { type ReactNode, useMemo, useState } from 'react'
-import { ArrowLeft, Building2, CalendarClock, FolderKanban, History, Info, MapPin, Pencil, Trash2 } from 'lucide-react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { ArrowLeft, Building2, CalendarCheck, CalendarClock, ExternalLink, FolderKanban, Info, MapPin, PauseCircle, Pencil, PlayCircle, Trash2 } from 'lucide-react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Panel } from '@/components/ui/Panel'
-import { PriorityLabel, StatusBadge } from '@/components/ui/ProjectBadges'
+import { PriorityLabel, ProgressBar, StageBadge } from '@/components/ui/ProjectBadges'
 import { ErrorState, LoadingState } from '@/components/ui/States'
 import { FilterSelect } from '@/components/ui/Toolbar'
 import { useData } from '@/context/data'
 import { useToast } from '@/context/toast'
-import { ConflictError, deleteProject, listStatusHistory, updateProjectStatus } from '@/data/api'
-import type { StatusHistoryEntry } from '@/data/types'
+import { ConflictError, deleteProject, updateProjectStage } from '@/data/api'
 import { ProjectFiles } from '@/features/projects/ProjectFiles'
 import { ProjectForm } from '@/features/projects/ProjectForm'
 import { ProjectNotes } from '@/features/projects/ProjectNotes'
 import { ProjectQuantity } from '@/features/projects/ProjectQuantity'
+import { ProjectTasks } from '@/features/projects/ProjectTasks'
+import { ProjectTimeline } from '@/features/projects/ProjectTimeline'
 import { RelatedQuotes } from '@/features/quotes/RelatedQuotes'
-import { CATEGORY_LABEL, isActiveStatus, isStatus, PROJECT_STATUSES, STATUS_LABEL } from '@/lib/domain'
+import { CATEGORY_LABEL, isActiveStage, isStage, PROJECT_STAGES, STAGE_LABEL, STAGE_PROGRESS } from '@/lib/domain'
 import { dataErrorMessage } from '@/lib/errors'
 import { daysUntil, formatDate, formatDateTime, localISODate } from '@/lib/stats'
 import { requireSupabase } from '@/lib/supabase'
-import { useLiveList } from '@/lib/useLiveList'
 
 function Detail({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -43,10 +43,14 @@ export function ProjectDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [statusBusy, setStatusBusy] = useState(false)
+  const [progressDraft, setProgressDraft] = useState<number | null>(null)
+  const [params] = useSearchParams()
+  const tab = params.get('sekme')
 
-  const history = useLiveList<StatusHistoryEntry>('project_status_history', 'project_id', project?.id, (pid) =>
-    listStatusHistory(requireSupabase(), pid),
-  )
+  // Bildirimden "?sekme=gorevler" ile gelindiyse görev bölümüne kaydır
+  useEffect(() => {
+    if (tab === 'gorevler' && project) document.getElementById('gorevler')?.scrollIntoView({ block: 'start' })
+  }, [tab, project?.id])
 
   if (loading && !project) return <LoadingState label="Proje yükleniyor…" />
   if (!project) {
@@ -63,21 +67,25 @@ export function ProjectDetailPage() {
     )
   }
 
-  const changeStatus = async (next: string) => {
-    if (!isStatus(next) || next === project.status) return
+  const patch = async (p: Parameters<typeof updateProjectStage>[3], message: string) => {
     setStatusBusy(true)
     try {
-      const saved = await updateProjectStatus(requireSupabase(), project.id, project.version, next)
+      const saved = await updateProjectStage(requireSupabase(), project.id, project.version, p)
       upsertProject(saved)
-      notify(`Durum: ${STATUS_LABEL[next]}`)
+      notify(message)
     } catch (err) {
       if (err instanceof ConflictError) {
-        notify('Proje başka bir cihazda güncellendi; güncel hali yüklendi. Durumu tekrar seçin.', 'error')
+        notify('Proje başka bir cihazda güncellendi; güncel hali yüklendi. Tekrar deneyin.', 'error')
         void refresh()
-      } else notify(dataErrorMessage(err, 'Durum güncelleme'), 'error')
+      } else notify(dataErrorMessage(err, 'Proje güncelleme'), 'error')
     } finally {
       setStatusBusy(false)
+      setProgressDraft(null)
     }
+  }
+  const changeStage = (next: string) => {
+    if (!isStage(next) || next === project.stage) return
+    void patch({ stage: next }, `Aşama: ${STAGE_LABEL[next]}`)
   }
 
   const remove = async () => {
@@ -93,7 +101,7 @@ export function ProjectDetailPage() {
     }
   }
 
-  const active = isActiveStatus(project.status)
+  const active = isActiveStage(project.stage)
   const dueIn = project.due_date ? daysUntil(project.due_date, localISODate()) : null
 
   return (
@@ -106,7 +114,7 @@ export function ProjectDetailPage() {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs text-subtle">{project.code}</span>
-            <StatusBadge status={project.status} />
+            <StageBadge stage={project.stage} onHold={project.on_hold} />
             <PriorityLabel priority={project.priority} />
           </div>
           <h1 className="mt-1.5 text-[26px] leading-tight font-semibold tracking-[-0.015em] break-words text-ink sm:text-[32px]">{project.name}</h1>
@@ -136,15 +144,52 @@ export function ProjectDetailPage() {
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-6 xl:col-span-2">
           <Panel title="Proje bilgileri" icon={Info}>
-            <div className="mb-5 flex flex-col gap-2 rounded-xl border border-line bg-surface-2/60 p-3 sm:flex-row sm:items-center">
-              <span className="text-sm font-medium text-ink-2">Durum</span>
-              <FilterSelect value={project.status} onChange={(v) => void changeStatus(v)} label="Proje durumunu değiştir" className="sm:ml-auto sm:w-56">
-                {PROJECT_STATUSES.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </FilterSelect>
+            <div className="mb-5 space-y-3 rounded-xl border border-line bg-surface-2/60 p-3" data-testid="stage-control">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <span className="text-sm font-medium text-ink-2">Aşama</span>
+                <FilterSelect value={project.stage} onChange={changeStage} label="Proje aşamasını değiştir" className="sm:ml-auto sm:w-60">
+                  {PROJECT_STAGES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </FilterSelect>
+                {active && (
+                  <Button
+                    variant="ghost"
+                    icon={project.on_hold ? PlayCircle : PauseCircle}
+                    onClick={() => void patch({ on_hold: !project.on_hold }, project.on_hold ? 'Proje beklemeden çıkarıldı.' : 'Proje beklemeye alındı.')}
+                    disabled={statusBusy}
+                    className="h-9 text-xs"
+                  >
+                    {project.on_hold ? 'Devam ettir' : 'Beklemeye al'}
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <label htmlFor="progress" className="text-sm font-medium text-ink-2">
+                  İlerleme
+                </label>
+                <input
+                  id="progress"
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={progressDraft ?? project.progress}
+                  onChange={(e) => setProgressDraft(Number(e.target.value))}
+                  onPointerUp={() => progressDraft != null && progressDraft !== project.progress && void patch({ progress: progressDraft }, `İlerleme %${progressDraft}`)}
+                  onKeyUp={() => progressDraft != null && progressDraft !== project.progress && void patch({ progress: progressDraft }, `İlerleme %${progressDraft}`)}
+                  className="w-full accent-[var(--color-titanium,#8a9099)] sm:ml-auto sm:w-60"
+                  aria-valuetext={`%${progressDraft ?? project.progress}`}
+                  data-testid="progress-slider"
+                />
+                <span className="w-12 text-right font-mono text-sm text-ink tabular-nums">%{progressDraft ?? project.progress}</span>
+              </div>
+              <ProgressBar value={project.progress} label="Proje ilerlemesi" />
+              {(progressDraft ?? project.progress) < STAGE_PROGRESS[project.stage] && (
+                <p className="text-[11px] text-muted">Bu aşama için asgari ilerleme %{STAGE_PROGRESS[project.stage]}; daha düşük değer kaydedilirken yükseltilir.</p>
+              )}
               {statusBusy && <span className="text-xs text-muted">Kaydediliyor…</span>}
             </div>
             <dl className="grid grid-cols-1 gap-5 sm:grid-cols-2">
@@ -158,12 +203,21 @@ export function ProjectDetailPage() {
                 )}
               </Detail>
               <Detail label="Konum">
-                {project.location ? (
+                {project.location || project.address ? (
                   <span className="inline-flex items-start gap-1.5">
-                    <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-titanium" aria-hidden="true" /> {project.location}
+                    <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-titanium" aria-hidden="true" />
+                    <span>
+                      {project.location}
+                      {project.address && <span className="block text-xs whitespace-pre-wrap text-muted">{project.address}</span>}
+                    </span>
                   </span>
                 ) : (
                   <span className="text-subtle">—</span>
+                )}
+                {project.map_url && (
+                  <a href={project.map_url} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-ink-2 underline underline-offset-4">
+                    Haritada aç <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                  </a>
                 )}
               </Detail>
               <Detail label="Başlangıç">{formatDate(project.start_date)}</Detail>
@@ -178,6 +232,15 @@ export function ProjectDetailPage() {
                   )}
                 </span>
               </Detail>
+              <Detail label="Gerçek tamamlanma">
+                <span className="inline-flex items-center gap-1.5">
+                  <CalendarCheck className="h-3.5 w-3.5 text-titanium" aria-hidden="true" />
+                  {formatDate(project.completed_on)}
+                </span>
+              </Detail>
+              <Detail label="Öncelik">
+                <PriorityLabel priority={project.priority} />
+              </Detail>
               <Detail label="Açıklama">
                 {project.description ? <span className="whitespace-pre-wrap">{project.description}</span> : <span className="text-subtle">—</span>}
               </Detail>
@@ -189,51 +252,23 @@ export function ProjectDetailPage() {
               Oluşturuldu {formatDateTime(project.created_at)} · Güncellendi {formatDateTime(project.updated_at)} · Sürüm {project.version}
             </p>
           </Panel>
+          <ProjectTasks projectId={project.id} id="gorevler" />
           <RelatedQuotes by="project_id" id={project.id} companyId={project.company_id} />
           <ProjectQuantity projectId={project.id} />
           <ProjectFiles projectId={project.id} />
           <ProjectNotes projectId={project.id} />
         </div>
 
-        <Panel title="Durum geçmişi" subtitle="Sunucu tarafından otomatik kaydedilir" icon={History} className="h-fit">
-          {history.loading ? (
-            <LoadingState />
-          ) : history.error ? (
-            <ErrorState message={history.error} onRetry={() => void history.reload()} />
-          ) : history.items.length === 0 ? (
-            <p className="text-sm text-subtle">Kayıt yok.</p>
-          ) : (
-            <ol className="relative flex flex-col gap-4">
-              <span className="absolute top-2 bottom-2 left-[5px] w-px bg-line" aria-hidden="true" />
-              {history.items.map((h) => (
-                <li key={h.id} className="relative flex gap-3">
-                  <span className="relative mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full border-2 border-surface bg-titanium" aria-hidden="true" />
-                  <div className="min-w-0">
-                    <div className="text-sm text-ink">
-                      {h.from_status ? (
-                        <>
-                          {STATUS_LABEL[h.from_status]} → <b className="font-semibold">{STATUS_LABEL[h.to_status]}</b>
-                        </>
-                      ) : (
-                        <>
-                          Oluşturuldu · <b className="font-semibold">{STATUS_LABEL[h.to_status]}</b>
-                        </>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-subtle">{formatDateTime(h.changed_at)}</div>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
-        </Panel>
+        <div className="flex min-w-0 flex-col gap-6">
+          <ProjectTimeline projectId={project.id} />
+        </div>
       </div>
 
       <ProjectForm open={editOpen} onClose={() => setEditOpen(false)} project={project} />
       <ConfirmDialog
         open={confirmDelete}
         title="Proje silinsin mi?"
-        message={`"${project.code} · ${project.name}" projesi; notları, dosyaları ve durum geçmişiyle birlikte kalıcı olarak silinecek. Bu işlem geri alınamaz.`}
+        message={`"${project.code} · ${project.name}" projesi; notları, dosyaları, görevleri ve işlem geçmişiyle birlikte kalıcı olarak silinecek. Bu işlem geri alınamaz.`}
         confirmLabel="Projeyi sil"
         busy={deleting}
         onConfirm={() => void remove()}

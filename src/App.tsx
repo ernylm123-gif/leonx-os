@@ -86,6 +86,14 @@ const router = createBrowserRouter([
               })),
           },
           {
+            path: 'gorevler',
+            lazy: () => import('@/pages/TasksPage').then((m) => ({ Component: m.TasksPage })),
+          },
+          {
+            path: 'bildirimler',
+            lazy: () => import('@/pages/NotificationsPage').then((m) => ({ Component: m.NotificationsPage })),
+          },
+          {
             path: 'leonx-ai',
             lazy: () => import('@/pages/AiPage').then((m) => ({ Component: m.AiPage })),
           },

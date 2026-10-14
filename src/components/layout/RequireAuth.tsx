@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { DataProvider } from '@/context/data'
+import { NotificationsProvider } from '@/context/notifications'
 import { useAuth } from '@/context/auth'
 import { AuthSplash, NotAuthorizedPage, OwnerCheckFailedPage } from '@/pages/auth/AccessPages'
 import { SetupRequiredPage } from '@/pages/auth/SetupRequiredPage'
@@ -30,6 +31,10 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       return <OwnerCheckFailedPage />
     case 'owner':
       // Kullanıcı değişirse veri deposu sıfırdan kurulur
-      return <DataProvider key={session?.user.id}>{children}</DataProvider>
+      return (
+        <DataProvider key={session?.user.id}>
+          <NotificationsProvider>{children}</NotificationsProvider>
+        </DataProvider>
+      )
   }
 }

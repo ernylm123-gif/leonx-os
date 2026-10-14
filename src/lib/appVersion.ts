@@ -157,9 +157,24 @@ export function originStatus(origin: string, canonical: string, env: string): 'k
 
 // ------------------------------------------------------------------ önbellek ve yeniden yükleme
 
+/** Push bildirimleri için tek service worker (önbellek tutmaz, istekleri yakalamaz) */
+export const PUSH_SW_URL = '/sw.js'
+
+/** Kayıt LEONX push çalışanı mı? (yalnız bildirim; sürüm güncellemesini etkilemez) */
+export function isPushWorker(scriptUrl: string | undefined | null): boolean {
+  if (!scriptUrl) return false
+  try {
+    return new URL(scriptUrl).pathname === PUSH_SW_URL
+  } catch {
+    return false
+  }
+}
+
 /**
- * LEONX OS service worker kullanmaz. Tarayıcıda önceki bir kurulumdan kalmış service worker
- * veya Cache Storage varsa (eski sürüm dosyalarını vermeye devam edebilir) güvenle kaldırılır.
+ * LEONX OS uygulama dosyaları için service worker/önbellek KULLANMAZ. Tarayıcıda önceki bir
+ * kurulumdan kalmış service worker veya Cache Storage varsa (eski sürüm dosyalarını vermeye
+ * devam edebilir) güvenle kaldırılır. İstisna: yalnız push bildirimlerini gösteren /sw.js
+ * (fetch olayını dinlemez, hiçbir dosyayı önbelleğe almaz) korunur.
  * İş verisi bu depolarda tutulmaz; oturum ve tercihler (localStorage) etkilenmez.
  */
 export async function purgeLegacyCaches(): Promise<{ workers: number; caches: number }> {
@@ -168,7 +183,11 @@ export async function purgeLegacyCaches(): Promise<{ workers: number; caches: nu
   try {
     if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations()
-      for (const r of regs) if (await r.unregister()) workers++
+      for (const r of regs) {
+        const url = r.active?.scriptURL ?? r.waiting?.scriptURL ?? r.installing?.scriptURL
+        if (isPushWorker(url)) continue
+        if (await r.unregister()) workers++
+      }
     }
   } catch {
     /* desteklenmiyor veya engelli */

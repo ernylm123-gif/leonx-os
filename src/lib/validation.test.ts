@@ -37,10 +37,10 @@ describe('validateContact', () => {
 
 describe('validateProject', () => {
   const base = { code: 'lx-2026-001', name: 'Cephe', category: 'cephe' }
-  it('geçerli proje; kod büyük harfe çevrilir, varsayılan durum/öncelik atanır', () => {
+  it('geçerli proje; kod büyük harfe çevrilir, varsayılan aşama/öncelik atanır', () => {
     const r = validateProject(base)
     expect(r.ok).toBe(true)
-    expect(r.value).toMatchObject({ code: 'LX-2026-001', status: 'kesif', priority: 'normal', company_id: null })
+    expect(r.value).toMatchObject({ code: 'LX-2026-001', stage: 'yeni_firsat', priority: 'normal', company_id: null })
   })
   it('zorunlu alanlar', () => {
     const r = validateProject({})
@@ -51,9 +51,15 @@ describe('validateProject', () => {
     expect(validateProject({ ...base, code: 'LX 01' }).errors.code).toBeDefined()
     expect(validateProject({ ...base, code: '-LX' }).errors.code).toBeDefined()
   })
-  it('geçersiz kategori, durum, öncelik', () => {
-    const r = validateProject({ ...base, category: 'uzay', status: 'bitti', priority: 'cok' })
-    expect(Object.keys(r.errors).sort()).toEqual(['category', 'priority', 'status'])
+  it('geçersiz kategori, aşama, öncelik, ilerleme, harita bağlantısı', () => {
+    const r = validateProject({ ...base, category: 'uzay', stage: 'bitti', priority: 'cok', progress: '140', map_url: 'javascript:alert(1)' })
+    expect(Object.keys(r.errors).sort()).toEqual(['category', 'map_url', 'priority', 'progress', 'stage'])
+  })
+  it('aşama ve ilerleme değerleri', () => {
+    const r = validateProject({ ...base, stage: 'uretimde', progress: '60', on_hold: 'true', map_url: 'https://maps.app.goo.gl/abc' })
+    expect(r.ok).toBe(true)
+    expect([r.value.stage, r.value.progress, r.value.on_hold]).toEqual(['uretimde', 60, true])
+    expect(validateProject(base).value.stage).toBe('yeni_firsat')
   })
   it('tarih sırası ve geçersiz tarih', () => {
     expect(validateProject({ ...base, start_date: '2026-05-10', due_date: '2026-05-01' }).errors.due_date).toBeDefined()
