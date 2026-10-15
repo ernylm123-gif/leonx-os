@@ -217,6 +217,19 @@ await test('Firma: doğrulama, ekleme, arama, düzenleme, ilgili kişi', async (
 })
 
 // ================================================================== Projeler
+await test('Pencere açılışı odağı çalmaz: kullanıcının seçtiği alana yazılan metin o alanda kalır (gerileme testi)', async ({ page }) => {
+  await login(page, OWNER, '/firmalar')
+  await page.getByRole('heading', { name: 'Henüz firma yok' }).waitFor()
+  await page.getByRole('button', { name: 'Firma ekle' }).first().click()
+  const dialog = page.getByRole('dialog', { name: 'Yeni firma' })
+  // İlk alan değil, e-posta alanı hemen seçilir; açılış odaklaması (60 ms) bu arada çalışır
+  await dialog.getByLabel('E-posta').focus()
+  await page.waitForTimeout(250)
+  await page.keyboard.type('satis@ornek.com')
+  expect((await dialog.getByLabel('E-posta').inputValue()) === 'satis@ornek.com', 'yazılan metin e-posta alanında değil')
+  expect((await dialog.getByLabel('Firma adı').inputValue()) === '', 'odak ilk alana çalındı: metin firma adına gitti')
+})
+
 await test('Proje: oluşturma, tarih doğrulaması, durum geçmişi, not, dosya, silme', async ({ page, mock }) => {
   const company = mock.externalInsert('companies', { name: 'Demir Cephe Ltd.' })
   await login(page, OWNER, '/projeler')
