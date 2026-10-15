@@ -22,7 +22,7 @@ Tek üretim adresi: <https://leonx-os.vercel.app> (yalnızca `main` dalından). 
 ## Veritabanı
 
 Migration'lar `supabase/migrations/` altında, sırasıyla 001–009 ve 011 (Faz 8 finans; 010 numarası kullanılmadı).
-001–009 gerçek Supabase projesine uygulandı; **011 henüz uygulanmadı** (entegrasyon sırasında uygulanacak). Tümü
+Hepsi (011 dahil) gerçek Supabase projesine uygulandı; 011 için uzak, geri alınan test 14/14. Tümü
 tekrar çalıştırılabilir ve DROP/veri silme içermez.
 
 ## Testler
