@@ -11,6 +11,7 @@ import {
   Ruler,
   ScanLine,
   Settings,
+  Wallet,
 } from 'lucide-react'
 
 export type ModuleStatus = 'ready' | 'planned'
@@ -107,6 +108,15 @@ export const NAV_ITEMS: NavItem[] = [
     group: 'ticari',
     status: 'ready',
     mobilePrimary: true,
+  },
+  {
+    path: '/finans',
+    code: 'M11',
+    label: 'Finans',
+    description: 'Maliyet, gider, tahsilat, kârlılık ve nakit akışı',
+    icon: Wallet,
+    group: 'ticari',
+    status: 'ready',
   },
   {
     path: '/firmalar',

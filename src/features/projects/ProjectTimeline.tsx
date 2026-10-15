@@ -1,4 +1,4 @@
-import { Calculator, CheckCircle2, FileText, FileUp, Flag, FolderPlus, History, ListPlus, PauseCircle, ScanLine, Send, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { Banknote, Calculator, CheckCircle2, FileText, FileUp, Flag, FolderPlus, History, ListPlus, PauseCircle, Receipt, ScanLine, Send, ThumbsDown, ThumbsUp, TrendingUp } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Panel } from '@/components/ui/Panel'
@@ -24,6 +24,9 @@ export const EVENT_ICON: Record<string, { icon: LucideIcon; tone: string }> = {
   teklif_red: { icon: ThumbsDown, tone: 'bg-danger' },
   gorev_eklendi: { icon: ListPlus, tone: 'bg-line-strong' },
   gorev_tamam: { icon: CheckCircle2, tone: 'bg-ok' },
+  gider: { icon: Receipt, tone: 'bg-line-strong' },
+  tahsilat: { icon: Banknote, tone: 'bg-ok' },
+  butce_asildi: { icon: TrendingUp, tone: 'bg-danger' },
 }
 
 export function EventLine({ e, to }: { e: ProjectEvent; to?: string }) {

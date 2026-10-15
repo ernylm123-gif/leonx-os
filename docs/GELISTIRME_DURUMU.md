@@ -1,6 +1,6 @@
 # LEONX OS — Geliştirme durumu
 
-Son güncelleme: Faz 5.2 (mimari PDF analiz motoru: kök neden düzeltmeleri) · uygulama sürümü 0.7.1
+Son güncelleme: Faz 8 (finans, maliyet, tahsilat ve kârlılık) ve Faz 5.2 (mimari PDF analiz motoru) · uygulama sürümü 0.8.0
 
 Tek üretim adresi: <https://leonx-os.vercel.app> (yalnızca `main` dalından). Çalışan derlemenin kimliği
 **Ayarlar → Sürüm bilgisi** ekranında ve `/version.json` adresinde görünür.
@@ -16,11 +16,13 @@ Tek üretim adresi: <https://leonx-os.vercel.app> (yalnızca `main` dalından). 
 | 6 | Teklifler: numaralandırma, kalemler (elle / metrajdan), maliyet-kâr-indirim-KDV, revizyon, kopya, durum kilidi, proje bağlantısı, kurumsal PDF ve Excel, teklif ayarları |
 
 | 5.2 | Mimari PDF kök neden düzeltmeleri: AutoCAD SHX/eğriye çevrilmiş yazı tespiti ve bölgesel karo OCR (yüksek çözünürlük, iPad'de sabit bellek), görüntü olarak gömülü çizelge (karma pafta) OCR'ı, bozuk yazı tipi tespiti; metre ("1.20/1.50"), kesirli, adlandırılmış ölçü yazımları; kod eşleştirme (P-01 = P01 = P1); kart tipi doğrama listesi (kasa, ölçü çizgileri, ADET/malzeme/cam/renk/açılım); görünüş çiziminden açılım ve bölme analizi; teknik özellikler (doğrulandı / aday / belirsiz); "1.-4. KATLAR" kat çarpanı; mahal; çelişkilerin kullanıcıya bırakılması; tanı raporu ve kritik girdi soruları; doğruluk ölçüm altyapısı (precision/recall) |
+| 8 | Finans: birim maliyet kataloğu, kullanıcı kurları, proje bütçesi (kabul edilen teklif anlık görüntüsü), tahmini maliyet (elle / onaylı metrajdan), gerçekleşen gider (KDV ayrı), ödeme planı ve tahsilat (FIFO), tahmini/beklenen/gerçekleşen kâr, bütçe aşımı ve tahsilat bildirimleri, /finans paneli (nakit akışı, geciken ödemeler) |
 | 7 | 12 aşamalı proje akışı (liste + pano), ilerleme, adres/harita, gerçek bitiş tarihi; görev ve termin (hatırlatma, gecikme); sunucu olaylarından işlem geçmişi; bildirim merkezi (zil, geçmiş, okundu eşitleme, tercihler); Web Push (VAPID, kendi service worker'ı); canlı yönetim paneli; teklif kabulünde aşama önerisi |
 
 ## Veritabanı
 
-Migration'lar `supabase/migrations/` altında, sırasıyla 001–009. Hepsi gerçek Supabase projesine uygulandı; tümü
+Migration'lar `supabase/migrations/` altında, sırasıyla 001–009 ve 011 (Faz 8 finans; 010 numarası kullanılmadı).
+Hepsi (011 dahil) gerçek Supabase projesine uygulandı; 011 için uzak, geri alınan test 14/14. Tümü
 tekrar çalıştırılabilir ve DROP/veri silme içermez.
 
 ## Testler
@@ -29,7 +31,7 @@ tekrar çalıştırılabilir ve DROP/veri silme içermez.
 | --- | --- |
 | `npm run test` | Doğruluk ölçümü (sentetik fikstürler: precision/recall, adet/ölçü/alan hatası), AutoCAD yazı-çizgi ve karma pafta için uçtan uca karo OCR, kart tipi liste, mimari PDF analizi (çok sayfalı proje, çizelge, ölçeksiz plan, yanlış ölçek, yazısız/taranmış/boş/bozuk PDF, OCR), hesap motorları (metraj, teklif), birim dönüşümleri, PDF/Excel içerik ve toplam eşitliği, sürüm, yeniden deneme |
 | `npm run bench:cad` | Doğruluk ölçümü; `CAD_REFERANS_DIR` ile gerçek referans projeler (depo dışında) |
-| `npm run test:db` | Migration'lar iki kez + RLS, kilit, numara, revizyon, silme ilişkileri (yerel PostgreSQL) |
+| `npm run test:db` | Migration'lar iki kez + RLS, kilit, numara, revizyon, silme ilişkileri; Faz 8: finans RLS, metraj çift aktarım engeli, kur seçimi, FIFO tahsilat, bütçe aşımı ve hatırlatma tekilleştirme (yerel PostgreSQL) |
 | `npm run test:e2e` | Tarayıcı akışları (sahte Supabase): giriş, CRUD, çoklu cihaz, çevrimdışı, sürüm, CAD/metraj, teklif akışları, 6 ekran × 2 tema |
 | `supabase/tests/*.remote_safe.sql` | Gerçek Supabase'de silmesiz, geri alınan RLS/kural testleri |
 
@@ -84,6 +86,24 @@ Testler sentetik fikstürlerle yapıldı (`scripts/cad-fixtures/make_pdf_fixture
 - Çevrimdışı düzenleme yok; açık formdaki bilgi korunur, kayıt bağlantı gelince yapılır.
 - Teklif PDF'inde firma adresi, vergi ve banka bilgileri **Ayarlar → Teklif ayarları** doldurulunca görünür
   (sistem uydurma bilgi yazmaz).
-- Kur çevrimi yapılmaz: teklif seçilen para biriminde hazırlanır, tutarlar o para biriminde girilir.
+- Teklifte kur çevrimi yapılmaz: teklif seçilen para biriminde hazırlanır. Finans modülünde çevrim yalnız
+  kullanıcının girdiği kurla yapılır (otomatik TCMB çekimi yok); kur yoksa para birimi bazında gösterilir.
 - Otomatik PR birleştirme GitHub ayarı (Allow auto-merge + zorunlu kontroller) depo sahibince açılmalıdır.
 - LEONX AI henüz geliştirilmedi.
+
+## Faz 8 — finans kuralları
+
+| Konu | Kural |
+| --- | --- |
+| Para hesabı | Tamsayı kuruş (`src/quote/money.ts`), yüzde 3 ondalık, kur 6 ondalık; satır = yuvarla(miktar × birim), çevrim = yuvarla(tutar × kur). İstemci (`src/finance/*`) ve veritabanı aynı yuvarlamayı kullanır |
+| Para birimi | Farklı birimler yalnız kullanıcının girdiği kurla (projeye özel > genel, kur tarihi ≤ işlem tarihi, ters yön hesaplanmaz) çevrilir; kur yoksa "kur girilmemiş" uyarısı ve para birimi bazında ara toplam |
+| Fiyat | Sistem fiyat uydurmaz. Katalogda olmayan iş "fiyat tanımlanmamış" (boş) kalır, toplama katılmaz, tahmin "eksik" sayılır |
+| KDV ve kâr | Kâr KDV hariç tutarlardan. Kâr marjı = kâr / net satış; maliyet üzerinden kâr = kâr / maliyet (ayrı gösterilir) |
+| Tahmini / gerçekleşen | Tamamlanmamış projede kâr "tahmini"; gerçekleşen kâr yalnız "tamamlandı / teslim edildi" aşamasında, kayıtlı giderlerden |
+| Metraj → maliyet | Yalnız onaylı sürümün onaylı pozları; aynı poz aynı gruba bir kez (benzersiz indeks); projeye ikinci metraj revizyonu aktarılamaz; çevre bazlı satırlar "çevre bazlı tahmini" (profil kesim boyu değildir); fire yalnız bütçedeki orandan |
+| Tekrarlanabilirlik | Gider, tahsilat, taksit, kur ve maliyet satırları istemcide üretilen kimlikle eklenir (yeniden denemede çift kayıt yok); aynı tedarikçi belge no bir kez |
+| Bildirim | Bütçe aşımı (tahmin tam ve çevrilebilirse) her %10 eşikte bir kez (`proje`); tahsilat yaklaşıyor/gecikti (`termin`) hatırlatma taramasında, tekilleştirilmiş |
+| Nakit akışı | Giriş: tahsilat; çıkış: "ödendi" işaretli giderler (KDV dahil); para birimi bazında, çevrimsiz |
+
+Bilinen sınırlar (Faz 8): kur otomatik çekilmez; gider/tahsilat için ayrı belge (fatura PDF) eki yok; ödeme planı
+tutarları sözleşmeye göre KDV dahil girilir ve satış bedeliyle otomatik karşılaştırılmaz; nakit akışı son 6 ay.

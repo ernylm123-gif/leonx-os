@@ -9,7 +9,7 @@ export const COMPANY = {
 export const APP = {
   name: 'LEONX OS',
   version: __LEONX_BUILD__.version,
-  stage: 'Faz 7 · Proje yönetimi, görevler ve bildirimler',
+  stage: 'Faz 8 · Finans, maliyet, tahsilat ve kârlılık',
   /** Tek kanonik üretim adresi — tüm cihazlar bu adresi kullanmalıdır */
   canonicalOrigin: 'https://leonx-os.vercel.app',
 } as const
@@ -43,5 +43,6 @@ export const ROADMAP = [
   { phase: 'Faz 6', title: 'Teklif, maliyet, fiyatlandırma, revizyon ve kurumsal PDF/Excel', done: true },
   { phase: 'Faz 7', title: 'Proje aşamaları, görev ve termin, bildirim merkezi ve push', done: true },
   { phase: 'Faz 5.2', title: 'Mimari PDF analizi: AutoCAD yazı-çizgi OCR, kart tipi liste, teknik özellikler', done: true },
+  { phase: 'Faz 8', title: 'Finans: maliyet, gider, tahsilat, kur ve kârlılık', done: true },
   { phase: 'Sıradaki', title: 'LEONX AI entegrasyonu', done: false },
 ] as const

@@ -42,6 +42,13 @@ const TABLES = [
   'notifications',
   'notification_prefs',
   'push_subscriptions',
+  'cost_rates',
+  'fx_rates',
+  'project_budgets',
+  'project_cost_lines',
+  'project_expenses',
+  'project_payment_schedule',
+  'project_collections',
 ]
 // Faz 7: aşama → eski durum ve asgari ilerleme (supabase/migrations/20261014000700_leonx_workflow.sql ile aynı)
 const STAGE_STATUS = { yeni_firsat: 'kesif', teklif_hazirlaniyor: 'teklif', teklif_gonderildi: 'teklif', gorusme: 'teklif', onaylandi: 'teklif', olcu_kesif: 'olcu', uretime_hazirlik: 'tasarim', uretimde: 'uretim', montajda: 'montaj', tamamlandi: 'tamamlandi', teslim_edildi: 'tamamlandi', iptal: 'iptal' }
@@ -68,6 +75,20 @@ const SETTINGS_DEFAULTS = {
   default_delivery_terms: null, closing_text: null,
 }
 const guardError = (message) => ({ error: { status: 400, code: '23514', message } })
+const uniqueError = (name) => ({ error: { status: 409, code: '23505', message: `duplicate key value violates unique constraint "${name}"` } })
+// Faz 8 varsayılanları (supabase/migrations/20261015001100_leonx_finance.sql ile aynı)
+const FIN_DEFAULTS = {
+  cost_rates: { currency: 'TRY', quantity_category: null, active: true, notes: null },
+  fx_rates: { project_id: null },
+  project_budgets: { currency: 'TRY', sale_net_amount: null, vat_pct: 20, source_quote_id: null, quote_snapshot_net: null, quote_snapshot_currency: null, quote_snapshot_vat_pct: null, quote_snapshot_label: null, quote_snapshot_at: null, waste_pct: 0, overhead_pct: 0, notes: null },
+  project_cost_lines: { sort_order: 0, unit_cost: null, currency: 'TRY', source: 'elle', source_takeoff_id: null, source_item_id: null, cost_rate_id: null, measure_basis: null, notes: null },
+  project_expenses: { supplier: null, vat_amount: 0, currency: 'TRY', fx_rate_to_base: null, fx_to_currency: null, document_no: null, paid: false, notes: null },
+  project_payment_schedule: { kind: 'taksit', label: null, currency: 'TRY', sort_order: 0, notes: null },
+  project_collections: { currency: 'TRY', method: 'havale', schedule_id: null, reference: null, note: null },
+}
+const MATERIAL_GROUPS = ['profil', 'pvc_sistem', 'cam', 'aksesuar']
+const cents = (x) => Math.round(Number(x) * 100)
+const fmt2 = (c) => (c / 100).toFixed(2)
 
 export class MockSupabase {
   constructor() {
@@ -143,6 +164,11 @@ export class MockSupabase {
       this.event(row.project_id, 'teklif', row.revision > 1 ? 'Teklif revizyonu eklendi' : 'Teklif eklendi', `${row.quote_no} Rev ${row.revision} · ${row.title}`, 'quote', row.id, actor, `quote:${row.id}:yeni`)
       this.notify('teklif', 'teklif_yeni', `${row.revision > 1 ? 'Teklif revizyonu' : 'Teklif oluşturuldu'}: ${row.quote_no} Rev ${row.revision}`, row.title, `/teklifler/${row.id}`, 'quote', row.id, `quote:${row.id}:yeni`, actor)
     }
+    if (table === 'project_expenses') {
+      this.event(row.project_id, 'gider', 'Gider kaydedildi', `${row.description} · ${fmt2(cents(row.amount))} ${row.currency} (KDV hariç)`, 'expense', row.id, actor, `expense:${row.id}`)
+      this.budgetCheck(row.project_id)
+    }
+    if (table === 'project_collections') this.event(row.project_id, 'tahsilat', 'Tahsilat kaydedildi', `${fmt2(cents(row.amount))} ${row.currency}`, 'collection', row.id, actor, `collection:${row.id}`)
     if (table === 'project_tasks') {
       this.event(row.project_id, 'gorev_eklendi', 'Görev eklendi', row.title, 'task', row.id, actor, `task:${row.id}:yeni`)
       if (row.done) this.event(row.project_id, 'gorev_tamam', 'Görev tamamlandı', row.title, 'task', row.id, actor, `task:${row.id}:tamam:${row.done_at}`)
@@ -166,9 +192,143 @@ export class MockSupabase {
       this.event(next.project_id, 'metraj_onay', 'Metraj onaylandı', `Rev ${next.revision} · ${next.name}`, 'takeoff', next.id, actor, `takeoff:${next.id}:onay`)
       this.notify('cad', 'metraj_onay', `Metraj onaylandı: Rev ${next.revision}`, next.name, `/metraj?proje=${next.project_id}&surum=${next.id}`, 'project', next.project_id, `takeoff:${next.id}:onay`, actor)
     }
+    if (table === 'project_expenses') this.budgetCheck(next.project_id)
     if (table === 'project_tasks' && next.done && !old.done) {
       this.event(next.project_id, 'gorev_tamam', 'Görev tamamlandı', next.title, 'task', next.id, actor, `task:${next.id}:tamam:${next.done_at}`)
     }
+  }
+
+  // ---------------------------------------------------------------- Faz 8 tetikleyici karşılıkları
+  /** public.leonx_fx_rate: projeye özel > genel, tarih ≤ gün, ters yön yok */
+  fxRate(from, to, date, projectId) {
+    if (from === to) return 1
+    const c = this.db.fx_rates
+      .filter((r) => r.from_currency === from && r.to_currency === to && r.rate_date <= date && (r.project_id === null || r.project_id === projectId))
+      .sort((a, b) => (b.project_id ? 1 : 0) - (a.project_id ? 1 : 0) || (a.rate_date < b.rate_date ? 1 : a.rate_date > b.rate_date ? -1 : 0) || (a.created_at < b.created_at ? 1 : -1))
+    return c[0] ? Number(c[0].rate) : null
+  }
+
+  /** public.project_receivables karşılığı (FIFO) */
+  receivables() {
+    const out = []
+    const linked = new Map()
+    const pool = new Map()
+    const key = (p, c) => `${p}|${c}`
+    const ids = new Set(this.db.project_payment_schedule.map((s) => s.id))
+    for (const c of this.db.project_collections) {
+      if (c.schedule_id && ids.has(c.schedule_id)) linked.set(c.schedule_id, (linked.get(c.schedule_id) ?? 0) + cents(c.amount))
+      else pool.set(key(c.project_id, c.currency), (pool.get(key(c.project_id, c.currency)) ?? 0) + cents(c.amount))
+    }
+    const rows = this.db.project_payment_schedule.map((s) => {
+      const amount = cents(s.amount)
+      const l = linked.get(s.id) ?? 0
+      if (l > amount) pool.set(key(s.project_id, s.currency), (pool.get(key(s.project_id, s.currency)) ?? 0) + l - amount)
+      return { s, amount, applied: Math.min(l, amount) }
+    })
+    rows.sort((a, b) => (a.s.due_date < b.s.due_date ? -1 : a.s.due_date > b.s.due_date ? 1 : a.s.sort_order - b.s.sort_order || (a.s.id < b.s.id ? -1 : 1)))
+    const today = this.now().slice(0, 10)
+    for (const r of rows) {
+      const k = key(r.s.project_id, r.s.currency)
+      const avail = pool.get(k) ?? 0
+      const take = Math.min(r.amount - r.applied, avail)
+      pool.set(k, avail - take)
+      const collected = r.applied + take
+      const outstanding = r.amount - collected
+      out.push({ ...r.s, collected, outstanding, status: outstanding === 0 ? 'tahsil_edildi' : r.s.due_date < today ? 'gecikti' : collected > 0 ? 'kismi' : 'bekliyor' })
+    }
+    return out
+  }
+
+  /** public.leonx_finance_budget_check karşılığı */
+  budgetCheck(projectId) {
+    const b = this.db.project_budgets.find((x) => x.project_id === projectId)
+    const base = b?.currency ?? 'TRY'
+    const lines = this.db.project_cost_lines.filter((l) => l.project_id === projectId)
+    if (!lines.length) return
+    const today = this.now().slice(0, 10)
+    let direct = 0
+    let material = 0
+    for (const l of lines) {
+      if (l.unit_cost == null) return
+      const rate = this.fxRate(l.currency, base, today, projectId)
+      if (rate == null) return
+      const amt = Math.round((Math.round(Number(l.quantity) * 1000) * cents(l.unit_cost)) / 1000)
+      const conv = Math.round(amt * rate)
+      direct += conv
+      if (MATERIAL_GROUPS.includes(l.cost_group)) material += conv
+    }
+    const waste = Math.round((material * Number(b?.waste_pct ?? 0)) / 100)
+    const est = direct + waste + Math.round(((direct + waste) * Number(b?.overhead_pct ?? 0)) / 100)
+    if (est <= 0) return
+    let act = 0
+    for (const e of this.db.project_expenses.filter((x) => x.project_id === projectId)) {
+      const rate = e.currency === base ? 1 : e.fx_rate_to_base != null && e.fx_to_currency === base ? Number(e.fx_rate_to_base) : this.fxRate(e.currency, base, e.expense_date, projectId)
+      if (rate != null) act += Math.round(cents(e.amount) * rate)
+    }
+    if (act <= est) return
+    const step = Math.floor(((act - est) * 10) / est)
+    const p = this.db.projects.find((x) => x.id === projectId)
+    const detail = `Gerçekleşen gider ${fmt2(act)} ${base} · tahmini maliyet ${fmt2(est)} ${base}`
+    const dedupe = `butce-asildi:${projectId}:${step}`
+    this.event(projectId, 'butce_asildi', 'Bütçe aşıldı', detail, 'project', projectId, null, dedupe)
+    this.notify('proje', 'butce_asildi', `Bütçe aşıldı: ${p?.code ?? ''}`, detail, `/projeler/${projectId}?sekme=finans`, 'project', projectId, dedupe, null, true)
+  }
+
+  /** Faz 8 bütünlük kuralları (tetikleyici, kısıt ve benzersiz indeks karşılıkları); hata yoksa null */
+  financeGuard(table, row, old) {
+    if (old && row.project_id !== old.project_id) return guardError('Kayıt başka projeye taşınamaz')
+    if (table === 'cost_rates') {
+      if (!(Number(row.unit_cost) > 0)) return guardError('cost_rates_unit_cost_check')
+      if (this.db.cost_rates.some((r) => r.id !== row.id && r.code === row.code && r.valid_from === row.valid_from)) return uniqueError('cost_rates_code_valid_unique')
+    }
+    if (table === 'fx_rates') {
+      if (row.from_currency === row.to_currency) return guardError('fx_rates_pair_check')
+      if (this.db.fx_rates.some((r) => r.id !== row.id && r.rate_date === row.rate_date && r.from_currency === row.from_currency && r.to_currency === row.to_currency && (r.project_id ?? null) === (row.project_id ?? null))) return uniqueError('fx_rates_unique_idx')
+    }
+    if (table === 'project_budgets') {
+      if (!old && this.db.project_budgets.some((r) => r.project_id === row.project_id)) return uniqueError('project_budgets_project_id_key')
+      if (row.source_quote_id && (!old || old.source_quote_id !== row.source_quote_id)) {
+        const q = this.db.quotes.find((x) => x.id === row.source_quote_id)
+        if (!q || q.project_id !== row.project_id) return guardError('Teklif bu projeye bağlı değil')
+        if (q.status !== 'kabul') return guardError('Bütçe yalnız kabul edilmiş teklife bağlanabilir')
+      }
+    }
+    if (table === 'project_cost_lines') {
+      if (!(Number(row.quantity) > 0)) return guardError('project_cost_lines_quantity_check')
+      if (row.source !== 'metraj') {
+        if (row.source_item_id || row.source_takeoff_id) return guardError('Metraj bağlantısı yalnız metraj kaynaklı satırda olabilir')
+      } else if (!old || old.source_item_id !== row.source_item_id || old.source_takeoff_id !== row.source_takeoff_id) {
+        const t = this.db.quantity_takeoffs.find((x) => x.id === row.source_takeoff_id)
+        if (!t || t.project_id !== row.project_id) return guardError('Metraj sürümü bu projeye ait değil')
+        if (t.status !== 'onaylandi') return guardError('Yalnız onaylanmış metraj sürümü maliyete aktarılabilir')
+        const it = this.db.quantity_items.find((x) => x.id === row.source_item_id)
+        if (!it || it.takeoff_id !== t.id) return guardError('Poz bu metraj sürümüne ait değil')
+        if (it.verification !== 'onaylandi') return guardError('Doğrulanmamış veya reddedilmiş poz maliyete aktarılamaz')
+        if (this.db.project_cost_lines.some((l) => l.id !== row.id && l.project_id === row.project_id && l.source === 'metraj' && l.source_takeoff_id && l.source_takeoff_id !== row.source_takeoff_id)) {
+          return guardError('Bu projeye başka bir metraj revizyonu aktarılmış; çift sayımı önlemek için önce o satırları kaldırın')
+        }
+      }
+      if (row.source_item_id && this.db.project_cost_lines.some((l) => l.id !== row.id && l.project_id === row.project_id && l.source_item_id === row.source_item_id && l.cost_group === row.cost_group)) {
+        return uniqueError('project_cost_lines_source_unique')
+      }
+    }
+    if (table === 'project_expenses') {
+      if (!(Number(row.amount) > 0)) return guardError('project_expenses_amount_check')
+      if ((row.fx_rate_to_base == null) !== (row.fx_to_currency == null)) return guardError('project_expenses_fx_check')
+      if (row.document_no && this.db.project_expenses.some((e) => e.id !== row.id && e.project_id === row.project_id && (e.supplier ?? '').toLowerCase() === (row.supplier ?? '').toLowerCase() && (e.document_no ?? '').toLowerCase() === row.document_no.toLowerCase())) {
+        return uniqueError('project_expenses_document_unique')
+      }
+    }
+    if (table === 'project_payment_schedule' && !(Number(row.amount) > 0)) return guardError('project_payment_schedule_amount_check')
+    if (table === 'project_collections') {
+      if (!(Number(row.amount) > 0)) return guardError('project_collections_amount_check')
+      if (row.schedule_id) {
+        const s = this.db.project_payment_schedule.find((x) => x.id === row.schedule_id)
+        if (!s || s.project_id !== row.project_id) return guardError('Taksit bu projeye ait değil')
+        if (s.currency !== row.currency) return guardError('Tahsilat, bağlandığı taksitle aynı para biriminde olmalıdır')
+      }
+    }
+    return null
   }
 
   /** public.leonx_run_reminders karşılığı (tekilleştirilmiş) */
@@ -188,6 +348,15 @@ export class MockSupabase {
     }
     for (const q of this.db.quotes.filter((x) => x.valid_until && !x.superseded && ['gonderildi', 'gorusmede'].includes(x.status))) {
       if (q.valid_until >= today && q.valid_until <= plus(today, 2)) this.notify('teklif', 'teklif_suresi', `Teklif geçerliliği bitiyor: ${q.quote_no}`, q.title, `/teklifler/${q.id}`, 'quote', q.id, `quote:${q.id}:gecerlilik:${q.valid_until}`, null, true)
+    }
+    // Faz 8: tahsilat vadesi yaklaşıyor / gecikti
+    for (const r of this.receivables().filter((x) => x.outstanding > 0 && x.due_date >= plus(today, -90) && x.due_date <= plus(today, 3))) {
+      const p = this.db.projects.find((x) => x.id === r.project_id)
+      if (!p || p.stage === 'iptal') continue
+      const body = `${r.label ? `${r.label} · ` : ''}${fmt2(r.outstanding)} ${r.currency}`
+      const link = `/projeler/${r.project_id}?sekme=finans`
+      if (r.due_date >= today) this.notify('termin', 'tahsilat_yaklasiyor', `Tahsilat vadesi yaklaşıyor: ${p.code}`, body, link, 'project', r.project_id, `tahsilat-yaklasiyor:${r.id}:${r.due_date}`, null, true)
+      else this.notify('termin', 'tahsilat_gecikti', `Tahsilat gecikti: ${p.code}`, body, link, 'project', r.project_id, `tahsilat-gecikti:${r.id}`, null, true)
     }
     return this.db.notifications.length - before
   }
@@ -283,6 +452,13 @@ export class MockSupabase {
       if (this.db.notification_prefs.some((x) => x.user_id === actor)) return { error: { status: 409, code: '23505', message: 'duplicate key value violates unique constraint "notification_prefs_pkey"' } }
       row = { ...PREFS_DEFAULTS, ...row, user_id: actor }
     }
+    if (FIN_DEFAULTS[table]) {
+      row = { ...FIN_DEFAULTS[table], ...row }
+      if (table === 'cost_rates') row.valid_from = row.valid_from ?? now.slice(0, 10)
+      if (table !== 'cost_rates' && table !== 'fx_rates' && !this.db.projects.some((p) => p.id === row.project_id)) return { error: { status: 409, code: '23503', message: 'Proje bulunamadı' } }
+      const g = this.financeGuard(table, row, null)
+      if (g) return g
+    }
     if (table === 'notifications' || table === 'project_events') return { error: { status: 403, code: '42501', message: 'permission denied' } }
     this.db[table].push(row)
     this.broadcast(table, 'INSERT', row, null)
@@ -334,6 +510,10 @@ export class MockSupabase {
     }
     if (table === 'notifications' && Object.keys(patch).some((k) => k !== 'read_at')) return { error: { status: 403, code: '42501', message: 'permission denied for table notifications' } }
     let next = { ...old, ...patch, id: old.id, created_at: old.created_at, created_by: old.created_by, updated_at: this.now(), version: (old.version ?? 0) + 1 }
+    if (FIN_DEFAULTS[table] && !system) {
+      const g = this.financeGuard(table, next, old)
+      if (g) return g
+    }
     if (table === 'projects') {
       if (next.progress > 100 || next.progress < 0) return guardError('projects_progress_check')
       next = this.syncStage(next, old)
@@ -384,7 +564,7 @@ export class MockSupabase {
     // ON DELETE CASCADE karşılıkları
     if (table === 'companies') for (const c of this.db.contacts.filter((x) => x.company_id === id)) this.deleteRow('contacts', c.id)
     if (table === 'projects') {
-      for (const t of ['project_notes', 'project_files', 'project_status_history', 'quantity_items', 'quantity_takeoffs', 'cad_analyses', 'quantity_item_history', 'project_tasks', 'project_events']) {
+      for (const t of ['project_notes', 'project_files', 'project_status_history', 'project_collections', 'project_payment_schedule', 'project_expenses', 'project_cost_lines', 'project_budgets', 'fx_rates', 'quantity_items', 'quantity_takeoffs', 'cad_analyses', 'quantity_item_history', 'project_tasks', 'project_events']) {
         for (const r of this.db[t].filter((x) => x.project_id === id)) this.deleteRow(t, r.id, true)
       }
     }
@@ -400,6 +580,9 @@ export class MockSupabase {
         if (prev?.superseded) this.updateRow('quotes', prev.id, { superseded: false }, OWNER.id, true)
       }
     }
+    if (table === 'project_payment_schedule') for (const c of this.db.project_collections.filter((x) => x.schedule_id === id)) this.updateRow('project_collections', c.id, { schedule_id: null }, OWNER.id, true)
+    if (table === 'cost_rates') for (const l of this.db.project_cost_lines.filter((x) => x.cost_rate_id === id)) this.updateRow('project_cost_lines', l.id, { cost_rate_id: null }, OWNER.id, true)
+    if (table === 'quotes') for (const b of this.db.project_budgets.filter((x) => x.source_quote_id === id)) this.updateRow('project_budgets', b.id, { source_quote_id: null }, OWNER.id, true)
     if (table === 'project_files') for (const a of this.db.cad_analyses.filter((x) => x.file_id === id)) this.updateRow('cad_analyses', a.id, { file_id: null })
     if (table === 'cad_analyses') for (const t of this.db.quantity_takeoffs.filter((x) => x.analysis_id === id)) this.updateRow('quantity_takeoffs', t.id, { analysis_id: null })
     if (table === 'quantity_items' && !cascade) this.insertRow('quantity_item_history', { item_id: row.id, takeoff_id: row.takeoff_id, project_id: row.project_id, poz_code: row.poz_code, action: 'sil', changes: {} })

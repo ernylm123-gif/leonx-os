@@ -70,6 +70,7 @@ sorgu olarak yapıştırın ve **Run** deyin. Her biri "Success. No rows returne
 | 7 | `supabase/migrations/20261014000700_leonx_workflow.sql` | Proje aşamaları, görevler, işlem geçmişi, bildirimler, tercihler, push abonelikleri, hatırlatma taraması |
 | 8 | `supabase/migrations/20261014000800_leonx_scheduler.sql` | pg_cron + pg_net zamanlayıcı (hatırlatmalar 5 dk, push gönderimi 1 dk) |
 | 9 | `supabase/migrations/20261014000900_leonx_hardening.sql` | Tetikleyici fonksiyonlarının istemciden çağrılmasını kapatır |
+| 10 | `supabase/migrations/20261015001100_leonx_finance.sql` | Faz 8 finans: birim maliyet kataloğu, kurlar, proje bütçesi, tahmini maliyet, giderler, ödeme planı, tahsilatlar, `project_receivables` görünümü, bütçe aşımı ve tahsilat hatırlatmaları (RLS + Realtime) |
 
 - Dosyalar **tekrar çalıştırılabilir** ve hiçbir nesneyi silmez (`DROP` içermez): tetikleyiciler
   `create or replace trigger`, politikalar "yoksa oluştur, varsa `ALTER POLICY`" ile tanımlanır.
@@ -77,7 +78,8 @@ sorgu olarak yapıştırın ve **Run** deyin. Her biri "Success. No rows returne
 - iPad'de GitHub'dan dosya içeriğini kopyalamak için dosyayı açıp **Raw** görünümüne geçin, tümünü seçip kopyalayın.
 
 Kontrol: **Table Editor**'de `app_owner, companies, contacts, projects, project_status_history, project_notes,
-project_files, activity_log, cad_analyses, quantity_takeoffs, quantity_items, quantity_item_history, quotes, quote_items, quote_history, quote_settings, quote_counters` tabloları görünmeli ve hepsinde **RLS enabled** yazmalıdır.
+project_files, activity_log, cad_analyses, quantity_takeoffs, quantity_items, quantity_item_history, quotes, quote_items, quote_history, quote_settings, quote_counters, cost_rates, fx_rates, project_budgets, project_cost_lines,
+project_expenses, project_payment_schedule, project_collections` tabloları görünmeli ve hepsinde **RLS enabled** yazmalıdır.
 **Storage**'da `project-files` bucket'ı **Private** olarak görünmelidir.
 
 ### Push bildirimleri (Faz 7)
@@ -112,7 +114,7 @@ yalnızca SQL Editor'dan yapılabilir.
 - Başarılıysa çıktı/bildirimlerde **TÜM TESTLER BAŞARILI** görünür. Bir kontrol başarısız olursa
   "TEST BAŞARISIZ: …" hatasıyla durur.
 - Bağlayıcı ile uzaktan çalıştırma için silme içermeyen alt kümeler: `supabase/tests/rls_policies.remote_safe.sql`,
-  `quotes.remote_safe.sql`, `workflow.remote_safe.sql`
+  `quotes.remote_safe.sql`, `workflow.remote_safe.sql`, `finance.remote_safe.sql` (Faz 8; sonuç `LEONX_FAZ8_TEST_SONUC basarili=14/14`)
   (sonuçları bilinçli bir `LEONX_TEST_SONUC` hata iletisinde döndürür ve her şeyi geri alır).
 
 ## 7. Bağlantı bilgilerini alın
@@ -169,3 +171,15 @@ yalnızca SQL Editor'dan yapılabilir.
 | "E-posta veya şifre hatalı" | Şifreyi Authentication → Users → kullanıcı → **Reset password / Update password** ile değiştirin |
 | Senkronizasyon "Yeniden bağlanıyor"da kalıyor | 3. migration'ı kontrol edin (Database → Publications → `supabase_realtime`); proje duraklatılmış olabilir |
 | Dosya yüklenmiyor | 4. migration'ı kontrol edin; dosya türü/boyutu desteklenmiyor olabilir |
+
+## Faz 8 — finans migration'ı (011) notları
+
+- Dosya numarası 011'dir (010 numarası kullanılmadı); sıra dosya adındaki tarih/saat ile korunur.
+- `leonx_run_reminders()` fonksiyonu 007'deki gövdesi **aynen** korunarak yeniden tanımlanır ve yalnız tahsilat
+  vadesi yaklaşıyor (3 gün) / gecikti hatırlatmaları eklenir (kategori `termin`, tekilleştirme anahtarları
+  `tahsilat-yaklasiyor:<taksit>:<vade>` ve `tahsilat-gecikti:<taksit>`). pg_cron işi (008) değişmez.
+- Bildirim kategorilerine yeni değer eklenmedi; bütçe aşımı `proje`, tahsilat hatırlatmaları `termin` kategorisindedir.
+- Kur otomatik çekilmez: **Finans → Kurlar** bölümünden tarih ve kaynak (ör. "TCMB döviz satış, elle girildi")
+  ile girilir. Kur yoksa farklı para birimleri toplanmaz.
+- Uygulamadan sonra kontrol: `select public.check_reminders();` (sahip oturumunda) hata vermemeli;
+  `finance.remote_safe.sql` çalıştırılıp `LEONX_FAZ8_TEST_SONUC basarili=14/14 sorunlar=[]` görülmelidir.

@@ -1116,7 +1116,8 @@ await test('Teklif: tekliften proje oluşturma; proje ve firma sayfasında gör�
   expect(q.vat_pct === 10 && q.payment_terms === '%50 peşin, %50 teslimde.' && q.valid_until, 'ayarlardaki varsayılanlar uygulanmadı')
   await page.getByTestId('quote-create-project').click()
   const pd = page.getByRole('dialog', { name: 'Yeni proje' })
-  expect((await pd.getByLabel('Proje adı').inputValue()) === 'Cephe kaplama', 'proje adı tekliften gelmedi')
+  // Ön doldurma diyalog açıldıktan hemen sonra yapılır: değer gelene kadar beklenir
+  await eventually(async () => (await pd.getByLabel('Proje adı').inputValue()) === 'Cephe kaplama', 'proje adı tekliften gelmedi')
   await pd.getByLabel('İş kategorisi').selectOption('cephe')
   await pd.getByRole('button', { name: 'Projeyi oluştur' }).click()
   await page.getByTestId('quote-project-link').waitFor()
@@ -1131,6 +1132,160 @@ await test('Teklif: tekliften proje oluşturma; proje ve firma sayfasında gör�
   await eventually(async () => (await page.getByRole('dialog').count()) > 0, 'silme diyaloğu açılmadı')
   expect(mock.db.companies.length === 1, 'teklifi olan firma silindi')
 }, { viewport: { width: 1440, height: 900 } })
+
+// ================================================================== Faz 8: finans
+await test('Faz 8: bütçe, maliyet satırı, gider, ödeme planı ve tahsilat; kâr tahmini, bütçe aşımı bir kez, finans paneli güncellenir', async ({ page, mock, consoleErrors }) => {
+  const c = mock.externalInsert('companies', { name: 'Finans Müşterisi' })
+  const p = mock.externalInsert('projects', { code: 'LX-2026-801', name: 'Finans projesi', category: 'aluminyum_dograma', company_id: c.id, stage: 'uretimde' })
+  const inTwoDays = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10)
+  await login(page, OWNER, `/projeler/${p.id}?sekme=finans`)
+  await page.getByTestId('project-finance').waitFor()
+  await page.getByTestId('fin-profit').getByText('—').waitFor()
+
+  // Bütçe: KDV hariç satış 100.000 ₺
+  await page.getByTestId('fin-budget-edit').click()
+  const bd = page.getByRole('dialog', { name: 'Proje bütçesi' })
+  await bd.getByTestId('budget-sale').fill('100.000')
+  await bd.getByTestId('budget-form-submit').click()
+  await eventually(() => mock.db.project_budgets[0]?.sale_net_amount === 100000 && mock.db.project_budgets[0]?.vat_pct === 20, 'bütçe kaydedilmedi')
+  await page.getByTestId('fin-sale').getByText(/100\.000,00/).waitFor()
+
+  // Tahmini maliyet satırı: 12 m² × 1.000 ₺ = 12.000 ₺ → tahmini kâr 88.000 ₺, marj %88
+  await page.getByTestId('fin-line-add').click()
+  const ld = page.getByRole('dialog', { name: 'Tahmini maliyet satırı' })
+  await ld.getByTestId('cl-description').fill('Alüminyum profil')
+  await ld.getByTestId('cl-quantity').fill('12')
+  await ld.getByTestId('cl-cost').fill('1000')
+  await ld.getByTestId('cost-line-form-submit').click()
+  await page.getByTestId('fin-line-amount').getByText(/12\.000,00/).waitFor()
+  await page.getByTestId('fin-est').getByText(/12\.000,00/).waitFor()
+  await page.getByTestId('fin-profit').getByText(/88\.000,00/).waitFor()
+  expect((await page.getByTestId('fin-profit').textContent()).includes('Tahmini'), 'kâr "tahmini" olarak etiketlenmedi')
+  expect(/Marj %88/.test(await page.getByTestId('fin-profit').textContent()), 'marj hatalı')
+  expect((await page.getByTestId('fin-realized').textContent()).includes('Proje kapanınca'), 'tamamlanmamış projede gerçekleşen kâr gösterildi')
+
+  // Ödeme planı + tahsilat (otomatik dağıtım) → kısmi
+  await page.getByTestId('fin-schedule-add').click()
+  const sd = page.getByRole('dialog', { name: 'Ödeme planına ekle' })
+  await sd.getByTestId('sc-due').fill(inTwoDays)
+  await sd.getByTestId('sc-amount').fill('50000')
+  await sd.getByTestId('schedule-form-submit').click()
+  await page.locator('[data-testid="fin-schedule-status"][data-status="bekliyor"]').waitFor()
+  await page.getByTestId('fin-collection-add').click()
+  const cd = page.getByRole('dialog', { name: 'Tahsilat kaydı' })
+  await cd.getByTestId('co-amount').fill('20000')
+  await cd.getByTestId('collection-form-submit').click()
+  await page.locator('[data-testid="fin-schedule-status"][data-status="kismi"]').waitFor()
+  await page.getByTestId('fin-collected').getByText(/20\.000,00/).waitFor()
+  expect(mock.db.project_collections.length === 1 && mock.db.project_collections[0].schedule_id === null, 'tahsilat kaydedilmedi')
+  await page.locator('[data-testid="timeline-event"][data-kind="tahsilat"]').waitFor()
+
+  // Gider 15.000 ₺ (tahmini 12.000'i aşar) → bütçe aşımı bildirimi BİR kez; ikinci gider aynı eşikte tekrar üretmez
+  await page.getByTestId('fin-expense-add').click()
+  const ed = page.getByRole('dialog', { name: 'Gerçekleşen gider' })
+  await ed.getByTestId('ex-description').fill('Montaj ekibi')
+  await ed.getByTestId('ex-amount').fill('15000')
+  await ed.getByRole('button', { name: '%20' }).click()
+  expect((await ed.getByTestId('ex-vat').inputValue()) === '3000,00', 'KDV hesaplanmadı')
+  await ed.getByTestId('expense-form-submit').click()
+  await page.getByTestId('fin-actual').getByText(/15\.000,00/).waitFor()
+  await page.getByTestId('fin-variance').getByText(/3\.000,00/).waitFor()
+  expect(mock.db.project_expenses[0].amount === 15000 && mock.db.project_expenses[0].vat_amount === 3000, 'gider tutarı/KDV ayrı kaydedilmedi')
+  await eventually(() => mock.db.notifications.filter((n) => n.kind === 'butce_asildi').length === 1, 'bütçe aşımı bildirimi oluşmadı')
+  await page.getByTestId('fin-expense-add').click()
+  await ed.getByTestId('ex-description').fill('Nakliye')
+  await ed.getByTestId('ex-amount').fill('100')
+  await ed.getByTestId('expense-form-submit').click()
+  await eventually(() => mock.db.project_expenses.length === 2, 'ikinci gider kaydedilmedi')
+  expect(mock.db.notifications.filter((n) => n.kind === 'butce_asildi').length === 1, 'bütçe aşımı tekrarlandı')
+  await page.locator('[data-testid="timeline-event"][data-kind="butce_asildi"]').waitFor()
+
+  // Hatırlatma taraması (uygulama açılışında): vadesi 2 gün kalan taksit için tek bildirim
+  await page.reload()
+  await eventually(() => mock.db.notifications.filter((n) => n.kind === 'tahsilat_yaklasiyor').length === 1, 'tahsilat hatırlatması oluşmadı', 6000)
+
+  // Finans paneli: sözleşme değeri, beklenen kâr, tahsilat ve kalan alacak; satır projeye götürür
+  await page.goto(`${BASE}/finans`)
+  await page.getByTestId('kpi-contract').getByText(/100\.000,00/).waitFor()
+  await page.getByTestId('kpi-expected').getByText(/88\.000,00/).waitFor()
+  await page.getByTestId('kpi-collected').getByText(/20\.000,00/).waitFor()
+  await page.getByTestId('kpi-outstanding').getByText(/30\.000,00/).waitFor()
+  await page.getByTestId('kpi-actual').getByText(/15\.100,00/).waitFor()
+  await page.getByTestId('cashflow').waitFor()
+  // Başka cihazdan gelen tahsilat panele canlı yansır
+  mock.externalInsert('project_collections', { project_id: p.id, received_date: new Date().toISOString().slice(0, 10), amount: 5000, currency: 'TRY', method: 'nakit' })
+  await page.getByTestId('kpi-collected').getByText(/25\.000,00/).waitFor({ timeout: 5000 })
+  await page.locator('[data-testid="finance-row"][data-code="LX-2026-801"]').getByRole('link').first().click()
+  await page.waitForURL(new RegExp(`/projeler/${p.id}\\?sekme=finans`))
+  await page.getByTestId('project-finance').waitFor()
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+}, { viewport: { width: 1440, height: 900 } })
+
+await test('Faz 8: kuru girilmemiş para birimi uyarısı, kur girilince birleşik toplam; onaylı metrajdan aktarım ve çift aktarım engeli', async ({ page, mock }) => {
+  const c = mock.externalInsert('companies', { name: 'Kur Müşterisi' })
+  const p = mock.externalInsert('projects', { code: 'LX-2026-802', name: 'Kur projesi', category: 'aluminyum_dograma', company_id: c.id, stage: 'uretimde' })
+  mock.externalInsert('project_budgets', { project_id: p.id, currency: 'TRY', sale_net_amount: 50000, vat_pct: 20 })
+  mock.externalInsert('project_cost_lines', { project_id: p.id, cost_group: 'cam', description: 'İthal cam', quantity: 1, unit: 'goturu', unit_cost: 100, currency: 'EUR', sort_order: 0 })
+  mock.externalInsert('project_cost_lines', { project_id: p.id, cost_group: 'iscilik', description: 'İşçilik', quantity: 10, unit: 'saat', unit_cost: 500, currency: 'TRY', sort_order: 1 })
+  await login(page, OWNER, `/projeler/${p.id}?sekme=finans`)
+  // Kur yok: uyarı, para birimi bazında ara toplamlar, birleşik toplam ve kâr yok
+  await page.getByTestId('fin-missing-rate').getByText(/EUR → TRY/).waitFor()
+  const est = await page.getByTestId('fin-est').textContent()
+  expect(/5\.000,00/.test(est) && /100,00/.test(est) && est.includes('€'), `para birimi bazında toplam yok: ${est}`)
+  expect((await page.getByTestId('fin-est-total').count()) === 0, 'kur yokken birleşik toplam gösterildi')
+  await page.getByText(/birleşik toplam gösterilmez/).waitFor()
+  expect((await page.getByTestId('fin-profit').textContent()).includes('—'), 'kur yokken kâr hesaplandı')
+
+  // Kur gir (kaynak zorunlu) → birleşik toplam: 100 € × 35 = 3.500 + 5.000 = 8.500 ₺
+  await page.getByTestId('fin-missing-rate').getByRole('link', { name: 'Kur gir' }).click()
+  await page.waitForURL(/\/finans\?bolum=kurlar/)
+  await page.getByTestId('fx-rate').fill('35')
+  await page.getByTestId('fx-submit').click()
+  await page.getByText(/Kaynağı yazın/).waitFor()
+  await page.getByTestId('fx-source').fill('TCMB döviz satış, elle girildi')
+  await page.getByTestId('fx-submit').click()
+  await page.getByTestId('fx-row').getByText(/1 EUR = 35,0000 TRY/).waitFor()
+  expect(mock.db.fx_rates.length === 1 && mock.db.fx_rates[0].rate === 35 && mock.db.fx_rates[0].project_id === null, 'kur kaydedilmedi')
+  await page.goto(`${BASE}/projeler/${p.id}?sekme=finans`)
+  await page.getByTestId('fin-est-total').getByText(/8\.500,00/).waitFor()
+  expect((await page.getByTestId('fin-missing-rate').count()) === 0, 'kur girildiği hâlde uyarı sürüyor')
+  await page.getByTestId('fin-profit').getByText(/41\.500,00/).waitFor()
+
+  // Onaylı metraj: yalnız onaylı pozlar; katalogda fiyatı olmayan iş "fiyat tanımlanmamış"
+  const tk = mock.externalInsert('quantity_takeoffs', { project_id: p.id, name: 'Uygulama', revision: 1 })
+  const base = { takeoff_id: tk.id, shape: 'dikdortgen', unit: 'm2', measure_basis: 'dograma', glass_mode: 'yok', quantity: 1, floor: null, space: null, description: null }
+  mock.externalInsert('quantity_items', { ...base, poz_code: 'P1', category: 'al_pencere', width_mm: 1500, height_mm: 2000, quantity: 4, verification: 'onaylandi' })
+  mock.externalInsert('quantity_items', { ...base, poz_code: 'P2', category: 'al_pencere', width_mm: 1000, height_mm: 1000, verification: 'bekliyor' })
+  mock.externalInsert('quantity_items', { ...base, poz_code: 'KR1', category: 'korkuluk', unit: 'mtul', width_mm: 8400, height_mm: null, verification: 'onaylandi' })
+  mock.externalInsert('cost_rates', { code: 'AL-PROF', name: 'Alüminyum doğrama', cost_group: 'profil', unit: 'm2', currency: 'TRY', unit_cost: 1000, quantity_category: 'al_pencere', valid_from: '2026-01-01' })
+  // Taslak sürüm aktarılamaz
+  await page.getByTestId('fin-import').click()
+  const d = page.getByRole('dialog', { name: 'Metrajdan maliyete aktar' })
+  await d.getByTestId('ti-not-approved').waitFor()
+  expect(await d.getByTestId('ti-submit').isDisabled(), 'onaysız metraj aktarılabildi')
+  await d.getByRole('button', { name: 'Vazgeç' }).click()
+  mock.externalUpdate('quantity_takeoffs', tk.id, { status: 'onaylandi' })
+  await page.getByTestId('fin-import').click()
+  await d.locator('[data-testid="ti-row"]').nth(1).waitFor()
+  await d.getByTestId('ti-excluded').getByText(/P2/).waitFor()
+  await d.getByTestId('ti-excluded').getByText(/doğrulaması bekliyor/).waitFor()
+  expect((await d.locator('[data-testid="ti-row"][data-needs-price="true"]').count()) === 1, 'fiyatsız satır işaretlenmedi')
+  await d.getByTestId('ti-submit').getByText('2 satırı aktar').waitFor()
+  await d.getByTestId('ti-submit').click()
+  await eventually(() => mock.db.project_cost_lines.filter((l) => l.source === 'metraj').length === 2, 'metraj aktarılmadı')
+  const metraj = mock.db.project_cost_lines.filter((l) => l.source === 'metraj')
+  const prof = metraj.find((l) => l.cost_group === 'profil')
+  const kr = metraj.find((l) => l.unit_cost === null)
+  expect(prof && prof.quantity === 12 && prof.unit_cost === 1000 && prof.source_takeoff_id === tk.id, 'profil satırı hatalı')
+  expect(kr && kr.quantity === 8.4 && kr.unit === 'mtul', 'fiyatsız satır sıfır yazıldı veya hatalı')
+  await page.getByTestId('fin-unpriced').waitFor()
+  await page.getByTestId('fin-line-unpriced').first().waitFor()
+  // Tekrar açınca aynı pozlar önerilmez
+  await page.getByTestId('fin-import').click()
+  await d.getByTestId('ti-already').waitFor()
+  expect(await d.getByTestId('ti-submit').isDisabled(), 'aynı metraj tekrar aktarılabilir')
+}, { viewport: { width: 1366, height: 900 } })
 
 // ================================================================== Duyarlı ekranlar ve temalar
 const SCREENS = {
@@ -1177,6 +1332,7 @@ for (const [name, dev] of Object.entries(SCREENS)) {
           ['/raporlar', 'Raporlar'],
           ['/teklifler', 'Teklifler'],
           [`/teklifler/${sq.id}`, sq.title],
+          ['/finans', 'Finans'],
           ['/ayarlar', 'Ayarlar'],
         ]) {
           await page.goto(`${BASE}${route}`)

@@ -1,5 +1,5 @@
 import { Info } from 'lucide-react'
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { FormAlert, SelectField, TextAreaField, TextField } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
@@ -144,12 +144,16 @@ export function QuoteItemForm({ open, onClose, quote, params, item, nextSort, on
   const { markDirty } = useFormDirty(open, 'Teklif kalemi formu')
   const base = useMemo<QuoteItemInput>(() => (item ? itemInputOf(item) : emptyQuoteItem(nextSort)), [item, nextSort])
 
-  useEffect(() => {
-    if (!open) return
-    setF(toForm(base))
-    setErrors({})
-    setFormError(null)
-  }, [open])
+  // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılan değerleri ezebilir)
+  const [wasOpen, setWasOpen] = useState(false)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setF(toForm(base))
+      setErrors({})
+      setFormError(null)
+    }
+  }
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((s) => ({ ...s, [k]: v }))
   const measured = QUOTE_UNITS.find((u) => u.value === f.unit)?.measured
