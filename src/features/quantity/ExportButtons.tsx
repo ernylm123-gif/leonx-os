@@ -1,13 +1,33 @@
 import { FileDown, FileSpreadsheet, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { useToast } from '@/context/toast'
-import type { Company, Project, QuantityTakeoff } from '@/data/types'
+import type { CadAnalysis, Company, Project, QuantityTakeoff } from '@/data/types'
 import type { QuantityItem } from '@/quantity/types'
 import { buildReport, type ReportMeta, reportFileName } from '@/export/report'
 import { downloadBytes as download, loadPdfAssets } from '@/lib/download'
 
-export function reportMeta(takeoff: QuantityTakeoff, project: Project | null, company: Company | null): ReportMeta {
+const SHEET_TR: Record<string, string> = { plan: 'Kat planı', gorunus: 'Görünüş', kesit: 'Kesit', cizelge: 'Doğrama çizelgesi', detay: 'Detay', vaziyet: 'Vaziyet', bilinmiyor: 'Belirlenemedi' }
+
+/** Analiz kaydından rapor için kaynak çizim bilgisi (pafta listesi) */
+export function analysisInfo(a: CadAnalysis | null | undefined): ReportMeta['analysis'] {
+  if (!a) return null
+  const pdf = (a.summary as { pdf?: { sayfalar?: { sayfa: number; baslik: string | null; pafta: string | null; olcek: number | null; olcek_dogrulandi?: boolean }[] } }).pdf
   return {
+    fileName: a.file_name,
+    fileHash: a.file_hash ?? null,
+    analyzedAt: a.created_at,
+    pages: (pdf?.sayfalar ?? []).map((p) => ({
+      page: p.sayfa,
+      title: p.baslik,
+      sheet: p.pafta ? (SHEET_TR[p.pafta] ?? p.pafta) : null,
+      scale: p.olcek ? `1/${p.olcek}${p.olcek_dogrulandi ? ' (doğrulandı)' : ''}` : null,
+    })),
+  }
+}
+
+export function reportMeta(takeoff: QuantityTakeoff, project: Project | null, company: Company | null, analysis: CadAnalysis | null = null): ReportMeta {
+  return {
+    analysis: analysisInfo(analysis),
     projectCode: project?.code ?? '—',
     projectName: project?.name ?? '—',
     projectLocation: project?.location ?? null,
@@ -24,13 +44,13 @@ export function reportMeta(takeoff: QuantityTakeoff, project: Project | null, co
 }
 
 /** Excel ve PDF dışa aktarma: ekrandakiyle aynı rapor modelinden üretilir */
-export function ExportButtons({ takeoff, items, project, company }: { takeoff: QuantityTakeoff; items: QuantityItem[]; project: Project | null; company: Company | null }) {
+export function ExportButtons({ takeoff, items, project, company, analysis = null }: { takeoff: QuantityTakeoff; items: QuantityItem[]; project: Project | null; company: Company | null; analysis?: CadAnalysis | null }) {
   const { notify } = useToast()
   const [busy, setBusy] = useState<null | 'xlsx' | 'pdf'>(null)
   const run = async (kind: 'xlsx' | 'pdf') => {
     setBusy(kind)
     try {
-      const report = buildReport(items, reportMeta(takeoff, project, company))
+      const report = buildReport(items, reportMeta(takeoff, project, company, analysis))
       if (kind === 'xlsx') {
         const { reportToXlsx } = await import('@/export/quantityXlsx')
         download(reportToXlsx(report), reportFileName(report.meta, 'xlsx'), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

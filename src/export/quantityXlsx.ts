@@ -155,11 +155,49 @@ export function reportToXlsx(report: Report): Uint8Array {
   }
   if (seen.size === 0) unverified.push([{ v: 'Doğrulama bekleyen veya hatalı poz yok.', s: STYLE.muted }])
 
+  // ---------------------------------------------------------------- Özellik ve kaynak (izlenebilirlik)
+  const specHead = ['Poz', 'Doğrulama', 'Malzeme', 'Sistem', 'Açılım', 'Cam', 'Renk', 'Kaynak (pafta / dosya)', 'Kullanıcı düzeltmesi', 'Onay zamanı']
+  const specs: CellInput[][] = [
+    [{ v: 'Teknik özellikler, kaynaklar ve onaylar', s: STYLE.title }],
+    [{ v: '✓ çizimden doğrulandı · ? aday (onay gerekli) · — çizimde yok', s: STYLE.muted }],
+    specHead.map((h) => ({ v: h, s: STYLE.header })),
+  ]
+  for (const r of report.rows) {
+    const warn = r.item.verification !== 'onaylandi'
+    const spec = (label: string) => {
+      const x = r.specs.find((s) => s.label === label)
+      if (!x || !x.value) return tx('—', warn)
+      return tx(`${x.status === 'dogrulandi' ? '✓' : '?'} ${x.value}`, warn || x.status !== 'dogrulandi')
+    }
+    specs.push([
+      tx(r.item.poz_code, warn),
+      tx(r.verification, warn),
+      spec('Malzeme'),
+      spec('Sistem'),
+      spec('Açılım'),
+      spec('Cam'),
+      spec('Renk'),
+      { v: r.source || '—', s: STYLE.wrap },
+      { v: r.corrected.join(' · ') || '—', s: r.corrected.length ? STYLE.warnText : STYLE.text },
+      tx(r.approvedAt ? dtf.format(new Date(r.approvedAt)) : '—'),
+    ])
+  }
+  if (m.analysis) {
+    specs.push([])
+    specs.push([{ v: 'Kaynak çizim', s: STYLE.section }])
+    specs.push([{ v: 'Dosya', s: STYLE.totalLabel }, tx(m.analysis.fileName)])
+    specs.push([{ v: 'SHA-256', s: STYLE.totalLabel }, tx(m.analysis.fileHash ?? '—')])
+    specs.push([{ v: 'Analiz tarihi', s: STYLE.totalLabel }, tx(dtf.format(new Date(m.analysis.analyzedAt)))])
+    specs.push([{ v: 'Pafta', s: STYLE.header }, { v: 'Başlık', s: STYLE.header }, { v: 'Tür', s: STYLE.header }, { v: 'Ölçek', s: STYLE.header }])
+    for (const p of m.analysis.pages) specs.push([tx(`S${p.page}`), tx(p.title ?? '—'), tx(p.sheet ?? '—'), tx(p.scale ?? '—')])
+  }
+
   return buildXlsx(
     [
       { name: 'Özet', rows: summary, cols: [34, 14, 12, 14, 14, 12, 22] },
       { name: 'Pozlar', rows: items, cols: [6, 12, 20, 12, 14, 14, 20, 11, 11, 7, 12, 12, 12, 11, 11, 12, 8, 18, 30, 60], freezeRows: 1, autoFilter: `A1:${colName(headers.length - 1)}${lastRow}`, landscape: true },
       { name: 'Doğrulanmamış', rows: unverified, cols: [12, 20, 18, 20, 7, 12, 8, 90], landscape: true },
+      { name: 'Özellik ve kaynak', rows: specs, cols: [12, 18, 18, 22, 18, 22, 18, 50, 30, 18], landscape: true },
     ],
     { title: `${m.projectCode} metraj Rev ${m.revision}`, creator: 'LEONX OS', created: m.generatedAt },
   )

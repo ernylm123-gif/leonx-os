@@ -150,11 +150,18 @@ export class MockSupabase {
     }
     if (table === 'project_files') {
       this.event(row.project_id, 'dosya', 'Dosya yüklendi', row.file_name, 'project_file', row.id, actor, `file:${row.id}`)
-      this.notify('proje', 'dosya_yeni', `Yeni dosya: ${row.file_name}`, null, `/projeler/${row.project_id}`, 'project', row.project_id, `file:${row.id}`, actor)
+      const cad = /\.(dxf|dwg|pdf)$/i.test(row.file_name)
+      this.notify('proje', cad ? 'cad_dosya' : 'dosya_yeni', `${cad ? 'CAD / çizim dosyası yüklendi: ' : 'Yeni dosya: '}${row.file_name}`, null, `/projeler/${row.project_id}`, 'project', row.project_id, `file:${row.id}`, actor)
     }
     if (table === 'cad_analyses') {
       this.event(row.project_id, 'cad_analiz', 'CAD analizi kaydedildi', `${row.file_name} · ${row.candidate_count ?? 0} aday`, 'cad_analysis', row.id, actor, `cad:${row.id}`)
       this.notify('cad', 'cad_tamam', `CAD analizi tamamlandı: ${row.file_name}`, null, `/projeler/${row.project_id}`, 'project', row.project_id, `cad:${row.id}`, actor)
+      const conflicts = Number(row.summary?.tespit?.celiski ?? 0)
+      if (conflicts > 0) {
+        this.event(row.project_id, 'cad_celiski', 'Ölçü / adet çelişkisi bulundu', `${row.file_name} · ${conflicts} poz`, 'cad_analysis', row.id, actor, `cad:${row.id}:celiski`)
+        this.notify('cad', 'cad_celiski', `Çelişki bulundu: ${row.file_name}`, `${conflicts} pozda çizelge, plan veya görünüş birbiriyle uyuşmuyor; karar sizin`, `/projeler/${row.project_id}`, 'project', row.project_id, `cad:${row.id}:celiski`, actor)
+      }
+      if (row.status !== 'hatali' && row.candidate_count > 0) this.notify('cad', 'metraj_dogrulama', `Metraj doğrulama bekliyor: ${row.file_name}`, `${row.candidate_count} poz adayı mühendislik incelemesi bekliyor`, `/projeler/${row.project_id}`, 'project', row.project_id, `cad:${row.id}:dogrulama`, actor)
     }
     if (table === 'quantity_takeoffs') {
       this.event(row.project_id, 'metraj', row.revision > 1 ? 'Metraj revize edildi' : 'Metraj hazırlandı', `Rev ${row.revision} · ${row.name}`, 'takeoff', row.id, actor, `takeoff:${row.id}`)
@@ -407,6 +414,16 @@ export class MockSupabase {
       if (!t) return { error: { status: 409, code: '23503', message: 'Metraj sürümü bulunamadı' } }
       if (t.status !== 'taslak') return guardError('Onaylanmış veya arşivlenmiş metraj sürümü değiştirilemez; yeni sürüm oluşturun')
       row.project_id = t.project_id
+      // 012: ilk değerler ve onay bilgisi sunucuda yazılır
+      row = { uncertain: false, review_note: null, ...row }
+      const d = row.detection?.detected ?? {}
+      row.original = row.detection
+        ? { poz_code: d.poz_code ?? row.poz_code, category: d.category ?? row.category, shape: row.shape ?? 'dikdortgen', width_mm: 'width_mm' in d ? d.width_mm : (row.width_mm ?? null), height_mm: 'height_mm' in d ? d.height_mm : (row.height_mm ?? null), quantity: d.quantity ?? row.quantity ?? 1, unit: row.unit ?? 'm2', verification: row.verification ?? 'bekliyor' }
+        : null
+      const ok = row.verification === 'onaylandi'
+      row.approved_by = ok ? actor : null
+      row.approved_at = ok ? now : null
+      if (ok) row.uncertain = false
     }
     if (table === 'quote_settings') row = { ...SETTINGS_DEFAULTS, ...row }
     if (table === 'quotes') {
@@ -510,6 +527,17 @@ export class MockSupabase {
     }
     if (table === 'notifications' && Object.keys(patch).some((k) => k !== 'read_at')) return { error: { status: 403, code: '42501', message: 'permission denied for table notifications' } }
     let next = { ...old, ...patch, id: old.id, created_at: old.created_at, created_by: old.created_by, updated_at: this.now(), version: (old.version ?? 0) + 1 }
+    if (table === 'quantity_items') {
+      next.original = old.original ?? null
+      if (next.verification === 'onaylandi') {
+        next.approved_by = old.verification === 'onaylandi' ? old.approved_by : actor
+        next.approved_at = old.verification === 'onaylandi' ? old.approved_at : this.now()
+        next.uncertain = false
+      } else {
+        next.approved_by = null
+        next.approved_at = null
+      }
+    }
     if (FIN_DEFAULTS[table] && !system) {
       const g = this.financeGuard(table, next, old)
       if (g) return g
@@ -734,8 +762,9 @@ export class MockSupabase {
     if (p === '/rest/v1/rpc/notify_client_event') {
       if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
       const b = req.postDataJSON()
-      if (!['surum_yeni', 'cad_hata', 'push_test'].includes(b.p_kind)) return json(400, { code: '22023', message: 'Geçersiz olay türü' })
-      this.notify(b.p_kind === 'cad_hata' ? 'cad' : 'sistem', b.p_kind, b.p_title, b.p_body, b.p_link, null, null, `${b.p_kind}:${b.p_key}`, user.id, b.p_kind !== 'cad_hata')
+      if (!['surum_yeni', 'cad_hata', 'push_test', 'cad_basladi'].includes(b.p_kind)) return json(400, { code: '22023', message: 'Geçersiz olay türü' })
+      const cadKind = b.p_kind === 'cad_hata' || b.p_kind === 'cad_basladi'
+      this.notify(cadKind ? 'cad' : 'sistem', b.p_kind, b.p_title, b.p_body, b.p_link, null, null, `${b.p_kind}:${b.p_key}`, user.id, !cadKind)
       return json(200, null)
     }
     if (p === '/rest/v1/rpc/push_public_key') {

@@ -159,3 +159,20 @@ export async function renderPdfTile(pdf: OpenedPdf, pageNumber: number, box: BBo
   await page.render({ canvas, canvasContext: ctx, viewport, transform: [1, 0, 0, 1, tx, ty] }).promise
   return canvas
 }
+
+/** Pafta önizlemesi (küçük; ölçek alt sınırı yok) */
+export async function renderPdfThumb(pdf: OpenedPdf, pageNumber: number, maxPixels = 120_000): Promise<HTMLCanvasElement> {
+  const page = await pdf.doc.getPage(pageNumber)
+  const base = page.getViewport({ scale: 1 })
+  const scale = Math.max(0.03, Math.min(1, Math.sqrt(maxPixels / (base.width * base.height))))
+  const viewport = page.getViewport({ scale })
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.floor(viewport.width))
+  canvas.height = Math.max(1, Math.floor(viewport.height))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Tuval oluşturulamadı')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  await page.render({ canvas, canvasContext: ctx, viewport }).promise
+  return canvas
+}

@@ -78,7 +78,7 @@ export async function checkReminders(db: SupabaseClient): Promise<number> {
   return (res.data as number) ?? 0
 }
 
-export async function notifyClientEvent(db: SupabaseClient, kind: 'surum_yeni' | 'cad_hata' | 'push_test', title: string, body: string | null, link: string | null, key: string): Promise<void> {
+export async function notifyClientEvent(db: SupabaseClient, kind: 'surum_yeni' | 'cad_hata' | 'push_test' | 'cad_basladi', title: string, body: string | null, link: string | null, key: string): Promise<void> {
   const res = await db.rpc('notify_client_event', { p_kind: kind, p_title: title, p_body: body, p_link: link, p_key: key })
   if (res.error) throw res.error
 }

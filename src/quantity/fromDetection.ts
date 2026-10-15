@@ -9,7 +9,7 @@ const MAX_BOXES = 200
 /** Tespit adayından metraj kalemi. Onay ancak iş grubu belli ve hesap hatasızsa mümkündür. */
 export function candidateToInput(
   c: PozCandidate,
-  opts: { approve: boolean; fileName: string | null; analysisId: string | null; category?: PozCandidate['category'] },
+  opts: { approve: boolean; fileName: string | null; analysisId: string | null; category?: PozCandidate['category']; detected?: PozCandidate | null },
 ): QuantityItemInput {
   const category = opts.category ?? c.category
   const handles = c.instances.map((i) => i.handle).filter((h): h is string => !!h)
@@ -48,6 +48,8 @@ export function candidateToInput(
       evidence: c.evidence.slice(0, 20),
       suggested_category: c.category,
       ...pdfExtras(c),
+      // Ham tespit (kullanıcı düzeltmesinden önce): sunucu "ilk değer" olarak saklar
+      ...(opts.detected ? { detected: { poz_code: opts.detected.code, category: opts.detected.category, width_mm: opts.detected.width_mm, height_mm: opts.detected.height_mm, quantity: opts.detected.count } } : {}),
     },
   })
   if (opts.approve && canApprove(input)) input.verification = 'onaylandi'

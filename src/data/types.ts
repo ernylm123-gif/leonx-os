@@ -202,6 +202,8 @@ export interface CadAnalysis extends Versioned {
   engine_version: string
   summary: Record<string, unknown>
   notes: string | null
+  /** Analiz edilen dosyanın SHA-256 özeti (aynı dosyanın yeniden analizi tanınır) */
+  file_hash?: string | null
 }
 
 export type CadAnalysisInput = Pick<
@@ -220,6 +222,7 @@ export type CadAnalysisInput = Pick<
   | 'engine_version'
   | 'summary'
   | 'notes'
+  | 'file_hash'
 >
 
 export type TakeoffStatus = 'taslak' | 'onaylandi' | 'arsiv'

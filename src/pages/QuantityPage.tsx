@@ -9,8 +9,8 @@ import { Modal } from '@/components/ui/Modal'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { useData } from '@/context/data'
 import { useToast } from '@/context/toast'
-import { createRevision, createTakeoff, deleteTakeoff, listTakeoffs, updateTakeoff } from '@/data/quantityApi'
-import type { QuantityTakeoff } from '@/data/types'
+import { createRevision, createTakeoff, deleteTakeoff, listAnalyses, listTakeoffs, updateTakeoff } from '@/data/quantityApi'
+import type { CadAnalysis, QuantityTakeoff } from '@/data/types'
 import { ItemDetail } from '@/features/quantity/ItemDetail'
 import { QuantityTable } from '@/features/quantity/QuantityTable'
 import { TakeoffSummary } from '@/features/quantity/TakeoffSummary'
@@ -32,6 +32,9 @@ export function QuantityPage() {
   const takeoffId = params.get('surum') ?? ''
   const takeoffs = useLiveList<QuantityTakeoff>('quantity_takeoffs', 'project_id', projectId || undefined, (id) => listTakeoffs(requireSupabase(), id))
   const takeoff = takeoffs.items.find((t) => t.id === takeoffId) ?? null
+  // Raporda kaynak çizim / pafta listesi için metraj sürümünün bağlı olduğu analiz
+  const analyses = useLiveList<CadAnalysis>('cad_analyses', 'project_id', projectId || undefined, (id) => listAnalyses(requireSupabase(), id))
+  const analysis = analyses.items.find((a) => a.id === takeoff?.analysis_id) ?? null
   const store = useRemoteItems(takeoff)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [dialog, setDialog] = useState<null | 'new' | 'revision' | 'approve' | 'archive' | 'delete'>(null)
@@ -175,7 +178,7 @@ export function QuantityPage() {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <ExportButtons takeoff={takeoff} items={store.items} project={project} company={company} />
+                <ExportButtons takeoff={takeoff} items={store.items} project={project} company={company} analysis={analysis} />
                 <Button
                   variant="secondary"
                   icon={GitBranch}

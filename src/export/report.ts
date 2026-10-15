@@ -4,7 +4,17 @@
  */
 import { computeItem, type ItemResult, summarize, type Totals } from '@/quantity/engine'
 import { formatCenti, formatMilli, PRECISION } from '@/quantity/precision'
-import { CATEGORY_INFO, type QuantityItem, SHAPE_LABEL, UNIT_LABEL, VERIFICATION_LABEL } from '@/quantity/types'
+import { CATEGORY_INFO, correctedFields, type QuantityItem, SHAPE_LABEL, UNIT_LABEL, VERIFICATION_LABEL } from '@/quantity/types'
+
+const SPEC_KEYS: [string, string][] = [
+  ['malzeme', 'Malzeme'],
+  ['sistem', 'Sistem'],
+  ['acilim', 'Açılım'],
+  ['cam', 'Cam'],
+  ['renk', 'Renk'],
+]
+export const SPEC_STATUS = { dogrulandi: 'çizimden doğrulandı', aday: 'aday — onay gerekli', belirsiz: 'çizimde yok' } as const
+const FIELD_TR: Record<string, string> = { poz_code: 'poz', category: 'iş grubu', width_mm: 'en', height_mm: 'boy', quantity: 'adet' }
 
 export interface ReportMeta {
   projectCode: string
@@ -19,6 +29,13 @@ export interface ReportMeta {
   status: 'taslak' | 'onaylandi' | 'arsiv'
   approvedAt: string | null
   generatedAt: Date
+  /** Kaynak çizim analizi (izlenebilirlik): dosya, özet, paftalar */
+  analysis?: {
+    fileName: string
+    fileHash: string | null
+    analyzedAt: string
+    pages: { page: number; title: string | null; sheet: string | null; scale: string | null }[]
+  } | null
 }
 
 export interface ReportRow {
@@ -37,6 +54,13 @@ export interface ReportRow {
   primaryUnit: string
   verification: string
   notes: string[]
+  /** Teknik özellikler: "Malzeme: PVC (doğrulandı)" */
+  specs: { label: string; value: string; status: 'dogrulandi' | 'aday' | 'belirsiz' }[]
+  /** Kaynak paftalar / dosya */
+  source: string
+  /** İlk tespitten farklı (kullanıcı düzeltmesi) alanlar */
+  corrected: string[]
+  approvedAt: string | null
 }
 
 export interface Report {
@@ -92,8 +116,21 @@ export function buildReport(items: QuantityItem[], meta: ReportMeta): Report {
       totalGlass: r.ok && r.unit.glassArea != null ? r.total.glassArea / 100 : null,
       primary: r.ok && r.primary ? r.primary.centi / 100 : null,
       primaryUnit: r.primary ? UNIT_LABEL[r.primary.unit] : '',
-      verification: VERIFICATION_LABEL[item.verification],
-      notes,
+      verification: item.uncertain && item.verification === 'bekliyor' ? 'Belirsiz' : VERIFICATION_LABEL[item.verification],
+      notes: item.review_note ? [`İnceleme notu: ${item.review_note}`, ...notes] : notes,
+      specs: SPEC_KEYS.map(([k, label]) => {
+        const a = item.detection?.attrs?.[k]
+        return { label, value: a?.value ?? '', status: (a?.status ?? 'belirsiz') as 'dogrulandi' | 'aday' | 'belirsiz' }
+      }).filter((x) => x.value || item.detection?.attrs),
+      source: [
+        ...(item.detection?.provenance?.sheets ?? []),
+        item.drawing_ref?.file_name ? `Dosya: ${item.drawing_ref.file_name}` : '',
+        !item.detection?.provenance?.sheets?.length && item.drawing_ref?.box_pages?.length ? `Sayfa ${[...new Set(item.drawing_ref.box_pages)].join(', ')}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      corrected: correctedFields(item).map((f) => `${FIELD_TR[f]} ${String((item.original as unknown as Record<string, unknown>)?.[f] ?? '—')} → ${String((item as unknown as Record<string, unknown>)[f] ?? '—')}`),
+      approvedAt: item.approved_at ?? null,
     }
   })
   const totals = summarize(sorted, results)
@@ -110,6 +147,8 @@ export function buildReport(items: QuantityItem[], meta: ReportMeta): Report {
       'Satır toplamı = yuvarlanmış birim değer × adet. Genel toplam = satır toplamlarının toplamıdır.',
       'Yalnızca ONAYLI ve hatasız pozlar kesin toplamlara dahildir. Doğrulama bekleyen pozlar ayrıca listelenir.',
       'Doğrama alanı kasa dış ölçüsüyle hesaplanır; cam alanı ve profil/kesim boyları ayrı kavramlardır.',
+      'Çevre (mtül) satın alınacak profil boyu değildir; profil metrajı sistem kesitleriyle ayrıca hesaplanır.',
+      'Teknik özellikler: "çizimden doğrulandı" pozun kendi yazısından okunmuştur; "aday" genel not, OCR veya çizim yorumundan gelir ve onay gerektirir; "çizimde yok" bilgisi çizimde bulunamamıştır.',
     ],
   }
 }

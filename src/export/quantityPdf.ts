@@ -361,6 +361,58 @@ export async function reportToPdf(report: Report, assets: PdfAssets): Promise<Ui
     )
   }
 
+  // ---------------------------------------------------------------- teknik özellikler ve kaynaklar
+  const withSpecs = report.rows.filter((r) => r.specs.length || r.source || r.corrected.length || r.approvedAt)
+  if (withSpecs.length) {
+    w.heading('Teknik özellikler, kaynaklar ve onaylar')
+    w.para('✓ çizimden doğrulandı · ? aday (onay gerekli) · — çizimde yok', 8, MUTED)
+    const sp = (r: (typeof withSpecs)[number], label: string) => {
+      const x = r.specs.find((s) => s.label === label)
+      return x?.value ? `${x.status === 'dogrulandi' ? '✓' : '?'} ${x.value}` : '—'
+    }
+    w.table(
+      [
+        { title: 'Poz', width: 52 },
+        { title: 'Durum', width: 62 },
+        { title: 'Malzeme', width: 62 },
+        { title: 'Açılım', width: 78 },
+        { title: 'Cam', width: 78 },
+        { title: 'Renk', width: 66 },
+        { title: 'Kaynak', width: 176 },
+        { title: 'Düzeltme / onay', width: 199.89 },
+      ],
+      withSpecs.map((r) => ({
+        tone: (r.item.verification !== 'onaylandi' ? 'warn' : undefined) as 'warn' | undefined,
+        cells: [
+          r.item.poz_code,
+          r.verification,
+          sp(r, 'Malzeme'),
+          sp(r, 'Açılım'),
+          sp(r, 'Cam'),
+          sp(r, 'Renk'),
+          r.source || '—',
+          [r.corrected.length ? `Düzeltildi: ${r.corrected.join(', ')}` : '', r.approvedAt ? `Onay: ${dtf.format(new Date(r.approvedAt))}` : ''].filter(Boolean).join(' · ') || '—',
+        ],
+      })),
+      7.5,
+    )
+  }
+  if (m.analysis) {
+    w.heading('Kaynak çizim ve paftalar')
+    w.para(`Dosya: ${m.analysis.fileName} · analiz ${dtf.format(new Date(m.analysis.analyzedAt))}${m.analysis.fileHash ? ` · SHA-256 ${m.analysis.fileHash.slice(0, 16)}…` : ''}`, 8.5, INK)
+    if (m.analysis.pages.length)
+      w.table(
+        [
+          { title: 'Pafta', width: 60 },
+          { title: 'Başlık', width: 360 },
+          { title: 'Tür', width: 180 },
+          { title: 'Ölçek', width: 173.89 },
+        ],
+        m.analysis.pages.map((p) => ({ cells: [`S${p.page}`, p.title ?? '—', p.sheet ?? '—', p.scale ?? '—'] })),
+        8,
+      )
+  }
+
   // ---------------------------------------------------------------- kurallar
   w.heading('Hesap kuralları ve açıklamalar')
   for (const rule of report.rules) w.para(`• ${rule}`, 8.5, MUTED)

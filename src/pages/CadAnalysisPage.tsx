@@ -1,4 +1,4 @@
-import { FileSpreadsheet, FolderKanban, History, ListChecks, Save, ScanLine, Send, Table2 } from 'lucide-react'
+import { ClipboardCheck, FileSpreadsheet, FolderKanban, History, Layers3, ListChecks, Save, ScanLine, Send, Table2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Measurement } from '@/cad/viewer/engine'
@@ -14,6 +14,8 @@ import { SendToQuoteDialog } from '@/features/cad/quantity/SendToQuoteDialog'
 import { ProjectBindingDialog } from '@/features/cad/quantity/ProjectBindingDialog'
 import { ProjectHistoryPanel } from '@/features/cad/quantity/ProjectHistoryPanel'
 import { useCadProject } from '@/features/cad/quantity/useCadProject'
+import { ReviewPanel } from '@/features/cad/review/ReviewPanel'
+import { SheetsPanel } from '@/features/cad/review/SheetsPanel'
 import { ItemDetail } from '@/features/quantity/ItemDetail'
 import { QuantityItemForm } from '@/features/quantity/QuantityItemForm'
 import { QuantityTable } from '@/features/quantity/QuantityTable'
@@ -58,6 +60,8 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
   const [viewPage, setViewPage] = useState<number | null>(null)
   const [quoteOpen, setQuoteOpen] = useState(false)
   const [loadedDocId, setLoadedDocId] = useState<string | null>(null)
+  // Mühendislik incelemesi: sol pafta listesi + orta çizim + sağ poz incelemesi + alt metraj tablosu
+  const [review, setReview] = useState(false)
   const runAbort = useRef<AbortController | null>(null)
   const pendingZoom = useRef<{ page: number; box: Box } | null>(null)
   const autoRunFor = useRef<string | null>(null)
@@ -126,6 +130,13 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
       setDetecting(true)
       setProgress({ stage: 'Analiz başlatıldı', fraction: 0 })
       c.log(`PDF analizi başlatıldı: ${pages.length} sayfa${withOcr ? ' (OCR açık)' : ''}`)
+      // Diğer cihazlarda görünür (kullanıcının kendi işlemi; bildirim tercihine tabi)
+      const fileName = c.doc.fileName
+      void import('@/data/workflowApi')
+        .then(({ notifyClientEvent }) =>
+          notifyClientEvent(requireSupabase(), 'cad_basladi', `CAD analizi başladı: ${fileName}`.slice(0, 200), `${pages.length} sayfa${withOcr ? ' · OCR açık' : ''}`, '/cad-analiz', `${fileName}:${c.doc?.docId}:${withOcr ? 'ocr' : 'v'}`.slice(0, 150)),
+        )
+        .catch(() => undefined)
       try {
         const result = await runPdfDetection(c.doc, {
           pages,
@@ -189,15 +200,33 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
     [detection, edits],
   )
   const effDetection = useMemo(() => (detection ? { ...detection, candidates } : null), [detection, candidates])
+  // Seçili adayın güncel (düzenlenmiş) hâli
+  const selectedCandLive = useMemo(() => (selectedCand ? (candidates.find((c) => c.key === selectedCand.key) ?? selectedCand) : null), [selectedCand, candidates])
+  const candidatesByPage = useMemo(() => {
+    const m = new Map<number, number>()
+    for (const c of candidates) {
+      if (ignored.has(c.key)) continue
+      for (const p of new Set(c.instances.map((i) => i.page).filter((x): x is number => x != null))) m.set(p, (m.get(p) ?? 0) + 1)
+    }
+    return m
+  }, [candidates, ignored])
 
-  const addCandidates = async (cands: PozCandidate[], opts: { approve: boolean; category?: QuantityCategory }) => {
+  const addCandidates = async (cands: PozCandidate[], opts: { approve: boolean; category?: QuantityCategory; uncertain?: boolean; note?: string | null }) => {
     const c = ctxRef.current
     const fresh = cands.filter((x) => !addedKeys.has(x.key))
     if (!fresh.length) return
     const maxOrder = store.items.reduce((m, i) => Math.max(m, i.sort_order), 0)
     const inputs = fresh.map((x, i) => ({
-      ...candidateToInput(x, { approve: opts.approve, fileName: c?.doc?.fileName ?? null, analysisId: project.analysis?.id ?? null, category: cands.length === 1 ? opts.category : undefined }),
+      ...candidateToInput(x, {
+        approve: opts.approve,
+        fileName: c?.doc?.fileName ?? null,
+        analysisId: project.analysis?.id ?? null,
+        category: cands.length === 1 ? opts.category : undefined,
+        detected: detection?.candidates.find((d) => d.key === x.key) ?? null,
+      }),
       sort_order: maxOrder + 10 * (i + 1),
+      ...(opts.uncertain ? { uncertain: true, verification: 'bekliyor' as const } : {}),
+      ...(opts.note ? { review_note: opts.note.slice(0, 1000) } : {}),
     }))
     const rows = await store.create(inputs)
     if (rows) {
@@ -222,6 +251,7 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
 
   const showCandidate = (cand: PozCandidate) => {
     setSelectedCand(cand)
+    if (review) ctxRef.current?.focusPanels({ right: true })
     const plan = cand.instances.filter((i) => i.role === 'plan' || i.role == null)
     goToBoxes(plan.length ? plan : cand.instances)
   }
@@ -292,6 +322,26 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
           <div className="font-mono text-[10.5px] tracking-[0.12em] text-subtle uppercase">M02 · Mühendislik</div>
           <h1 className="truncate text-lg font-semibold text-ink">CAD Analiz ve Metraj</h1>
         </div>
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={() => {
+            const next = !review
+            setReview(next)
+            const c = ctxRef.current
+            if (next) c?.focusPanels({ left: c.doc?.pdfDoc ? 'paftalar' : 'pozlar', bottom: c.doc?.kind === 'pdf' ? 'sonuclar' : 'metraj', right: true })
+          }}
+          aria-pressed={review}
+          className={cn(
+            'inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-[12.5px] font-semibold',
+            review ? 'border-primary bg-primary text-primary-ink' : 'border-line bg-surface text-ink hover:bg-surface-2',
+          )}
+          data-testid="review-mode"
+        >
+          <ClipboardCheck className="h-4 w-4" aria-hidden="true" />
+          <span className="hidden sm:inline">Mühendislik incelemesi</span>
+          <span className="sm:hidden">İnceleme</span>
+        </button>
       </header>
       <CadWorkspace
         initialFile={initialFile}
@@ -319,6 +369,26 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
             }
           return {
           leftTabs: [
+            ...(ctx.doc?.pdfDoc
+              ? [
+                  {
+                    id: 'paftalar',
+                    label: 'Paftalar',
+                    icon: Layers3,
+                    badge: ctx.doc.pdfDoc.pages.length,
+                    render: () => (
+                      <SheetsPanel
+                        pdf={ctx.doc!.pdfDoc!.handle}
+                        docId={ctx.doc!.docId}
+                        pages={ctx.doc!.pdfDoc!.pages}
+                        current={ctx.doc!.pdfDoc!.current}
+                        candidatesByPage={candidatesByPage}
+                        onOpen={(p) => void ctx.selectPage(p)}
+                      />
+                    ),
+                  },
+                ]
+              : []),
             {
               id: 'pozlar',
               label: 'Pozlar',
@@ -421,7 +491,33 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
               ),
             },
           ].concat(ctx.doc?.kind === 'pdf' ? [] : [resultsTab]),
-          rightTop: selectedItem ? <ItemDetail item={selectedItem} store={store} onClose={() => setSelectedItemId(null)} /> : undefined,
+          rightTop:
+            selectedCand || (review && selectedItem) ? (
+              <ReviewPanel
+                candidate={selectedCandLive}
+                item={selectedCand ? (store.items.find((i) => i.drawing_ref?.key === selectedCand.key) ?? null) : selectedItem}
+                store={store}
+                onEditCandidate={(key, patch) => setEdits((m) => ({ ...m, [key]: { ...m[key], ...patch } }))}
+                onAddCandidate={(c, o) => addCandidates([c], o)}
+                onIgnore={(k) => {
+                  setIgnored((s) => new Set(s).add(k))
+                  setSelectedCand(null)
+                  ctx.log(`Öneri reddedildi: ${selectedCand?.code ?? ''}`)
+                }}
+                onShow={(page) => {
+                  const inst = (selectedCand?.instances ?? []).filter((i) => page == null || i.page === page)
+                  if (inst.length) goToBoxes(inst)
+                  else if (selectedItem?.drawing_ref?.boxes?.length) locateItem(selectedItem)
+                  else if (page != null) void ctx.selectPage(page)
+                }}
+                onClose={() => {
+                  setSelectedCand(null)
+                  setSelectedItemId(null)
+                }}
+              />
+            ) : selectedItem ? (
+              <ItemDetail item={selectedItem} store={store} onClose={() => setSelectedItemId(null)} />
+            ) : undefined,
           highlights,
           measurementAction: store.readOnly ? undefined : { label: 'Metraja ekle', run: measurementToItem },
           }
