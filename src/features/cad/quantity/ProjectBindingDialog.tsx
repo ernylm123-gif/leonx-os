@@ -6,6 +6,7 @@ import { useData } from '@/context/data'
 import { listTakeoffs } from '@/data/quantityApi'
 import type { QuantityTakeoff } from '@/data/types'
 import { requireSupabase } from '@/lib/supabase'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import type { BindRequest } from './useCadProject'
 
 const STATUS = { taslak: 'Taslak', onaylandi: 'Onaylı (kilitli)', arsiv: 'Arşiv' } as const
@@ -39,9 +40,8 @@ export function ProjectBindingDialog({
   const [saveAnalysis, setSaveAnalysis] = useState(true)
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
-    if (open) setProjectId(initialProjectId ?? '')
-  }, [open, initialProjectId])
+  // Açılışta render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları ezebilir)
+  useResetOnOpen(open, () => setProjectId(initialProjectId ?? ''), [initialProjectId])
 
   useEffect(() => {
     if (!projectId) {
