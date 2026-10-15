@@ -71,7 +71,6 @@ sorgu olarak yapıştırın ve **Run** deyin. Her biri "Success. No rows returne
 | 8 | `supabase/migrations/20261014000800_leonx_scheduler.sql` | pg_cron + pg_net zamanlayıcı (hatırlatmalar 5 dk, push gönderimi 1 dk) |
 | 9 | `supabase/migrations/20261014000900_leonx_hardening.sql` | Tetikleyici fonksiyonlarının istemciden çağrılmasını kapatır |
 | 10 | `supabase/migrations/20261015001100_leonx_finance.sql` | Faz 8 finans: birim maliyet kataloğu, kurlar, proje bütçesi, tahmini maliyet, giderler, ödeme planı, tahsilatlar, `project_receivables` görünümü, bütçe aşımı ve tahsilat hatırlatmaları (RLS + Realtime) |
-
 | 11 | `supabase/migrations/20261015001200_leonx_engineering.sql` | Faz 5.2 mühendislik incelemesi: poz için belirsiz işareti, inceleme notu, sunucunun yazdığı onaylayan/onay zamanı ve değiştirilemez ilk tespit değerleri; analiz dosyası SHA-256 özeti; çelişki ve doğrulama bildirimleri |
 - Dosyalar **tekrar çalıştırılabilir** ve hiçbir nesneyi silmez (`DROP` içermez): tetikleyiciler
   `create or replace trigger`, politikalar "yoksa oluştur, varsa `ALTER POLICY`" ile tanımlanır.
