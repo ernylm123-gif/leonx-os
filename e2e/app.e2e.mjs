@@ -1116,7 +1116,8 @@ await test('Teklif: tekliften proje oluşturma; proje ve firma sayfasında gör�
   expect(q.vat_pct === 10 && q.payment_terms === '%50 peşin, %50 teslimde.' && q.valid_until, 'ayarlardaki varsayılanlar uygulanmadı')
   await page.getByTestId('quote-create-project').click()
   const pd = page.getByRole('dialog', { name: 'Yeni proje' })
-  expect((await pd.getByLabel('Proje adı').inputValue()) === 'Cephe kaplama', 'proje adı tekliften gelmedi')
+  // Ön doldurma diyalog açıldıktan hemen sonra yapılır: değer gelene kadar beklenir
+  await eventually(async () => (await pd.getByLabel('Proje adı').inputValue()) === 'Cephe kaplama', 'proje adı tekliften gelmedi')
   await pd.getByLabel('İş kategorisi').selectOption('cephe')
   await pd.getByRole('button', { name: 'Projeyi oluştur' }).click()
   await page.getByTestId('quote-project-link').waitFor()
