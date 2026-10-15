@@ -1021,6 +1021,33 @@ await test('Faz 13: DXF model uzayında plan + çizelge — kat tekrarı, çizel
   expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
 })
 
+await test('CAD motoru: kâğıt uzayındaki çizelge ve blok öznitelikleri tarayıcıda (Web Worker üzerinden) okunur', async ({ page, consoleErrors }) => {
+  await login(page, OWNER, '/cad-analiz')
+  await page.getByTestId('cad-workspace').waitFor()
+  // 1) Kâğıt uzayı: çizelge layout'ta, plan model uzayında
+  await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(ROOT, 'src/cad/__fixtures__/cad_kagit_uzayi_cizelge.dxf'))
+  await page.getByTestId('cad-canvas').waitFor()
+  await page.getByRole('tab', { name: /Pozlar/ }).click()
+  await page.getByTestId('poz-detect').click()
+  await page.getByTestId('poz-candidate').first().waitFor()
+  await page.getByRole('tab', { name: /Tespit sonuçları/ }).click()
+  const p1 = page.locator('[data-testid="result-row"][data-poz="P1"]')
+  await p1.waitFor()
+  expect((await p1.getByTestId('result-count').inputValue()) === '2', 'çizelge adedi okunmadı')
+  expect((await p1.getByTestId('result-category').inputValue()) === 'pvc_pencere', `iş grubu: ${await p1.getByTestId('result-category').inputValue()}`)
+  // 2) Öznitelikli bloklar: K1 "PENCERE_GENEL" bloğu ama TIP=KAPI → alüminyum kapı; P5 öznitelik/geometri çelişkisi
+  await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(ROOT, 'src/cad/__fixtures__/cad_oznitelik_bloklar.dxf'))
+  await page.getByRole('tab', { name: /Pozlar/ }).click()
+  await page.getByTestId('poz-detect').click()
+  await page.getByRole('tab', { name: /Tespit sonuçları/ }).click()
+  const k1 = page.locator('[data-testid="result-row"][data-poz="K1"]')
+  await k1.waitFor()
+  expect((await k1.getByTestId('result-category').inputValue()) === 'al_kapi', `K1 iş grubu: ${await k1.getByTestId('result-category').inputValue()}`)
+  await page.locator('[data-testid="result-row"][data-poz="P5"]').getByTestId('result-conflict-badge').waitFor()
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+})
+
 await test('Faz 13: metraj revizyon karşılaştırması — eklenen/silinen/değişen poz, metraj farkı, katalog maliyeti ve teklif etkisi; fiyatsız poz uydurulmaz', async ({ page, mock }) => {
   const project = mock.externalInsert('projects', { code: 'LX-2026-813', name: 'Revizyonlu blok', category: 'pvc_dograma' })
   const base = { shape: 'dikdortgen', unit: 'm2', measure_basis: 'dograma', glass_mode: 'yok', floor: null, space: null, description: null, verification: 'onaylandi' }

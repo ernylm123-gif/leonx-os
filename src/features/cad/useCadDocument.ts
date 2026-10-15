@@ -25,6 +25,8 @@ export interface LoadedCad {
   bytes: ArrayBuffer
   scene: Scene
   report: CadReport | null
+  /** DXF kâğıt uzayı (layout) sahneleri — antet ve çizelgeler; poz analizinde ayrı pafta olarak okunur */
+  paper?: { name: string; scene: Scene }[]
   /** Görüntülenen PDF sayfası */
   pdf: (PdfPageInfo & { background: HTMLCanvasElement | null }) | null
   /** Çok sayfalı PDF: açık belge ve tüm sayfaların özeti/analizi */
@@ -178,6 +180,7 @@ export function useCadDocument() {
           bytes: keep,
           scene: result.scene,
           report: result.report,
+          paper: result.paper,
           pdf: null,
           pdfDoc: null,
           loadedAt: new Date(),
