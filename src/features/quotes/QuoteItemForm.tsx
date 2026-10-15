@@ -9,6 +9,7 @@ import { createQuoteItems, updateQuoteItem } from '@/data/quoteApi'
 import { dataErrorMessage } from '@/lib/errors'
 import { requireSupabase } from '@/lib/supabase'
 import { useFormDirty } from '@/lib/unsaved'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import { formatMilli } from '@/quantity/precision'
 import { computeQuoteItem, emptyQuoteItem, itemInputOf, type QuoteCalcParams } from '@/quote/engine'
 import { CURRENCY_SYMBOL, formatMoney, fromMm, toMm } from '@/quote/money'
@@ -145,15 +146,11 @@ export function QuoteItemForm({ open, onClose, quote, params, item, nextSort, on
   const base = useMemo<QuoteItemInput>(() => (item ? itemInputOf(item) : emptyQuoteItem(nextSort)), [item, nextSort])
 
   // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılan değerleri ezebilir)
-  const [wasOpen, setWasOpen] = useState(false)
-  if (open !== wasOpen) {
-    setWasOpen(open)
-    if (open) {
-      setF(toForm(base))
-      setErrors({})
-      setFormError(null)
-    }
-  }
+  useResetOnOpen(open, () => {
+    setF(toForm(base))
+    setErrors({})
+    setFormError(null)
+  })
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((s) => ({ ...s, [k]: v }))
   const measured = QUOTE_UNITS.find((u) => u.value === f.unit)?.measured

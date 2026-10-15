@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { FormAlert, SelectField, TextField } from '@/components/ui/Field'
@@ -10,6 +10,7 @@ import { dataErrorMessage } from '@/lib/errors'
 import { addDays, localISODate } from '@/lib/stats'
 import { requireSupabase } from '@/lib/supabase'
 import { useFormDirty } from '@/lib/unsaved'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import { CURRENCIES, type Currency, type PricingMode, type QuoteInput } from '@/quote/types'
 import { useQuoteSettings } from './shared'
 
@@ -37,8 +38,8 @@ export function NewQuoteDialog({ open, onClose, defaultCompanyId, defaultProject
   const [busy, setBusy] = useState(false)
   const { markDirty } = useFormDirty(open, 'Yeni teklif formu')
 
-  useEffect(() => {
-    if (!open) return
+  // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları/hataları ezebilir)
+  useResetOnOpen(open, () => {
     const p = defaultProjectId ? projects.find((x) => x.id === defaultProjectId) : undefined
     setProjectId(p?.id ?? '')
     setCompanyId(p?.company_id ?? defaultCompanyId ?? '')
@@ -48,7 +49,7 @@ export function NewQuoteDialog({ open, onClose, defaultCompanyId, defaultProject
     setDate(localISODate())
     setErrors({})
     setFormError(null)
-  }, [open])
+  })
 
   const companyProjects = useMemo(() => projects.filter((p) => !companyId || p.company_id === companyId || p.id === projectId), [projects, companyId, projectId])
   const sortedCompanies = useMemo(() => [...companies].sort((a, b) => a.name.localeCompare(b.name, 'tr')), [companies])
