@@ -91,6 +91,8 @@ export interface WorkspaceContext {
   applyScale: (denominator: number, verified: boolean) => void
   /** İki noktalı kalibrasyon aracını başlat */
   startCalibrate: () => void
+  /** Panelleri düzenle (ör. mühendislik incelemesi: sol pafta listesi, sağ inceleme, alt tablo) */
+  focusPanels: (p: { left?: string | false; bottom?: string | false; right?: boolean }) => void
 }
 
 /**
@@ -233,9 +235,23 @@ export function CadWorkspace({
     [addLog],
   )
 
+  const focusPanels = useCallback((p: { left?: string | false; bottom?: string | false; right?: boolean }) => {
+    if (p.left === false) setLeftOpen(false)
+    else if (p.left) {
+      setLeftTab(p.left)
+      setLeftOpen(true)
+    }
+    if (p.bottom === false) setBottomOpen(false)
+    else if (p.bottom) {
+      setBottomTab(p.bottom)
+      setBottomOpen(true)
+    }
+    if (p.right != null) setRightOpen(p.right)
+  }, [])
+
   const ctx: WorkspaceContext = useMemo(
-    () => ({ doc, units, unit, selection, setSelection, zoomTo, log: addLog, openFile, selectPage: gotoPage, setPageAnalysis, pageBusy, applyScale: applyScaleCb, startCalibrate }),
-    [doc, units, unit, selection, zoomTo, addLog, openFile, gotoPage, setPageAnalysis, pageBusy, applyScaleCb, startCalibrate],
+    () => ({ doc, units, unit, selection, setSelection, zoomTo, log: addLog, openFile, selectPage: gotoPage, setPageAnalysis, pageBusy, applyScale: applyScaleCb, startCalibrate, focusPanels }),
+    [doc, units, unit, selection, zoomTo, addLog, openFile, gotoPage, setPageAnalysis, pageBusy, applyScaleCb, startCalibrate, focusPanels],
   )
   useEffect(() => onContext?.(ctx), [ctx, onContext])
   const ext = extensions?.(ctx) ?? {}

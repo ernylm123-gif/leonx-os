@@ -75,7 +75,8 @@ export function MetrajImportDialog({ open, onClose, quote, existing, onImported 
         if (cancelled) return
         setItems(rows)
         // Varsayılan: reddedilmemiş ve daha önce aktarılmamış pozlar
-        setSelected(new Set(rows.filter((r) => r.verification !== 'reddedildi' && !imported.has(r.id)).map((r) => r.id)))
+        // Varsayılan: yalnız onaylı pozlar (doğrulanmamış ölçü kesin teklife kendiliğinden girmez)
+        setSelected(new Set(rows.filter((r) => r.verification === 'onaylandi' && !imported.has(r.id)).map((r) => r.id)))
       })
       .catch((e) => !cancelled && setError(dataErrorMessage(e, 'Pozları yükleme')))
       .finally(() => !cancelled && setLoading(false))

@@ -12,7 +12,7 @@ import type { QuantityItem, QuantityItemInput } from '@/quantity/types'
 import type { UnitState } from '../format'
 import type { LoadedCad } from '../useCadDocument'
 
-export const ENGINE_VERSION = 'leonx-cad-1.0'
+export const ENGINE_VERSION = 'leonx-cad-1.1'
 
 export interface BindRequest {
   projectId: string
@@ -22,7 +22,17 @@ export interface BindRequest {
 }
 
 /** Analiz özetinin veritabanı kaydı (geometri saklanmaz; dosya projede durur) */
-export function analysisRecord(doc: LoadedCad, units: UnitState, projectId: string, fileId: string | null, detection: DetectionResult | null): CadAnalysisInput {
+/** Dosyanın SHA-256 özeti (onaltılık) — tarayıcı Web Crypto */
+export async function fileHash(bytes: ArrayBuffer): Promise<string | null> {
+  try {
+    const d = await crypto.subtle.digest('SHA-256', bytes)
+    return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('')
+  } catch {
+    return null
+  }
+}
+
+export function analysisRecord(doc: LoadedCad, units: UnitState, projectId: string, fileId: string | null, detection: DetectionResult | null, hash: string | null = null): CadAnalysisInput {
   const r = doc.report
   const summary: Record<string, unknown> = {
     format: doc.kind,
@@ -55,6 +65,10 @@ export function analysisRecord(doc: LoadedCad, units: UnitState, projectId: stri
             cizelge: p.analysis?.scheduleRows ?? 0,
             olcek: p.analysis?.scale.used ?? null,
             olcek_kaynagi: p.analysis?.scale.usedFrom ?? null,
+            olcek_dogrulandi: p.analysis?.scale.verified ?? false,
+            kart: p.analysis?.cardCount ?? 0,
+            kat_carpani: p.analysis?.floor.multiplier ?? null,
+            ocr_gerekli: p.analysis?.ocrNeeded ?? null,
           })),
         }
       : null,
@@ -64,7 +78,26 @@ export function analysisRecord(doc: LoadedCad, units: UnitState, projectId: stri
           etiket: detection.labelsFound,
           elenen: detection.skipped,
           ...(detection.pdf
-            ? { analiz_edilen_sayfalar: detection.pdf.analyzedPages, neden_yok: detection.pdf.whyNone, uyarilar: detection.pdf.warnings, ocr: detection.pdf.ocrUsed }
+            ? {
+                analiz_edilen_sayfalar: detection.pdf.analyzedPages,
+                neden_yok: detection.pdf.whyNone,
+                uyarilar: detection.pdf.warnings,
+                ocr: detection.pdf.ocrUsed,
+                // Faz 5.2: çelişki ve tanı raporu (bildirim ve izlenebilirlik)
+                celiski: detection.candidates.filter((c) => 'conflicts' in c && (c as { conflicts: unknown[] }).conflicts.length > 0).length,
+                rapor: {
+                  okunabildi: detection.pdf.report.readable,
+                  pafta: detection.pdf.report.pagesFound,
+                  analiz_edilen: detection.pdf.report.pagesAnalyzed,
+                  yazi: detection.pdf.report.texts,
+                  olcek_dogrulanan: detection.pdf.report.scaleVerifiedPages,
+                  olcek_dogrulanamayan: detection.pdf.report.scaleUnverifiedPages,
+                  ocr_gereken: detection.pdf.report.ocrNeededPages,
+                  basarisiz: detection.pdf.report.failedPages,
+                  eksik: detection.pdf.report.missing.slice(0, 20),
+                  sorular: detection.pdf.report.asks.map((a) => a.message).slice(0, 10),
+                },
+              }
             : {}),
         }
       : null,
@@ -84,6 +117,7 @@ export function analysisRecord(doc: LoadedCad, units: UnitState, projectId: stri
     engine_version: ENGINE_VERSION,
     summary,
     notes: null,
+    file_hash: hash,
   }
 }
 
@@ -120,7 +154,7 @@ export function useCadProject(initial: { projectId: string | null; fileId: strin
         let an: CadAnalysis | null = req.projectId === projectId ? analysis : null
         if (doc && req.saveAnalysis && !an) {
           step = 'Analiz kaydı'
-          an = await createAnalysis(db, analysisRecord(doc, units, req.projectId, fid, detection))
+          an = await createAnalysis(db, analysisRecord(doc, units, req.projectId, fid, detection, await fileHash(doc.bytes)))
         }
         step = 'Metraj sürümü'
         let tid: string

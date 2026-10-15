@@ -1,6 +1,6 @@
 # LEONX OS — Geliştirme durumu
 
-Son güncelleme: Faz 8 (finans, maliyet, tahsilat ve kârlılık) ve Faz 5.2 (mimari PDF analiz motoru) · uygulama sürümü 0.8.0
+Son güncelleme: Faz 8 (finans, maliyet, tahsilat ve kârlılık) ve Faz 5.2 (mimari PDF analiz motoru + mühendislik incelemesi) · uygulama sürümü 0.8.1
 
 Tek üretim adresi: <https://leonx-os.vercel.app> (yalnızca `main` dalından). Çalışan derlemenin kimliği
 **Ayarlar → Sürüm bilgisi** ekranında ve `/version.json` adresinde görünür.
@@ -15,14 +15,14 @@ Tek üretim adresi: <https://leonx-os.vercel.app> (yalnızca `main` dalından). 
 | 5.1 | Mimari PDF: tüm sayfaların okunması ve sayfa seçimi, pafta sınıflandırma (plan/görünüş/kesit/çizelge), poz kodu + "EN/BOY" etiketleri, doğrama çizelgesi, plan sayımı (görünüş tekrarı sayılmaz), ölçü yazılarından ölçek çıkarımı ve açıklık geometrisiyle doğrulama, taranmış sayfalar için cihaz içi Türkçe OCR, sonuç tablosu (düzenleme, onay, çizimde gösterme), sonuç yoksa neden açıklaması, metrajdan teklife aktarma |
 | 6 | Teklifler: numaralandırma, kalemler (elle / metrajdan), maliyet-kâr-indirim-KDV, revizyon, kopya, durum kilidi, proje bağlantısı, kurumsal PDF ve Excel, teklif ayarları |
 
-| 5.2 | Mimari PDF kök neden düzeltmeleri: AutoCAD SHX/eğriye çevrilmiş yazı tespiti ve bölgesel karo OCR (yüksek çözünürlük, iPad'de sabit bellek), görüntü olarak gömülü çizelge (karma pafta) OCR'ı, bozuk yazı tipi tespiti; metre ("1.20/1.50"), kesirli, adlandırılmış ölçü yazımları; kod eşleştirme (P-01 = P01 = P1); kart tipi doğrama listesi (kasa, ölçü çizgileri, ADET/malzeme/cam/renk/açılım); görünüş çiziminden açılım ve bölme analizi; teknik özellikler (doğrulandı / aday / belirsiz); "1.-4. KATLAR" kat çarpanı; mahal; çelişkilerin kullanıcıya bırakılması; tanı raporu ve kritik girdi soruları; doğruluk ölçüm altyapısı (precision/recall) |
+| 5.2 | Mimari PDF kök neden düzeltmeleri: AutoCAD SHX/eğriye çevrilmiş yazı tespiti ve bölgesel karo OCR (yüksek çözünürlük, iPad'de sabit bellek), görüntü olarak gömülü çizelge (karma pafta) OCR'ı, bozuk yazı tipi tespiti; metre ("1.20/1.50"), kesirli, adlandırılmış ölçü yazımları; kod eşleştirme (P-01 = P01 = P1); kart tipi doğrama listesi (kasa, ölçü çizgileri, ADET/malzeme/cam/renk/açılım); görünüş çiziminden açılım ve bölme analizi; teknik özellikler (doğrulandı / aday / belirsiz); "1.-4. KATLAR" kat çarpanı; mahal; çelişkilerin kullanıcıya bırakılması; tanı raporu ve kritik girdi soruları; doğruluk ölçüm altyapısı (precision/recall). **Mühendislik incelemesi**: pafta listesi (önizlemeli), çizimde konum, poz incelemesi (ölçü, hesap yöntemi, kaynak paftalar, teknik özellik durumları, çelişki kararı), Onayla / Düzelt / Belirsiz / Reddet; onaylayan ve onay zamanı, değiştirilemez ilk tespit değerleri ve düzeltme geçmişi; raporlarda özellik, kaynak pafta, düzeltme ve onay sütunları; teklife varsayılan olarak yalnız onaylı pozlar |
 | 8 | Finans: birim maliyet kataloğu, kullanıcı kurları, proje bütçesi (kabul edilen teklif anlık görüntüsü), tahmini maliyet (elle / onaylı metrajdan), gerçekleşen gider (KDV ayrı), ödeme planı ve tahsilat (FIFO), tahmini/beklenen/gerçekleşen kâr, bütçe aşımı ve tahsilat bildirimleri, /finans paneli (nakit akışı, geciken ödemeler) |
 | 7 | 12 aşamalı proje akışı (liste + pano), ilerleme, adres/harita, gerçek bitiş tarihi; görev ve termin (hatırlatma, gecikme); sunucu olaylarından işlem geçmişi; bildirim merkezi (zil, geçmiş, okundu eşitleme, tercihler); Web Push (VAPID, kendi service worker'ı); canlı yönetim paneli; teklif kabulünde aşama önerisi |
 
 ## Veritabanı
 
-Migration'lar `supabase/migrations/` altında, sırasıyla 001–009 ve 011 (Faz 8 finans; 010 numarası kullanılmadı).
-Hepsi (011 dahil) gerçek Supabase projesine uygulandı; 011 için uzak, geri alınan test 14/14. Tümü
+Migration'lar `supabase/migrations/` altında, sırasıyla 001–009, 011 (Faz 8 finans) ve 012 (Faz 5.2 inceleme); 010 numarası kullanılmadı.
+Hepsi gerçek Supabase projesine uygulandı (011 uzak test 14/14; 012 uzakta katalog doğrulaması: 5 sütun, tetikleyici, 3 kısıt, anon erişimi kapalı, mevcut satırlara dokunulmadı). Tümü
 tekrar çalıştırılabilir ve DROP/veri silme içermez.
 
 ## Testler
@@ -31,7 +31,7 @@ tekrar çalıştırılabilir ve DROP/veri silme içermez.
 | --- | --- |
 | `npm run test` | Doğruluk ölçümü (sentetik fikstürler: precision/recall, adet/ölçü/alan hatası), AutoCAD yazı-çizgi ve karma pafta için uçtan uca karo OCR, kart tipi liste, mimari PDF analizi (çok sayfalı proje, çizelge, ölçeksiz plan, yanlış ölçek, yazısız/taranmış/boş/bozuk PDF, OCR), hesap motorları (metraj, teklif), birim dönüşümleri, PDF/Excel içerik ve toplam eşitliği, sürüm, yeniden deneme |
 | `npm run bench:cad` | Doğruluk ölçümü; `CAD_REFERANS_DIR` ile gerçek referans projeler (depo dışında) |
-| `npm run test:db` | Migration'lar iki kez + RLS, kilit, numara, revizyon, silme ilişkileri; Faz 8: finans RLS, metraj çift aktarım engeli, kur seçimi, FIFO tahsilat, bütçe aşımı ve hatırlatma tekilleştirme (yerel PostgreSQL) |
+| `npm run test:db` | Migration'lar iki kez + RLS, kilit, numara, revizyon, silme ilişkileri; Faz 8: finans RLS, metraj çift aktarım engeli, kur seçimi, FIFO tahsilat, bütçe aşımı ve hatırlatma tekilleştirme; Faz 5.2: onay bilgisinin sunucuda yazılması, değiştirilemez ilk değer, belirsiz işareti, çelişki/doğrulama bildirimleri (yerel PostgreSQL) |
 | `npm run test:e2e` | Tarayıcı akışları (sahte Supabase): giriş, CRUD, çoklu cihaz, çevrimdışı, sürüm, CAD/metraj, teklif akışları, 6 ekran × 2 tema |
 | `supabase/tests/*.remote_safe.sql` | Gerçek Supabase'de silmesiz, geri alınan RLS/kural testleri |
 

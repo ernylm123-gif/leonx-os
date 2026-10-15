@@ -82,6 +82,8 @@ export interface DetectionInfo {
   attrs?: Record<string, { value: string; status: 'dogrulandi' | 'aday' | 'belirsiz'; source: string }>
   /** Tespit sırasında bulunan çelişkiler (adet/ölçü/açılım) */
   conflicts?: { kind: string; message: string }[]
+  /** Motorun ham sonucu (kullanıcı öneriyi eklemeden önce düzelttiyse ilk değer budur) */
+  detected?: { poz_code: string; category: QuantityCategory; width_mm: number | null; height_mm: number | null; quantity: number }
   /** Kaynak: hangi paftalar, ölçü kaynağı, adet kaynakları */
   provenance?: {
     pages?: number[]
@@ -128,6 +130,22 @@ export interface QuantityItemInput {
   detection: DetectionInfo | null
   verification: Verification
   sort_order: number
+  /** Belirsiz: kullanıcı karar veremedi (kesin toplama dahil değil, incelemede ayrıca listelenir) */
+  uncertain?: boolean
+  /** İnceleme notu: neden düzeltildi / reddedildi / belirsiz */
+  review_note?: string | null
+}
+
+/** Otomatik tespitin ilk değerleri (sunucu yazar; değiştirilemez) */
+export interface ItemOriginal {
+  poz_code: string
+  category: QuantityCategory
+  shape: ShapeKind
+  width_mm: number | null
+  height_mm: number | null
+  quantity: number
+  unit: QuantityUnit
+  verification: Verification
 }
 
 export interface QuantityItem extends QuantityItemInput {
@@ -138,6 +156,24 @@ export interface QuantityItem extends QuantityItemInput {
   created_at: string
   updated_at: string
   version: number
+  /** Onaylayan ve onay zamanı (sunucu yazar) */
+  approved_by?: string | null
+  approved_at?: string | null
+  original?: ItemOriginal | null
+}
+
+/** Kullanıcı düzeltmesi: ilk tespitten farklı alanlar */
+export function correctedFields(item: Pick<QuantityItem, 'original' | 'poz_code' | 'category' | 'width_mm' | 'height_mm' | 'quantity'>): string[] {
+  const o = item.original
+  if (!o) return []
+  const out: string[] = []
+  const num = (a: number | null | undefined, b: number | null | undefined) => (a == null || b == null ? a == b : Math.abs(Number(a) - Number(b)) > 0.05)
+  if (o.poz_code !== item.poz_code) out.push('poz_code')
+  if (o.category !== item.category) out.push('category')
+  if (num(o.width_mm, item.width_mm)) out.push('width_mm')
+  if (num(o.height_mm, item.height_mm)) out.push('height_mm')
+  if (Number(o.quantity) !== Number(item.quantity)) out.push('quantity')
+  return out
 }
 
 export function emptyItem(partial: Partial<QuantityItemInput> = {}): QuantityItemInput {
