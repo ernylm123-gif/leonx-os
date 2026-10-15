@@ -28,7 +28,7 @@ export const MILESTONE = {
 
 /** Henüz entegre edilmemiş servisler. Veritabanı durumu çalışma anında gösterilir. */
 export const INTEGRATIONS = [
-  { key: 'cad', label: 'CAD analiz motoru (DXF, PDF; DWG dönüştürme ile)', connected: true, milestone: MILESTONE.cad },
+  { key: 'cad', label: 'CAD analiz motoru (DXF, PDF; DWG için DXF dönüştürmesi gerekir)', connected: true, milestone: MILESTONE.cad },
   { key: 'quantity', label: 'Poz bazlı metraj ve Excel/PDF', connected: true, milestone: MILESTONE.pricing },
   { key: 'pricing', label: 'Teklif, maliyet ve fiyatlandırma (PDF/Excel)', connected: true, milestone: MILESTONE.quotes },
   { key: 'ai', label: 'LEONX AI', connected: false, milestone: MILESTONE.ai },

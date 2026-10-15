@@ -1,6 +1,6 @@
 # LEONX OS — Geliştirme durumu
 
-Son güncelleme: Faz 8 (finans, maliyet, tahsilat ve kârlılık) ve Faz 5.2 (mimari PDF analiz motoru + mühendislik incelemesi) · uygulama sürümü 0.8.1
+Son güncelleme: Faz 13 (DXF mimari analiz, revizyon karşılaştırma, malzeme bazlı metraj) · uygulama sürümü 0.9.0
 
 Tek üretim adresi: <https://leonx-os.vercel.app> (yalnızca `main` dalından). Çalışan derlemenin kimliği
 **Ayarlar → Sürüm bilgisi** ekranında ve `/version.json` adresinde görünür.
@@ -18,6 +18,7 @@ Tek üretim adresi: <https://leonx-os.vercel.app> (yalnızca `main` dalından). 
 | 5.2 | Mimari PDF kök neden düzeltmeleri: AutoCAD SHX/eğriye çevrilmiş yazı tespiti ve bölgesel karo OCR (yüksek çözünürlük, iPad'de sabit bellek), görüntü olarak gömülü çizelge (karma pafta) OCR'ı, bozuk yazı tipi tespiti; metre ("1.20/1.50"), kesirli, adlandırılmış ölçü yazımları; kod eşleştirme (P-01 = P01 = P1); kart tipi doğrama listesi (kasa, ölçü çizgileri, ADET/malzeme/cam/renk/açılım); görünüş çiziminden açılım ve bölme analizi; teknik özellikler (doğrulandı / aday / belirsiz); "1.-4. KATLAR" kat çarpanı; mahal; çelişkilerin kullanıcıya bırakılması; tanı raporu ve kritik girdi soruları; doğruluk ölçüm altyapısı (precision/recall). **Mühendislik incelemesi**: pafta listesi (önizlemeli), çizimde konum, poz incelemesi (ölçü, hesap yöntemi, kaynak paftalar, teknik özellik durumları, çelişki kararı), Onayla / Düzelt / Belirsiz / Reddet; onaylayan ve onay zamanı, değiştirilemez ilk tespit değerleri ve düzeltme geçmişi; raporlarda özellik, kaynak pafta, düzeltme ve onay sütunları; teklife varsayılan olarak yalnız onaylı pozlar |
 | 8 | Finans: birim maliyet kataloğu, kullanıcı kurları, proje bütçesi (kabul edilen teklif anlık görüntüsü), tahmini maliyet (elle / onaylı metrajdan), gerçekleşen gider (KDV ayrı), ödeme planı ve tahsilat (FIFO), tahmini/beklenen/gerçekleşen kâr, bütçe aşımı ve tahsilat bildirimleri, /finans paneli (nakit akışı, geciken ödemeler) |
 | 7 | 12 aşamalı proje akışı (liste + pano), ilerleme, adres/harita, gerçek bitiş tarihi; görev ve termin (hatırlatma, gecikme); sunucu olaylarından işlem geçmişi; bildirim merkezi (zil, geçmiş, okundu eşitleme, tercihler); Web Push (VAPID, kendi service worker'ı); canlı yönetim paneli; teklif kabulünde aşama önerisi |
+| 13 | CAD/BIM: **DXF mimari analiz** — model uzayı mimari motora (PDF ile aynı) sanal kâğıt olarak verilir: pafta türü, doğrama çizelgesi (metin tablosu), poz etiketi, kat tekrarı, teknik özellik, çelişki; blok geometrisiyle birleşik (yazılı ölçü yoksa ölçü bloktan, uyuşmazsa ölçü çelişkisi; duvarlar poz sayılmaz). **Metraj revizyon karşılaştırması** — eklenen/silinen/değişen pozlar, metraj farkı, katalog maliyet farkı ve teklif tutarı etkisi (fiyat yoksa tutar yok, para birimleri ayrı). Metraj özetinde brüt (boşluk) alan, çevre ve **malzeme/seri bazlı** tablo. DWG değerlendirmesi (`docs/DWG_DEGERLENDIRME.md`) |
 
 ## Veritabanı
 
@@ -60,11 +61,25 @@ Otomatik testler Chromium cihaz öykünmesiyle yapılır; aşağıdakiler gerçe
 | Taranmış (görüntü) PDF | Sınırlı: tüm sayfa karolar hâlinde OCR; güven düşük tutulur, rakam hataları olabilir, geometri doğrulaması yapılmaz |
 | Yazısız (yalnız çizgi) PDF | Otomatik metraj üretilmez; neden gösterilir, kalibrasyon + elle ölçüm önerilir |
 | Normal/tip kat planları | Başlıkta kat aralığı/sayısı yazıyorsa ("1.-4. KATLAR") sayım çarpılır ve çizelgeyle karşılaştırılır; yazmıyorsa uyarı |
-| DWG | Desteklenmez (DXF'e dönüştürme rehberi) |
+| DWG | Desteklenmez (DXF'e dönüştürme rehberi; seçenekler ve lisanslar: `docs/DWG_DEGERLENDIRME.md`) |
 
 Testler sentetik fikstürlerle yapıldı (`scripts/cad-fixtures/make_pdf_fixtures*.mjs`, beklenen sonuçlar
 `*.expected.json`). **Kullanıcıya ait gerçek proje PDF'i ile henüz doğrulanmadı**; gerçek referans projelerle
 ölçüm için `docs/CAD_REFERANS_TESTLERI.md`.
+
+## DXF analizi — ne çalışır, ne sınırlıdır (Faz 13)
+
+| DXF içeriği | Durum |
+| --- | --- |
+| Model uzayında plan + metin tablosu doğrama çizelgesi + "1.-3. KATLAR" başlığı | Çalışır: çizelge adet/ölçü/malzeme, plan sayımı × kat, fark çelişki olarak gösterilir |
+| Doğrama blokları (adında veya geometrisinde ölçü) + poz etiketi | Çalışır: ölçü bloktan; yazılı ölçüyle uyuşmazsa ölçü çelişkisi |
+| Etiketsiz bloklar / kapalı çizgiler | Eski geometri motoruyla çalışır (yazı yoksa) |
+| Birim ($INSUNITS) yok | Ölçek doğrulanmamış sayılır; kalibrasyon gerekir, ölçü kesin sunulmaz |
+| Kâğıt uzayı (layout) ve görünüm pencereleri | Okunmaz (model uzayı analiz edilir) |
+| Çok büyük model uzayı (yüz binlerce nesne) | Analiz ana iş parçacığında çalışır; çok büyük dosyalarda tarayıcı bir süre yanıt vermeyebilir |
+
+Test: `src/cad/dxfSemantic.test.ts` (yeni fikstür `mimari_plan_cizelge*.dxf` + eski 7 DXF fikstüründe gerileme yok)
+ve tarayıcı testi. **Gerçek ofis DXF'i ile henüz doğrulanmadı.**
 
 ## Push bildirimleri — durum
 
@@ -78,7 +93,8 @@ Testler sentetik fikstürlerle yapıldı (`scripts/cad-fixtures/make_pdf_fixture
 
 ## Bilinen sınırlar
 
-- DWG dosyaları doğrudan okunmaz (DXF'e dönüştürme rehberi gösterilir).
+- DWG dosyaları doğrudan okunmaz (DXF'e dönüştürme rehberi gösterilir; seçenekler `docs/DWG_DEGERLENDIRME.md`).
+- Revizyon karşılaştırmasında maliyet farkı yalnız katalogda fiyatı tanımlı iş grupları, teklif farkı yalnız teklifte aynı poz kodlu kalem için hesaplanır.
 - Push gönderimi dakikalık zamanlayıcıyla yapılır (en geç ~1–2 dk gecikme). iOS'ta push yalnız ana ekrana
   eklenmiş uygulamada çalışır.
 - Kat çarpanı yalnız pafta başlığında açıkça yazıyorsa uygulanır.
