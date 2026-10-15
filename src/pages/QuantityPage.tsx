@@ -1,4 +1,4 @@
-import { Archive, CheckCircle2, GitBranch, Plus, Ruler, ScanLine, Trash2 } from 'lucide-react'
+import { Archive, ArrowLeftRight, CheckCircle2, GitBranch, Plus, Ruler, ScanLine, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
@@ -13,6 +13,7 @@ import { createRevision, createTakeoff, deleteTakeoff, listAnalyses, listTakeoff
 import type { CadAnalysis, QuantityTakeoff } from '@/data/types'
 import { ItemDetail } from '@/features/quantity/ItemDetail'
 import { QuantityTable } from '@/features/quantity/QuantityTable'
+import { RevisionCompare } from '@/features/quantity/RevisionCompare'
 import { TakeoffSummary } from '@/features/quantity/TakeoffSummary'
 import { useRemoteItems } from '@/features/quantity/useItemsStore'
 import { ExportButtons } from '@/features/quantity/ExportButtons'
@@ -40,6 +41,7 @@ export function QuantityPage() {
   const [dialog, setDialog] = useState<null | 'new' | 'revision' | 'approve' | 'archive' | 'delete'>(null)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
+  const [compare, setCompare] = useState(false)
 
   const project = projects.find((p) => p.id === projectId) ?? null
   const company = companies.find((c) => c.id === project?.company_id) ?? null
@@ -179,6 +181,11 @@ export function QuantityPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <ExportButtons takeoff={takeoff} items={store.items} project={project} company={company} analysis={analysis} />
+                {takeoffs.items.length > 1 && (
+                  <Button variant="secondary" icon={ArrowLeftRight} onClick={() => setCompare((v) => !v)} aria-pressed={compare} data-testid="qp-compare">
+                    Karşılaştır
+                  </Button>
+                )}
                 <Button
                   variant="secondary"
                   icon={GitBranch}
@@ -208,9 +215,11 @@ export function QuantityPage() {
               </div>
             </div>
             <div className="mt-4">
-              <TakeoffSummary totals={totals} />
+              <TakeoffSummary totals={totals} items={store.items} results={results} />
             </div>
           </section>
+
+          {compare && takeoffs.items.length > 1 && <RevisionCompare key={takeoff.id} takeoff={takeoff} takeoffs={takeoffs.items} newItems={store.items} onClose={() => setCompare(false)} />}
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
             <section className="card min-w-0 overflow-hidden">
