@@ -46,6 +46,8 @@ async function test(name, fn, contextOptions = { viewport: { width: 1366, height
   if (ONLY && !ONLY.test(name)) return
   const ctx = await browser.newContext(contextOptions)
   const page = await ctx.newPage()
+  // Yavaş CI makinesini taklit: E2E_CPU=6 → işlemci 6 kat yavaşlatılır (zamanlamaya bağlı hataları yakalamak için)
+  if (process.env.E2E_CPU) await (await ctx.newCDPSession(page)).send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.E2E_CPU) })
   const mock = new MockSupabase()
   await mock.attach(page)
   const consoleErrors = []
@@ -1025,6 +1027,10 @@ await test('Teklif: oluşturma, otomatik numara, kalem (150×200 cm×4 = 12 m²)
   expect(q.project_id === project.id && q.vat_pct === 20 && q.status === 'taslak', 'teklif alanları hatalı')
 
   // Kalem 1: cm ile ölçü, elle birim fiyat
+  await page.evaluate(() => {
+    window.__focusLog = []
+    document.addEventListener('focusin', (e) => window.__focusLog.push(`${performance.now().toFixed(0)} ${e.target.getAttribute('data-testid') || e.target.tagName} ${(new Error().stack || '').split('\n').slice(2, 6).join(' < ')}`), true)
+  })
   await page.getByTestId('quote-add-item').click()
   const f = page.getByRole('dialog', { name: 'Kalem ekle' })
   await f.getByTestId('qi-poz').fill('P1')
@@ -1036,7 +1042,16 @@ await test('Teklif: oluşturma, otomatik numara, kalem (150×200 cm×4 = 12 m²)
   await f.getByTestId('qi-quantity').fill('4')
   await f.getByTestId('qi-manual-price').check()
   await f.getByTestId('qi-price').fill('1000')
-  await f.getByTestId('qi-preview').getByText(/12,000/).waitFor()
+  // Başarısızlıkta formun gerçek durumu yazılır (CI'da yerelde görülmeyen zamanlama sorununu teşhis için)
+  await f
+    .getByTestId('qi-preview')
+    .getByText(/12,000/)
+    .waitFor()
+    .catch(async (e) => {
+      const val = async (id) => f.getByTestId(id).inputValue().catch(() => '—')
+      const state = { poz: await val('qi-poz'), desc: await val('qi-description'), unit: await val('qi-unit'), dim: await val('qi-dimunit'), w: await val('qi-width'), h: await val('qi-height'), q: await val('qi-quantity'), price: await val('qi-price'), manual: await f.getByTestId('qi-manual-price').isChecked().catch(() => '—') }
+      throw new Error(`${e.message.split('\n')[0]} | önizleme: "${await f.getByTestId('qi-preview').innerText().catch(() => '—')}" | alanlar: ${JSON.stringify(state)} | odak: ${JSON.stringify(await page.evaluate(() => window.__focusLog).catch(() => []))}`)
+    })
   await f.getByTestId('qi-save').click()
   await page.getByTestId('qi-qty').first().getByText('12,000 m²').waitFor()
   const it1 = mock.db.quote_items[0]
@@ -1051,7 +1066,10 @@ await test('Teklif: oluşturma, otomatik numara, kalem (150×200 cm×4 = 12 m²)
   await f.getByTestId('qi-labor').fill('200')
   await f.getByTestId('qi-install').fill('150')
   await f.getByTestId('qi-save').click()
-  await eventually(() => mock.db.quote_items.length === 2, 'ikinci kalem kaydedilmedi')
+  await eventually(() => mock.db.quote_items.length === 2, 'ikinci kalem kaydedilmedi').catch(async (e) => {
+    const val = async (id) => f.getByTestId(id).inputValue().catch(() => '—')
+    throw new Error(`${e.message} | poz="${await val('qi-poz')}" açıklama="${await val('qi-description')}" | odak: ${JSON.stringify(await page.evaluate(() => window.__focusLog).catch(() => []))}`)
+  })
 
   // Fiyatlandırma: fire %5, genel gider %10, kâr %25, nakliye 500, %10 indirim, KDV %20
   await page.getByTestId('qe-waste').fill('5')
