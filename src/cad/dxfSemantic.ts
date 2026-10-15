@@ -12,7 +12,8 @@
  * Nesne kimlikleri değişmez; görüntüleyicideki vurgulama özgün DXF sahnesinde çalışır. Kutular
  * sonuçta yeniden çizim birimine çevrilir.
  */
-import { aggregatePdf, analyzePage, type PdfDiagnostics, type PdfPageAnalysis, type PdfPozCandidate } from './pdf/archAnalyze'
+import { type DetectionResult, type DetectOptions, detectPoz, type PozCandidate } from '@/quantity/detect'
+import { aggregatePdf, analyzePage, canonCode, type PdfDiagnostics, type PdfPageAnalysis, type PdfPozCandidate } from './pdf/archAnalyze'
 import { PT_TO_MM } from './pdf/pdfScene'
 import type { BBox, Mat } from './geometry'
 import type { Scene, SceneEntity } from './types'
@@ -122,4 +123,65 @@ export function analyzeDxfSemantic(scene: Scene, mmPerUnit: number | null, opts:
   const back = 1 / s
   for (const c of candidates) for (const inst of c.instances) if (inst.bbox) inst.bbox = scaleBox(inst.bbox, back)
   return { candidates, diagnostics, analysis, denominator: den, unitsKnown }
+}
+
+// ------------------------------------------------------------------ hibrit DXF tespiti
+
+const OLCU_TOL = 0.02
+
+/**
+ * DXF için birleşik tespit: mimari motor (etiket, çizelge, kat tekrarı, özellik, çelişki) +
+ * blok/geometri motoru (yazısız çizimler, blok ölçüsü). Aynı poz iki kaynakta da varsa mimari
+ * sonuç esas alınır; blok ölçüsü farklıysa sessizce seçilmez, çelişki olarak eklenir. Yalnız
+ * geometride bulunan pozlar, mimari motor bir şey bulduysa yalnızca blok referansından
+ * geliyorsa eklenir (duvar gibi kapalı çizgilerin poz sanılmaması için).
+ */
+export function detectDxf(scene: Scene, opts: DetectOptions): DetectionResult & { semantic: DxfSemanticResult } {
+  const geo = detectPoz(scene, opts)
+  const sem = analyzeDxfSemantic(scene, opts.mmPerUnit, { unitsVerified: opts.unitsVerified })
+  if (!sem.candidates.length) return { ...geo, semantic: sem }
+  const byCanon = new Map(sem.candidates.map((c) => [c.canon, c]))
+  const out: PozCandidate[] = [...sem.candidates]
+  for (const g of geo.candidates) {
+    const canon = canonCode(g.code.replace(/-[a-z]$/, ''))
+    const s = byCanon.get(canon)
+    if (!s) {
+      if (g.source === 'blok') out.push(g)
+      continue
+    }
+    if (g.width_mm == null || g.height_mm == null) continue
+    // Etiket var ama yazılı ölçü/çizelge yok: ölçü ve adet çizimin geometrisinden gelir
+    if (s.dimsFrom == null && s.scheduleQty == null) {
+      s.width_mm = g.width_mm
+      s.height_mm = g.height_mm
+      s.shape = g.shape
+      if (s.category === 'belirsiz') s.category = g.category
+      if (!s.floorMultiplier && g.count > s.count) {
+        s.evidence.push(`Adet çizimdeki ${g.count} örnekten (etiket ${s.count} kez yazılmış)`)
+        s.count = g.count
+      }
+      s.instances.push(...g.instances)
+      s.evidence.push(`Ölçü çizim geometrisinden: ${g.width_mm}×${g.height_mm} mm${g.block ? ` (${g.block})` : ''}`)
+      continue
+    }
+    if (g.source !== 'blok' || s.width_mm == null || s.height_mm == null) continue
+    const off = (a: number, b: number) => Math.abs(a - b) / Math.max(a, b) > OLCU_TOL
+    if (off(g.width_mm, s.width_mm) || off(g.height_mm, s.height_mm)) {
+      if (!s.conflicts.some((x) => x.kind === 'olcu'))
+        s.conflicts.push({
+          kind: 'olcu',
+          message: `Çizimdeki blok (${g.block ?? 'blok'}) ${g.width_mm}×${g.height_mm} mm; yazılı ölçü ${s.width_mm}×${s.height_mm} mm`,
+        })
+    } else if (!s.evidence.some((e) => e.startsWith('Blok ölçüsü'))) {
+      s.evidence.push(`Blok ölçüsü yazılı ölçüyle uyumlu: ${g.block ?? ''} ${g.width_mm}×${g.height_mm} mm`)
+    }
+  }
+  return {
+    candidates: out,
+    skipped: geo.skipped,
+    labelsFound: Math.max(geo.labelsFound, sem.diagnostics.totals.labels),
+    unitsVerified: opts.unitsVerified,
+    pdf: sem.diagnostics,
+    semantic: sem,
+  }
 }

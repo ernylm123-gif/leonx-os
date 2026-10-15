@@ -23,7 +23,8 @@ import { type ItemsStore, useLocalItems, useRemoteItems } from '@/features/quant
 import { cn } from '@/lib/cn'
 import { useUnsavedChanges } from '@/lib/unsaved'
 import { requireSupabase } from '@/lib/supabase'
-import { type DetectionResult, detectPoz, type PozCandidate } from '@/quantity/detect'
+import { detectDxf } from '@/cad/dxfSemantic'
+import type { DetectionResult, PozCandidate } from '@/quantity/detect'
 import { areaMeasurementToInput, candidateToInput, distanceMeasurementToInput } from '@/quantity/fromDetection'
 import type { QuantityCategory, QuantityItem, QuantityItemInput } from '@/quantity/types'
 
@@ -186,7 +187,8 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
     // Arayüzün güncellenmesi için bir sonraki karede çalıştırılır
     window.setTimeout(() => {
       try {
-        const result = detectPoz(c.doc!.scene, { mmPerUnit: c.units.mmPerUnit, unitsVerified: c.units.verified })
+        // DXF: mimari motor (etiket, çizelge, kat tekrarı, çelişki) + blok geometrisi birlikte
+        const { semantic: _semantic, ...result } = detectDxf(c.doc!.scene, { mmPerUnit: c.units.mmPerUnit, unitsVerified: c.units.verified })
         setDetection(result)
         c.log(`Poz tespiti: ${result.candidates.length} aday`)
       } finally {
