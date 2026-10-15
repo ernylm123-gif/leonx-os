@@ -59,6 +59,7 @@ async function test(name, fn, contextOptions = { viewport: { width: 1366, height
   } catch (e) {
     results.push({ name, ok: false, error: e })
     console.log(`  ✗ ${name}\n      ${String(e.message || e).split('\n').slice(0, 6).join('\n      ')}`)
+    if (process.env.E2E_STACK) console.log(e.stack)
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `FAIL-${name.replace(/[^a-z0-9]+/gi, '_')}.png`) }).catch(() => {})
   } finally {
     await ctx.close()
@@ -995,6 +996,71 @@ await test('PDF tanılama: yazısız planda neden ve elle ölçüm seçeneği; b
   const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime|Invalid PDF|PDF header|XRef|Warning/i.test(e))
   expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
 }, { viewport: { width: 1180, height: 820 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 })
+
+// ================================================================== Faz 13: DXF mimari analiz ve revizyon karşılaştırma
+await test('Faz 13: DXF model uzayında plan + çizelge — kat tekrarı, çizelge eşleşmesi, adet çelişkisi; duvar poz sayılmaz', async ({ page, consoleErrors }) => {
+  await login(page, OWNER, '/cad-analiz')
+  await page.getByTestId('cad-workspace').waitFor()
+  await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(ROOT, 'src/cad/__fixtures__/mimari_plan_cizelge.dxf'))
+  await page.getByTestId('cad-canvas').waitFor()
+  await page.getByRole('tab', { name: /Pozlar/ }).click()
+  await page.getByTestId('poz-detect').click()
+  await page.getByTestId('poz-candidate').first().waitFor()
+  await page.getByRole('tab', { name: /Tespit sonuçları/ }).click()
+  const rows = page.getByTestId('result-row')
+  await rows.first().waitFor()
+  const codes = (await rows.evaluateAll((els) => els.map((e) => e.getAttribute('data-poz')))).sort()
+  expect(JSON.stringify(codes) === JSON.stringify(['K1', 'P1', 'P2', 'S1']), `pozlar: ${codes}`)
+  // K1: çizelge 4, plan 1 × 3 kat = 3 → kullanıcıya çelişki olarak sunulur
+  await page.locator('[data-testid="result-row"][data-poz="K1"]').getByTestId('result-conflict-badge').waitFor()
+  expect((await page.getByTestId('result-conflict-badge').count()) === 1, 'beklenmeyen çelişki')
+  const p1 = page.locator('[data-testid="result-row"][data-poz="P1"]')
+  const p1v = [await p1.getByTestId('result-width').inputValue(), await p1.getByTestId('result-height').inputValue(), await p1.getByTestId('result-count').inputValue()]
+  expect(JSON.stringify(p1v) === JSON.stringify(['1200', '1500', '6']), `P1 en/boy/adet: ${p1v}`)
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+})
+
+await test('Faz 13: metraj revizyon karşılaştırması — eklenen/silinen/değişen poz, metraj farkı, katalog maliyeti ve teklif etkisi; fiyatsız poz uydurulmaz', async ({ page, mock }) => {
+  const project = mock.externalInsert('projects', { code: 'LX-2026-813', name: 'Revizyonlu blok', category: 'pvc_dograma' })
+  const base = { shape: 'dikdortgen', unit: 'm2', measure_basis: 'dograma', glass_mode: 'yok', floor: null, space: null, description: null, verification: 'onaylandi' }
+  const r1 = mock.externalInsert('quantity_takeoffs', { project_id: project.id, name: 'Uygulama', revision: 1 })
+  for (const it of [
+    { poz_code: 'P-01', category: 'pvc_pencere', width_mm: 1200, height_mm: 1500, quantity: 6 },
+    { poz_code: 'K1', category: 'al_kapi', width_mm: 900, height_mm: 2100, quantity: 4 },
+    { poz_code: 'P2', category: 'pvc_pencere', width_mm: 800, height_mm: 1200, quantity: 3 },
+  ])
+    mock.externalInsert('quantity_items', { ...base, ...it, takeoff_id: r1.id, project_id: project.id })
+  mock.externalUpdate('quantity_takeoffs', r1.id, { status: 'onaylandi' })
+  const r2 = mock.externalInsert('quantity_takeoffs', { project_id: project.id, name: 'Uygulama', revision: 2, based_on: r1.id })
+  for (const it of [
+    { poz_code: 'P1', category: 'pvc_pencere', width_mm: 1300, height_mm: 1500, quantity: 6 },
+    { poz_code: 'P2', category: 'pvc_pencere', width_mm: 800, height_mm: 1200, quantity: 3 },
+    { poz_code: 'P3', category: 'pvc_pencere', width_mm: 1000, height_mm: 1000, quantity: 3 },
+  ])
+    mock.externalInsert('quantity_items', { ...base, ...it, takeoff_id: r2.id, project_id: project.id })
+  mock.externalInsert('cost_rates', { code: 'PVC-M2', name: 'PVC pencere', cost_group: 'malzeme', unit: 'm2', currency: 'TRY', unit_cost: 2500, quantity_category: 'pvc_pencere', valid_from: '2026-01-01' })
+  seedQuote(mock, { projectId: project.id, items: [{ poz_code: 'P01', description: 'PVC pencere', unit: 'm2', width_mm: 1200, height_mm: 1500, quantity: 6, unit_price: 4000 }] })
+
+  await login(page, OWNER, `/metraj?proje=${project.id}&surum=${r2.id}`)
+  await page.getByTestId('qp-compare').click()
+  const panel = page.getByTestId('rev-compare')
+  await panel.getByTestId('rev-compare-table').waitFor()
+  expect((await panel.getByTestId('rev-compare-base').inputValue()) === r1.id, 'eski sürüm "based_on" olarak seçilmedi')
+  await panel.getByTestId('rev-count-degisen').getByText('1 değişen').waitFor()
+  await panel.getByTestId('rev-count-eklenen').getByText('1 eklenen').waitFor()
+  await panel.getByTestId('rev-count-silinen').getByText('1 silinen').waitFor()
+  const p1 = await panel.locator('[data-testid="rev-row"][data-poz="P1"]').innerText()
+  expect(/En 1200 mm → 1300 mm/.test(p1) && /\+0,90/.test(p1), `P1 satırı: ${p1}`)
+  // Maliyet: P1 +0,90 m² × 2.500 + P3 +3,00 m² × 2.500 = 9.750 TL; K1 (al_kapi) katalogda yok → toplama girmez
+  await panel.getByTestId('rev-cost-total').getByText(/\+?₺?9\.750,00/).waitFor()
+  await panel.locator('[data-testid="rev-row"][data-poz="K1"]').getByText('fiyat tanımlı değil').waitFor()
+  // Teklif: P01 = P1 → +0,90 × 4.000 = 3.600 TL; P3 teklifte yok
+  await panel.getByTestId('rev-quote-total').getByText(/3\.600,00/).waitFor()
+  await panel.locator('[data-testid="rev-row"][data-poz="P3"]').getByText('teklifte yok').waitFor()
+  // Malzeme bazlı özet (yalnız onaylı pozlar)
+  await page.getByTestId('material-summary').getByText('PVC').first().waitFor()
+})
 
 // ================================================================== Teklifler (Faz 6)
 const YEAR = new Date().getFullYear()
