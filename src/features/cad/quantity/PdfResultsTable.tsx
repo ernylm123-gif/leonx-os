@@ -1,6 +1,7 @@
 import { CheckCircle2, ChevronDown, Crosshair, X } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import type { PdfPozCandidate } from '@/cad/pdf/archAnalyze'
+import { ATTR_LABEL, ATTR_STATUS_LABEL, type AttrKey } from '@/cad/pdf/attributes'
 import { cn } from '@/lib/cn'
 import type { PozCandidate } from '@/quantity/detect'
 import { computeItem } from '@/quantity/engine'
@@ -152,6 +153,11 @@ export function PdfResultsTable({
                           <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-180')} aria-hidden="true" />
                         </button>
                         <span className="font-mono font-semibold text-ink">{c.code}</span>
+                        {pdf && pdf.conflicts.length > 0 && (
+                          <span className="rounded bg-danger-soft px-1 text-[10px] font-semibold text-danger" title={pdf.conflicts.map((x) => x.message).join('\n')} data-testid="result-conflict-badge">
+                            çelişki
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-2 py-1.5">
@@ -186,10 +192,11 @@ export function PdfResultsTable({
                     <td className="px-2 py-1.5 text-right">
                       {locked ? <span className="font-mono">{c.count}</span> : <NumCell int value={c.count} label={`${c.code} adet`} onChange={(v) => v && onEdit(c.key, { count: v })} testId="result-count" />}
                       {pdf && pdf.scheduleQty != null && pdf.planQty != null && pdf.scheduleQty !== pdf.planQty && (
-                        <div className="text-[10.5px] text-warn" title="Çizelge ve plan sayımı farklı">
+                        <div className="text-[10.5px] text-danger" title="Çizelge ve plan sayımı farklı — kontrol edip karar verin">
                           çizelge {pdf.scheduleQty} / plan {pdf.planQty}
                         </div>
                       )}
+                      {pdf?.floorMultiplier ? <div className="text-[10.5px] text-muted">plan × {pdf.floorMultiplier} kat</div> : null}
                     </td>
                     <td className="px-2 py-1.5 text-right font-mono whitespace-nowrap text-ink" data-testid="result-total">
                       {calc.primary ? `${formatCenti(calc.primary.centi)} ${UNIT[calc.primary.unit]}` : <span className="text-danger" title={calc.errors.map((e) => e.message).join('\n')}>eksik</span>}
@@ -233,6 +240,17 @@ export function PdfResultsTable({
                   {expanded && (
                     <tr className="bg-surface-2/60">
                       <td colSpan={10} className="px-4 py-2 text-[12px]">
+                        {pdf && pdf.conflicts.length > 0 && (
+                          <div className="mb-2 rounded-md border border-danger/30 bg-danger-soft px-2 py-1.5 text-danger" data-testid="result-conflicts">
+                            <div className="font-semibold">Çelişki — karar sizin ({pdf.conflicts.length})</div>
+                            <ul className="space-y-0.5">
+                              {pdf.conflicts.map((x) => (
+                                <li key={x.message}>• {x.message}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {pdf && <AttrGrid attrs={pdf.attrs} />}
                         <div className="grid gap-3 md:grid-cols-2">
                           <div>
                             <div className="mb-1 font-semibold text-warn">Belirsizlikler ({c.reasons.length})</div>
@@ -261,6 +279,31 @@ export function PdfResultsTable({
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+const STATUS_CLS = { dogrulandi: 'text-ok', aday: 'text-warn', belirsiz: 'text-muted' } as const
+
+/** Teknik özellikler: değer + doğrulama durumu + kaynak */
+export function AttrGrid({ attrs }: { attrs: PdfPozCandidate['attrs'] }) {
+  const entries = (Object.keys(ATTR_LABEL) as AttrKey[]).map((k) => [k, attrs[k]] as const).filter(([, v]) => !!v)
+  if (!entries.length) return null
+  return (
+    <div className="mb-2" data-testid="result-attrs">
+      <div className="mb-1 font-semibold text-ink">Teknik özellikler</div>
+      <dl className="grid gap-x-3 gap-y-0.5 sm:grid-cols-[auto_1fr_auto]">
+        {entries.map(([k, v]) => (
+          <Fragment key={k}>
+            <dt className="text-muted">{ATTR_LABEL[k]}</dt>
+            <dd className="min-w-0 text-ink" title={v!.source}>
+              {v!.value || '—'}
+              <span className="ml-1 text-[10.5px] text-subtle">{v!.source}</span>
+            </dd>
+            <dd className={cn('text-[11px] font-semibold whitespace-nowrap', STATUS_CLS[v!.status])}>{ATTR_STATUS_LABEL[v!.status]}</dd>
+          </Fragment>
+        ))}
+      </dl>
     </div>
   )
 }

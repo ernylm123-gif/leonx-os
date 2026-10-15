@@ -1,0 +1,9 @@
+{
+  "sentetik": true,
+  "aciklama": "Kodsuz, ölçeksiz plan: yalnız EN/BOY etiketleri tekrar eder; malzeme yazılmamış.",
+  "pozlar": [
+    { "code": "120/150", "width_mm": 1200, "height_mm": 1500, "count": 6 },
+    { "code": "90/210", "width_mm": 900, "height_mm": 2100, "count": 4 },
+    { "code": "60/60", "width_mm": 600, "height_mm": 600, "count": 2 }
+  ]
+}

@@ -58,7 +58,8 @@ describe('Mimari PDF — çok sayfalı proje', () => {
     const s1 = byCode(c, 'S1')
     expect(s1.count).toBe(2)
     expect(s1.planQty).toBe(1)
-    expect(s1.reasons.join(' ')).toContain('Çizelgede 2 adet, planlarda 1 etiket')
+    expect(s1.conflicts.map((c) => c.message).join(' ')).toContain('Poz S1: Plan paftalarında 1 adet, doğrama çizelgesinde 2 adet bulunuyor.')
+    expect(s1.conflicts[0].kind).toBe('adet')
     expect(s1.level).not.toBe('yuksek')
   })
 

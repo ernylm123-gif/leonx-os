@@ -14,3 +14,6 @@ dist-e2e
 dist-e2e-unconfigured
 .claude/settings.local.json
 .tmp-visual/
+
+# Gerçek referans projeler (özel veri) — depoya eklenmez
+cad-referans/

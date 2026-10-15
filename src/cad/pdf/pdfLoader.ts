@@ -3,7 +3,8 @@
  * Güvenlik: pdf.js 6 eval kullanmaz; XFA formları kapalı, betik çalıştırılmaz, harici kaynak
  * istenmez. pdf.js çalışanı aynı kaynaktan yüklenir (CSP 'self' ile uyumlu).
  */
-import { analyzePage, type PdfPageAnalysis } from './archAnalyze'
+import { analyzePage, type PdfPageAnalysis, type TextRun } from './archAnalyze'
+import type { BBox } from '../geometry'
 import { buildPdfScene, findScaleHints, type PdfPageInfo } from './pdfScene'
 
 // Eski tarayıcılar (iPadOS Safari dahil) için polyfill içeren "legacy" derleme kullanılır;
@@ -62,6 +63,8 @@ export async function analyzePdfPage(pdf: OpenedPdf, pageNumber: number): Promis
     scene: built.scene,
     scaleHints: findScaleHints(items.map((i) => i.str ?? '')),
     truncated: built.truncated,
+    textGeometry: built.textGeometry,
+    imageBoxes: built.imageBoxes,
   }
 }
 
@@ -76,6 +79,12 @@ export interface PdfPageEntry {
   /** Sayfa okunamadıysa nedeni */
   error: string | null
   truncated: boolean
+  /** Çizgi olarak gömülmüş yazı bölgeleri (OCR gerekir) */
+  textGeometry?: PdfPageInfo['textGeometry']
+  /** Gömülü görüntü bölgeleri (karma pafta: çizelge görüntü olabilir) */
+  imageBoxes?: PdfPageInfo['imageBoxes']
+  /** Bu sayfada yapılmış OCR sonucu (ölçekle yeniden analizde korunur) */
+  ocr?: { runs: TextRun[]; words: number; meanConfidence: number; tiles: number; dpi: number } | null
 }
 
 /** Yüklemede özetlenen en fazla sayfa (daha fazlası seçilince ayrıca analiz edilir) */
@@ -90,9 +99,19 @@ export async function summarizePage(pdf: OpenedPdf, pageNumber: number, info?: P
       heightPt: i.heightPt,
       kind: i.kind,
       stats: i.stats,
-      analysis: analyzePage({ page: pageNumber, kind: i.kind, scene: i.scene }),
+      analysis: analyzePage({
+        page: pageNumber,
+        kind: i.kind,
+        scene: i.scene,
+        textGeometry: i.textGeometry,
+        garbledText: i.stats.garbledText ?? 0,
+        imageBoxes: i.imageBoxes,
+        pageSize: { w: i.widthPt, h: i.heightPt },
+      }),
       error: null,
       truncated: i.truncated,
+      textGeometry: i.textGeometry,
+      imageBoxes: i.imageBoxes,
     }
   } catch (e) {
     return { page: pageNumber, widthPt: 0, heightPt: 0, kind: null, stats: null, analysis: null, error: e instanceof Error ? e.message : 'Sayfa okunamadı', truncated: false }
@@ -116,5 +135,27 @@ export async function renderPdfPage(pdf: OpenedPdf, pageNumber: number, maxPixel
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
   await page.render({ canvas, canvasContext: ctx, viewport }).promise
+  return canvas
+}
+
+/**
+ * Sayfanın bir bölgesini (sayfa noktası, y yukarı) verilen çözünürlükte görüntüye çevirir —
+ * karo OCR için. Tuval boyutu bölgeyle sınırlıdır; tüm sayfa büyük ölçekte işlenmez.
+ */
+export async function renderPdfTile(pdf: OpenedPdf, pageNumber: number, box: BBox, pxPerPt: number): Promise<HTMLCanvasElement> {
+  const page = await pdf.doc.getPage(pageNumber)
+  const base = page.getViewport({ scale: 1 })
+  const viewport = page.getViewport({ scale: pxPerPt })
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.ceil((box[2] - box[0]) * pxPerPt))
+  canvas.height = Math.max(1, Math.ceil((box[3] - box[1]) * pxPerPt))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Tuval oluşturulamadı')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  // Sahne koordinatı y yukarı; görüntü alanı y aşağı: karo sol üstü = (x0, H − y1)
+  const tx = -box[0] * pxPerPt
+  const ty = -(base.height - box[3]) * pxPerPt
+  await page.render({ canvas, canvasContext: ctx, viewport, transform: [1, 0, 0, 1, tx, ty] }).promise
   return canvas
 }

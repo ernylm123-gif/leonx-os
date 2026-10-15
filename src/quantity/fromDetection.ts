@@ -1,6 +1,7 @@
 import { computeItem } from './engine'
 import type { PozCandidate } from './detect'
-import { CATEGORY_INFO, emptyItem, type QuantityItemInput } from './types'
+import { CATEGORY_INFO, type DetectionInfo, emptyItem, type QuantityItemInput } from './types'
+import type { PdfPozCandidate } from '@/cad/pdf/archAnalyze'
 
 const MAX_HANDLES = 50
 const MAX_BOXES = 200
@@ -46,10 +47,33 @@ export function candidateToInput(
       reasons: c.reasons.slice(0, 20),
       evidence: c.evidence.slice(0, 20),
       suggested_category: c.category,
+      ...pdfExtras(c),
     },
   })
   if (opts.approve && canApprove(input)) input.verification = 'onaylandi'
   return input
+}
+
+/** PDF adayının özellikleri, çelişkileri ve kaynak bilgisi (izlenebilirlik; ≤16 KB) */
+function pdfExtras(c: PozCandidate): Partial<DetectionInfo> {
+  if (!('attrs' in c)) return {}
+  const p = c as PdfPozCandidate
+  const attrs: NonNullable<DetectionInfo['attrs']> = {}
+  for (const [k, v] of Object.entries(p.attrs)) if (v) attrs[k] = { value: v.value.slice(0, 200), status: v.status, source: v.source.slice(0, 240) }
+  return {
+    attrs,
+    conflicts: p.conflicts.slice(0, 10).map((x) => ({ kind: x.kind, message: x.message.slice(0, 300) })),
+    provenance: {
+      pages: p.pages.slice(0, 40),
+      sheets: p.sheets.slice(0, 20).map((s) => s.slice(0, 120)),
+      dims_from: p.dimsFrom,
+      schedule_qty: p.scheduleQty,
+      plan_qty: p.planQty,
+      floor_multiplier: p.floorMultiplier,
+      code_variants: p.codeVariants.slice(0, 6),
+      ocr: p.reasons.some((r) => r.includes('OCR')),
+    },
+  }
 }
 
 export function canApprove(input: QuantityItemInput): boolean {

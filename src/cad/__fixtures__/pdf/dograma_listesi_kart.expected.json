@@ -1,0 +1,65 @@
+{
+  "sentetik": true,
+  "aciklama": "Kart tipi doğrama listesi + 4 kat için geçerli tek normal kat planı. P-03 bilerek çelişkili (liste 9, plan 2×4=8).",
+  "sayfalar": {
+    "1": {
+      "pafta": "cizelge"
+    },
+    "2": {
+      "pafta": "plan",
+      "katCarpani": 4
+    }
+  },
+  "pozlar": [
+    {
+      "code": "P-01",
+      "width_mm": 1200,
+      "height_mm": 1500,
+      "count": 8,
+      "category": "pvc_pencere",
+      "acilim": "cift_acilim",
+      "cam": "4+16+4",
+      "renk": "RAL 9016"
+    },
+    {
+      "code": "P-02",
+      "width_mm": 1800,
+      "height_mm": 1500,
+      "count": 4,
+      "category": "pvc_pencere",
+      "bolme": 2
+    },
+    {
+      "code": "P-03",
+      "width_mm": 600,
+      "height_mm": 600,
+      "count": 9,
+      "category": "pvc_pencere",
+      "acilim": "vasistas",
+      "celiski": true
+    },
+    {
+      "code": "K-01",
+      "width_mm": 900,
+      "height_mm": 2200,
+      "count": 4,
+      "category": "pvc_kapi",
+      "acilim": "cift_acilim"
+    },
+    {
+      "code": "S-01",
+      "width_mm": 3000,
+      "height_mm": 2200,
+      "count": 4,
+      "category": "surme",
+      "renk": "RAL 7016"
+    },
+    {
+      "code": "CP-01",
+      "width_mm": 2400,
+      "height_mm": 3000,
+      "count": 2,
+      "category": "cephe_dograma"
+    }
+  ]
+}
