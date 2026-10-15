@@ -59,7 +59,7 @@ export async function runPdfDetection(
     // görüntü olarak gömülü çizelge. Vektör sayfalarda yalnız yazı/görüntü bölgeleri yüksek
     // çözünürlükte karolar hâlinde okunur; sonuç vektör yazı ve geometriyle birleştirilir.
     if (analysis.ocrNeeded && opts.ocr && !entry.ocr) {
-      const { regions, dpi } = ocrPlan({ kind: entry.kind, textGeometry: entry.textGeometry, imageBoxes: entry.imageBoxes, garbledText: entry.stats?.garbledText })
+      const { regions, dpi } = ocrPlan({ kind: entry.kind, textGeometry: entry.textGeometry, imageBoxes: entry.imageBoxes, garbledText: entry.stats?.garbledText, imageDpi: entry.stats?.imageDpi })
       opts.onProgress(`Sayfa ${p}: OCR hazırlanıyor`, base)
       const { ocrPdfPage } = await import('@/cad/pdf/ocr')
       check()

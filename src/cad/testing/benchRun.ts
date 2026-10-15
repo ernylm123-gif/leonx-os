@@ -25,7 +25,7 @@ export async function analyzePdfFile(file: string, opts: { engine?: OcrEngine | 
     }
     let a = analyzePage(base)
     if (a.ocrNeeded && opts.engine) {
-      const plan = ocrPlan({ kind: p.kind, textGeometry: p.textGeometry, imageBoxes: p.imageBoxes, garbledText: p.stats.garbledText })
+      const plan = ocrPlan({ kind: p.kind, textGeometry: p.textGeometry, imageBoxes: p.imageBoxes, garbledText: p.stats.garbledText, imageDpi: p.stats.imageDpi })
       const res = await ocrFixturePage(file, p.page, plan.regions, plan.dpi, opts.engine)
       a = analyzePage({ ...base, ocrRuns: res.runs })
       ocrUsed = true

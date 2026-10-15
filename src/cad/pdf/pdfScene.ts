@@ -41,6 +41,8 @@ export interface PdfPageStats {
   glyphPaths?: number
   /** Okunamayan (yazı tipi eşlemesi bozuk) metin oranı 0–1 */
   garbledText?: number
+  /** Gömülü görüntülerin en yüksek özgün çözünürlüğü (dpi) — taranmış sayfada OCR çözünürlüğü için */
+  imageDpi?: number
 }
 
 export interface TextGeometry {
@@ -141,6 +143,7 @@ export function buildPdfScene(
   let images = 0
   let imageArea = 0
   const imageBoxes: BBox[] = []
+  let imageDpi = 0
   let truncated = false
   const pageArea = pageWidth * pageHeight
 
@@ -228,7 +231,14 @@ export function buildPdfScene(
         if (imageBoxes.length < 200) {
           const M = mul(W, ctm)
           const b = bboxOf([...tx(M, 0, 0), ...tx(M, 1, 0), ...tx(M, 0, 1), ...tx(M, 1, 1)])
-          if (bboxValid(b)) imageBoxes.push(b)
+          if (bboxValid(b)) {
+            imageBoxes.push(b)
+            // Görüntünün piksel genişliği: paintImageXObject [id, w, h]; satır içi/maske görüntüde nesne
+            const a0 = args?.[0] as { width?: number } | undefined
+            const pxW = typeof args?.[1] === 'number' ? (args[1] as number) : typeof a0?.width === 'number' ? a0.width : 0
+            const wPt = b[2] - b[0]
+            if (pxW > 0 && wPt > 1) imageDpi = Math.max(imageDpi, Math.round((pxW / wPt) * 72))
+          }
         }
         break
       }
@@ -383,6 +393,7 @@ export function buildPdfScene(
       textItems,
       glyphPaths: textGeometry?.paths ?? 0,
       garbledText: garbled,
+      imageDpi: imageDpi || undefined,
     },
     truncated,
     kind,

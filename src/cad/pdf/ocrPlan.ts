@@ -20,9 +20,17 @@ export function dpiForTextHeight(heightPt: number | null | undefined): number {
   return Math.round(Math.max(200, Math.min(450, (28 / heightPt) * 72)))
 }
 
-export function ocrPlan(p: { kind: PdfKind | null; textGeometry?: TextGeometry | null; imageBoxes?: BBox[]; garbledText?: number }): { regions: OcrRegionSpec[] | 'sayfa'; dpi: number } {
+export function ocrPlan(p: {
+  kind: PdfKind | null
+  textGeometry?: TextGeometry | null
+  imageBoxes?: BBox[]
+  garbledText?: number
+  /** Gömülü görüntünün özgün çözünürlüğü: üzerinde büyütmek bilgi eklemez, yalnız süreyi uzatır */
+  imageDpi?: number
+}): { regions: OcrRegionSpec[] | 'sayfa'; dpi: number } {
+  const native = p.imageDpi && p.imageDpi > 0 ? Math.max(150, Math.min(300, p.imageDpi)) : null
   const scanned = p.kind === 'taranmis' || ((p.garbledText ?? 0) > 0.4 && !p.textGeometry)
-  if (scanned) return { regions: 'sayfa', dpi: 250 }
+  if (scanned) return { regions: 'sayfa', dpi: p.kind === 'taranmis' && native ? native : 250 }
   const regions: OcrRegionSpec[] = [
     ...(p.textGeometry?.regions ?? []).map((b) => ({ bbox: b, vertical: b[3] - b[1] > 2 * (b[2] - b[0]), mode: 'seyrek' as const, thicken: true })),
     ...(p.imageBoxes ?? []).filter((b) => b[2] - b[0] >= 80 && b[3] - b[1] >= 40).map((b) => ({ bbox: b, vertical: true, mode: 'blok' as const })),
