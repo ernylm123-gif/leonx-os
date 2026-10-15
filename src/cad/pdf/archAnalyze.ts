@@ -17,8 +17,19 @@
  */
 import { type BBox, bboxOf, bboxUnion, EMPTY_BBOX } from '../geometry'
 import type { Scene } from '../types'
-import { findScaleHints, type PdfKind, PT_TO_MM } from './pdfScene'
+import { findScaleHints, GLYPH_LAYER, type PdfKind, PT_TO_MM, type TextGeometry } from './pdfScene'
 import { categoryFor, inferType, type Material, normalizeKey, parsePozLabel, type PozCandidate, type PozInstance, type TypeHint } from '@/quantity/detect'
+import { canonCode, deg, type DimLabel, fixOcrText, isNumeric, KNOWN_PREFIX, normAngle, num, parseDims, runCenter, splitCodeDims, type TextRun, typeFromCode, unitSuffix } from './labels'
+import { segmentIndex, type Segs, segsNear } from './segments'
+import { ATTR_LABEL, type AttrText, extractAttributes, openingCodes, type PozAttributes, suggestAttr, withMissing } from './attributes'
+import { cardBox, parseCards } from './cards'
+import { analyzeElevation, type ElevationInfo, PANEL_LABEL } from './elevation'
+import { type FloorInfo, floorInfo, isRoomName, roomLabel } from './floors'
+
+export { canonCode, type DimLabel, fixOcrText, parseDims, parseQty, type TextRun, typeFromCode } from './labels'
+export { segmentIndex } from './segments'
+
+const OTHER_MATERIAL = /AHSAP|CELIK|DEMIR|MDF|LAMINAT|AMERIKAN|PANEL KAPI|YANGIN/
 
 // ------------------------------------------------------------------ türler
 
@@ -34,33 +45,6 @@ export const SHEET_LABEL: Record<SheetType, string> = {
   bilinmiyor: 'Belirlenemedi',
 }
 
-export interface TextRun {
-  text: string
-  /** Yazı yönü (radyan, dünya) */
-  angle: number
-  height: number
-  /** Taban çizgisi başlangıcı (dünya, PDF noktası) */
-  ox: number
-  oy: number
-  /** Yazı yönündeki uzunluk */
-  width: number
-  bbox: BBox
-  /** Kaynak metin nesneleri (vurgulama için) */
-  ids: number[]
-  /** OCR ile okunduysa tanıma güveni (0–1) */
-  ocr?: number
-}
-
-export interface DimLabel {
-  /** cm cinsinden okunmuşsa true; mm ise false */
-  w_mm: number
-  h_mm: number
-  text: string
-  /** Üçüncü değer (ör. parapet / denizlik yüksekliği), cm */
-  extra: number | null
-  unit: 'cm' | 'mm'
-}
-
 export interface LabelHit {
   page: number
   sheet: SheetType
@@ -73,6 +57,10 @@ export interface LabelHit {
   near: string[]
   geometry: GeometryCheck | null
   ocr: boolean
+  /** En yakın mahal adı (plan) */
+  room: string | null
+  /** Görünüş paftasında etiketin altındaki doğrama çizimi */
+  elevation?: ElevationInfo | null
 }
 
 export interface GeometryCheck {
@@ -95,11 +83,23 @@ export interface ScheduleRow {
   w_mm: number | null
   h_mm: number | null
   quantity: number | null
-  unit: 'cm' | 'mm'
+  unit: 'cm' | 'mm' | 'm'
   text: string
   bbox: BBox
   ids: number[]
   ocr: boolean
+  /** Satır tablodan mı, kart tipi listeden mi okundu */
+  source?: 'tablo' | 'kart'
+  /** Satırın/kartın tüm yazıları (özellik çıkarımı) */
+  texts?: string[]
+  /** Kat sütunları ("ZEMİN 2 · 1. KAT 3") */
+  floors?: { label: string; qty: number }[]
+  /** Kartın görünüş çizimi analizi */
+  elevation?: ElevationInfo | null
+  /** Kart ölçüsünün kaynağı ve ölçü çizgisi ile yazı çelişkisi */
+  dimsFrom?: 'yazi' | 'olcu_cizgisi' | null
+  drawingScale?: number | null
+  dimsConflict?: string | null
 }
 
 export interface PageScale {
@@ -111,6 +111,8 @@ export interface PageScale {
   used: number | null
   usedFrom: 'kullanici' | 'olcu' | 'antet' | null
   conflict: string | null
+  /** Ölçek bağımsız olarak doğrulandı mı (ölçü yazıları ⇄ çizgi uzunlukları veya kullanıcı) */
+  verified: boolean
 }
 
 export interface PdfPageAnalysis {
@@ -118,7 +120,7 @@ export interface PdfPageAnalysis {
   kind: PdfKind
   sheet: SheetType
   title: string | null
-  textSource: 'vektor' | 'ocr' | 'yok'
+  textSource: 'vektor' | 'ocr' | 'vektor+ocr' | 'yok'
   textCount: number
   numericCount: number
   labelCount: number
@@ -129,6 +131,18 @@ export interface PdfPageAnalysis {
   notes: string[]
   hits: LabelHit[]
   schedule: ScheduleRow[]
+  /** Kat adı ve "bu plan N kat için geçerli" çarpanı (başlıkta yazıyorsa) */
+  floor: FloorInfo
+  /** Tüm doğramalar için geçerli genel notlar ("AKSİ BELİRTİLMEDİKÇE TÜM DOĞRAMALAR PVC") */
+  generalNotes: string[]
+  /** Yazılar çizgi olarak gömülü (OCR gerekir) */
+  textAsGeometry: boolean
+  /** Yazı tipi eşlemesi bozuk metin oranı */
+  garbledText: number
+  /** Bu sayfa için OCR gerekli mi ve neden */
+  ocrNeeded: string | null
+  /** Kart tipi listede okunan kart sayısı */
+  cardCount: number
 }
 
 export interface PdfDiagnostics {
@@ -144,6 +158,29 @@ export interface PdfDiagnostics {
   /** Önerilen ölçek (kullanıcı onayıyla uygulanır) */
   suggestedScale: { page: number; denominator: number; why: string } | null
   ocrUsed: boolean
+  /** Tanı raporu (Faz 5.2): okunabilirlik, pafta sayıları, OCR, ölçek, başarısız sayfalar, eksikler */
+  report: DiagnosticReport
+}
+
+export interface DiagnosticReport {
+  readable: boolean
+  pagesFound: number
+  pagesAnalyzed: number
+  texts: number
+  candidates: number
+  scaleVerifiedPages: number[]
+  scaleUnverifiedPages: number[]
+  ocrNeededPages: { page: number; reason: string; done: boolean }[]
+  failedPages: { page: number; reason: string }[]
+  /** Çıkarılamayan bilgiler (ör. "3 pozda malzeme yazılmamış") */
+  missing: string[]
+  /** Kullanıcıdan istenecek kritik girdiler */
+  asks: { kind: 'referans_olcu' | 'pafta_secimi' | 'cizelge' | 'malzeme' | 'ocr'; message: string }[]
+}
+
+export interface PozConflict {
+  kind: 'adet' | 'olcu' | 'malzeme' | 'acilim'
+  message: string
 }
 
 /** PDF adayı: tespit motorunun ortak aday biçimi + PDF'e özgü bilgiler */
@@ -152,20 +189,23 @@ export interface PdfPozCandidate extends PozCandidate {
   sheets: string[]
   scheduleQty: number | null
   planQty: number | null
-  dimsFrom: 'cizelge' | 'etiket' | null
+  dimsFrom: 'cizelge' | 'etiket' | 'kart' | null
   outOfScope: string | null
+  /** Teknik özellikler ve doğrulama durumları */
+  attrs: PozAttributes
+  /** Kullanıcının karar vermesi gereken çelişkiler (sessizce seçilmez) */
+  conflicts: PozConflict[]
+  /** Plan sayımına uygulanan kat çarpanı (başlıkta yazıyorsa) */
+  floorMultiplier: number | null
+  /** Çizimde görünüşü bulunduysa (kart veya görünüş paftası) */
+  elevation: ElevationInfo | null
+  /** Eşleştirme anahtarı (P-01 = P01 = P1) */
+  canon: string
+  /** Pozun geçtiği kod yazımları (farklıysa) */
+  codeVariants: string[]
 }
 
 // ------------------------------------------------------------------ metin satırları
-
-const deg = (r: number) => (r * 180) / Math.PI
-const normAngle = (a: number) => {
-  // [0, π) aralığına (ters yönlü yazı aynı doğrultudur)
-  let x = a % Math.PI
-  if (x < 0) x += Math.PI
-  if (Math.PI - x < 1e-3) x = 0
-  return x
-}
 
 /** Sahnedeki PDF metin nesnelerinden satırlar: aynı doğrultu + aynı taban çizgisi + bitişik */
 export function extractRuns(scene: Scene): TextRun[] {
@@ -243,7 +283,6 @@ export function mergeRuns(items: TextRun[]): TextRun[] {
   return out.map((r) => ({ ...r, text: r.text.replace(/\s+/g, ' ').trim() })).filter((r) => r.text)
 }
 
-const runCenter = (r: TextRun): [number, number] => [(r.bbox[0] + r.bbox[2]) / 2, (r.bbox[1] + r.bbox[3]) / 2]
 
 // ------------------------------------------------------------------ pafta sınıflandırma
 
@@ -272,115 +311,55 @@ export function classifySheet(runs: TextRun[]): { sheet: SheetType; title: strin
   return best ? { sheet: best.sheet, title: best.title } : { sheet: 'bilinmiyor', title: null }
 }
 
-// ------------------------------------------------------------------ etiket ayrıştırma
+// ------------------------------------------------------------------ çizelge (tablo)
 
-const NUM = '(\\d{2,5}(?:[.,]\\d{1,2})?)'
-const DIM_RE = new RegExp(`^\\(?${NUM}\\s*([/xX×*])\\s*${NUM}(?:\\s*[/xX×*]\\s*(\\d{1,4}))?\\)?$`)
-const num = (s: string) => Number(s.replace(',', '.'))
-
-/** "120/150" (cm), "120x150", "1200x1500" (mm), "120/150/90" (üçüncü: parapet) */
-export function parseDims(text: string): DimLabel | null {
-  const s = text.trim().replace(/\s+/g, ' ')
-  if (s.length > 24) return null
-  const m = DIM_RE.exec(s)
-  if (!m) return null
-  const a = num(m[1])
-  const b = num(m[3])
-  const sep = m[2]
-  if (!(a > 0 && b > 0)) return null
-  // Türk mimari projelerinde "/" ayraçlı etiket santimetredir; 1000+ değerler ve "x" ile 400+ milimetredir
-  const mm = (a >= 1000 || b >= 1000) || (sep !== '/' && a >= 400 && b >= 400)
-  const unit: 'cm' | 'mm' = mm ? 'mm' : 'cm'
-  const w = mm ? a : a * 10
-  const h = mm ? b : b * 10
-  // Doğrama için makul aralık: 25 cm – 20 m genişlik, 25 cm – 10 m yükseklik
-  if (w < 250 || h < 250 || w > 20_000 || h > 10_000) return null
-  return { w_mm: Math.round(w), h_mm: Math.round(h), text: s, extra: m[4] ? Number(m[4]) : null, unit }
-}
-
-/** Ölçü etiketi olmayan, yalnız poz kodu olan yazılar için bilinen doğrama önekleri */
-const KNOWN_PREFIX = /^(P|PN|PE|PC|PK|W|WD|K|KP|KA|KD|D|DK|DP|S|SR|SK|SC|SB|SP|F|FK|FT|OK|KR|KK|KOR|C|CW|CP|CD|V|VT|KM|KC|KB|G|AK|AP)-?\d/
-
-const PREFIX_TYPE: [RegExp, TypeHint][] = [
-  [/^(FK|FT|OK|F)\d/, 'fotoselli'],
-  [/^(SR|SK|S)\d/, 'surme'],
-  [/^(SC|SB|SP)\d/, 'sabit'],
-  [/^(KR|KK|KOR|G)\d/, 'korkuluk'],
-  [/^(KM|KC|KB)\d/, 'kompozit'],
-  [/^(CW|CP|CD|C|V|VT)\d/, 'cephe'],
-  [/^(KP|KA|KD|K|D|DK|DP|AK|AP)\d/, 'kapi'],
-  [/^(P|PN|PE|PC|PK|W|WD)\d/, 'pencere'],
-]
-
-export function typeFromCode(code: string): TypeHint | null {
-  const c = code.replace('-', '')
-  for (const [re, t] of PREFIX_TYPE) if (re.test(c)) return t
-  return null
-}
-
-const OTHER_MATERIAL = /AHSAP|CELIK|DEMIR|MDF|LAMINAT|AMERIKAN|PANEL KAPI|YANGIN/
-
-function splitCodeDims(text: string): { code: string | null; dims: DimLabel | null } {
-  const t = text.replace(/[:;]/g, ' ').replace(/\s+/g, ' ').trim()
-  const whole = parseDims(t)
-  if (whole) return { code: null, dims: whole }
-  const code = parsePozLabel(t)
-  if (code) return { code, dims: null }
-  const parts = t.split(' ')
-  if (parts.length >= 2) {
-    const c = parsePozLabel(parts[0]) ?? (parts.length >= 3 ? parsePozLabel(`${parts[0]} ${parts[1]}`) : null)
-    if (c) {
-      const rest = parts.slice(parsePozLabel(parts[0]) ? 1 : 2).join(' ')
-      const d = parseDims(rest)
-      if (d) return { code: c, dims: d }
-    }
-    // "120/150 P1"
-    const c2 = parsePozLabel(parts[parts.length - 1])
-    const d2 = parseDims(parts.slice(0, -1).join(' '))
-    if (c2 && d2) return { code: c2, dims: d2 }
-  }
-  return { code: null, dims: null }
-}
-
-/**
- * OCR düzeltmesi: poz kodlarında 1 ↔ I/İ/l/|, 0 ↔ O karışıklığı ("KI" → "K1", "Pİ" → "P1"),
- * ölçü etiketlerinde rakam içindeki harfler ("12O/15O" → "120/150"). Yalnız OCR yazılarına uygulanır.
- */
-export function fixOcrText(raw: string): string {
-  let s = raw.trim().toLocaleUpperCase('tr-TR').replace(/[‘’'`"“”]/g, '')
-  const m = /^([A-ZÇĞŞÖÜ]{1,3}?)-?([0-9IİL|!ÎÍ]{1,2}[0-9OIİL|!]{0,2})$/.exec(s)
-  if (m) {
-    const digits = m[2].replace(/[IİL|!ÎÍ]/g, '1').replace(/O/g, '0')
-    if (/^[1-9]\d{0,2}$/.test(digits) && KNOWN_PREFIX.test(`${m[1]}${digits}`)) return `${m[1]}${s.includes('-') ? '-' : ''}${digits}`
-  }
-  if (/^[0-9OIİL|]{2,4}\s*[\/xX×]\s*[0-9OIİL|]{2,4}$/.test(s) && /\d/.test(s)) s = s.replace(/O/g, '0').replace(/[IİL|]/g, '1')
-  return s
-}
-
-const isNumeric = (s: string) => /^\d{1,5}(?:[.,]\d{1,2})?$/.test(s.trim())
-
-// ------------------------------------------------------------------ çizelge
+const FLOOR_COL = /^(ZEMIN( KAT)?|BODRUM( KAT)?|\d{1,2}\s*\.?\s*KAT|NORMAL KAT|TIP KAT|CATI( KATI)?|ASMA KAT|\d{1,2}\s*\.\s*-\s*\d{1,2}\s*\.\s*KAT(LAR)?)$/
 
 const HEADER: [string, RegExp][] = [
-  ['poz', /^(POZ|POZ NO|POZ NO\.|NO|KOD|TIP|TIP NO|TIPI|ISARET)$/],
-  ['cins', /^(CINSI|CINS|TANIM|TANIMI|TURU|TUR|ADI|ELEMAN)$/],
-  ['malzeme', /^(MALZEME|MALZEMESI|MALZ\.?|SISTEM|PROFIL)$/],
-  ['en', /^(EN|ENI|GENISLIK|G|W)(\s*\((CM|MM)\))?$/],
+  ['poz', /^(POZ|POZ NO|POZ NO\.|NO|KOD|TIP|TIP NO|TIPI|ISARET|DOGRAMA NO)$/],
+  ['cins', /^(CINSI|CINS|TANIM|TANIMI|TURU|TUR|ADI|ELEMAN|DOGRAMA TURU)$/],
+  ['sistem', /^(SISTEM|PROFIL|PROFIL SISTEMI|SERI|PROFIL SERISI)$/],
+  ['malzeme', /^(MALZEME|MALZEMESI|MALZ\.?)$/],
+  ['en', /^(EN|ENI|GENISLIK|G|W|B)(\s*\((CM|MM)\))?$/],
   ['boy', /^(BOY|BOYU|YUKSEKLIK|Y|H)(\s*\((CM|MM)\))?$/],
-  ['olcu', /^(OLCU|OLCUSU|OLCULER|EBAT|EBATLAR|BOYUT|EN\/BOY|EN X BOY)(\s*\((CM|MM)\))?$/],
-  ['adet', /^(ADET|ADEDI|MIKTAR|SAYI|AD\.?)$/],
+  ['olcu', /^(OLCU|OLCUSU|OLCULER|EBAT|EBATLAR|BOYUT|EN\/BOY|EN X BOY|EN-BOY|EN\*BOY)(\s*\((CM|MM)\))?$/],
+  // OCR kısaltmaları/kayıpları: "ADE", "ADT"
+  ['adet', /^(ADET|ADEDI|MIKTAR|SAYI|AD\.?|ADE|ADT|ADETI)$/],
+  ['toplam', /^(TOPLAM|TOPLAM ADET|GENEL TOPLAM|TOP\.?)$/],
+  ['cam', /^(CAM|CAM TIPI|CAM CINSI)$/],
+  ['renk', /^(RENK|RENGI|RAL)$/],
+  ['acilim', /^(ACILIM|ACILIS|ACILIM TURU|ACILIM SEKLI)$/],
+  ['mahal', /^(MAHAL|YERI|YER|KULLANIM YERI)$/],
   ['aciklama', /^(ACIKLAMA|ACIKLAMALAR|NOT|NOTLAR)$/],
 ]
 
 function headerKey(text: string): string | null {
   const n = normalizeKey(text).replace(/\s+/g, ' ').trim()
   for (const [k, re] of HEADER) if (re.test(n)) return k
+  if (FLOOR_COL.test(n)) return `kat:${text.trim()}`
   return null
 }
 
+/** Yazıyı kelimelere ayırır; kelime konumu karakter oranıyla tahmin edilir (OCR'da birleşen hücreler) */
+function words(r: TextRun): TextRun[] {
+  const parts = r.text.split(/\s+/).filter(Boolean)
+  if (parts.length <= 1) return [r]
+  const out: TextRun[] = []
+  let pos = 0
+  for (const w of parts) {
+    const i = r.text.indexOf(w, pos)
+    pos = i + w.length
+    const x = r.ox + (r.width * i) / Math.max(1, r.text.length)
+    const wd = (r.width * w.length) / Math.max(1, r.text.length)
+    out.push({ ...r, text: w, ox: x, width: wd, bbox: [x, r.bbox[1], x + wd, r.bbox[3]] })
+  }
+  return out
+}
+
 /**
- * Çizelge okuma: başlık satırında POZ + (EN & BOY | ÖLÇÜ) + ADET aranır; sütunlar başlık
- * yazılarının x konumundan belirlenir, alttaki satırlar sütunlara atanır.
+ * Çizelge okuma: başlık satırında POZ + (EN & BOY | ÖLÇÜ) + (ADET | TOPLAM | kat sütunları)
+ * aranır; sütunlar başlık yazılarının x konumundan belirlenir, alttaki satırlar sütunlara atanır.
+ * Birleşmiş başlık/hücre yazıları ("POZ NO CİNSİ", OCR'da "120 150") kelimelere bölünür.
  */
 export function parseSchedules(page: number, runs: TextRun[]): { rows: ScheduleRow[]; used: Set<TextRun> } {
   const used = new Set<TextRun>()
@@ -396,16 +375,23 @@ export function parseSchedules(page: number, runs: TextRun[]): { rows: ScheduleR
   }
   for (const l of lines) l.sort((a, b) => a.ox - b.ox)
   for (let i = 0; i < lines.length; i++) {
-    // Başlık hücreleri birleşmiş olabilir ("POZ NO CİNSİ") — kelimelere de bakılır
     const cols: { key: string; x: number; unit: 'cm' | 'mm' | null; run: TextRun }[] = []
+    const addCol = (k: string, x: number, text: string, run: TextRun) => {
+      if (!cols.some((c) => c.key === k)) cols.push({ key: k, x, unit: /\(MM\)/i.test(text) ? 'mm' : /\(CM\)/i.test(text) ? 'cm' : null, run })
+    }
     for (const r of lines[i]) {
       const k = headerKey(r.text)
-      if (k && !cols.some((c) => c.key === k)) cols.push({ key: k, x: r.ox, unit: /\(MM\)/i.test(r.text) ? 'mm' : /\(CM\)/i.test(r.text) ? 'cm' : null, run: r })
+      if (k) addCol(k, r.ox, r.text, r)
+      else for (const w of words(r)) {
+        const kw = headerKey(w.text)
+        if (kw) addCol(kw, w.ox, w.text, r)
+      }
     }
     const has = (k: string) => cols.some((c) => c.key === k)
+    const floorCols = cols.filter((c) => c.key.startsWith('kat:'))
     if (!(has('poz') && ((has('en') && has('boy')) || has('olcu')) && cols.length >= 3)) continue
     for (const c of cols) used.add(c.run)
-    const headerUnit = cols.find((c) => c.unit)?.unit ?? null
+    let headerUnit = cols.find((c) => c.unit)?.unit ?? null
     cols.sort((a, b) => a.x - b.x)
     const h0 = lines[i][0].height
     let lastY = lines[i][0].oy
@@ -413,17 +399,27 @@ export function parseSchedules(page: number, runs: TextRun[]): { rows: ScheduleR
       const line = lines[j]
       const y = line[0].oy
       if (lastY - y > 4 * Math.max(h0, line[0].height) + 20) break // tablo bitti
+      // Birim satırı: "(cm)" / "(mm)"
+      if (line.every((r) => /^\(?(CM|MM)\)?$/i.test(r.text.trim()))) {
+        headerUnit = /MM/i.test(line[0].text) ? 'mm' : 'cm'
+        for (const r of line) used.add(r)
+        continue
+      }
       const cells = new Map<string, TextRun[]>()
-      for (const r of line) {
-        // Sütun: başlangıcı yazının solunda (küçük tolerans) kalan en sağdaki başlık
-        let col = cols[0]
-        for (const c of cols) if (c.x <= r.ox + 0.6 * r.height) col = c
-        const arr = cells.get(col.key) ?? []
-        arr.push(r)
-        cells.set(col.key, arr)
+      for (const r0 of line) {
+        for (const r of words(r0)) {
+          // Sütun: başlangıcı yazının solunda (küçük tolerans) kalan en sağdaki başlık
+          let col = cols[0]
+          for (const c of cols) if (c.x <= r.ox + 0.6 * r.height) col = c
+          const arr = cells.get(col.key) ?? []
+          arr.push(r)
+          cells.set(col.key, arr)
+        }
       }
       const cell = (k: string) => (cells.get(k) ?? []).map((r) => r.text).join(' ').trim()
-      const code = parsePozLabel(cell('poz'))
+      const ocrRow = line.some((r) => r.ocr != null)
+      const pozCell = ocrRow ? fixOcrText(cell('poz')) : cell('poz')
+      const code = parsePozLabel(pozCell) ?? parsePozLabel(ocrRow ? fixOcrText(pozCell.split(' ')[0] ?? '') : (pozCell.split(' ')[0] ?? ''))
       if (!code) {
         // Kod içermeyen satır (not, alt toplam): tablo bitişi olabilir
         if (line.some((r) => headerKey(r.text))) break
@@ -432,7 +428,7 @@ export function parseSchedules(page: number, runs: TextRun[]): { rows: ScheduleR
       lastY = y
       let w: number | null = null
       let hh: number | null = null
-      let unit: 'cm' | 'mm' = headerUnit ?? 'cm'
+      let unit: 'cm' | 'mm' | 'm' = headerUnit ?? 'cm'
       if (has('olcu') && cell('olcu')) {
         const d = parseDims(cell('olcu'))
         if (d) {
@@ -442,18 +438,24 @@ export function parseSchedules(page: number, runs: TextRun[]): { rows: ScheduleR
         }
       }
       if (w == null && has('en')) {
-        const ev = num(cell('en'))
-        const bv = num(cell('boy'))
+        // Hücrede birden fazla sayı varsa (tanınmayan sütun) ilki alınır
+        const ev = num(cell('en').split(' ')[0] ?? '')
+        const bv = num(cell('boy').split(' ')[0] ?? '')
         if (ev > 0 && bv > 0) {
-          if (!headerUnit && (ev >= 1000 || bv >= 1000)) unit = 'mm'
-          w = Math.round(unit === 'mm' ? ev : ev * 10)
-          hh = Math.round(unit === 'mm' ? bv : bv * 10)
+          if (!headerUnit && ev < 10 && bv < 10 && /[.,]/.test(cell('en'))) unit = 'm'
+          else if (!headerUnit && (ev >= 1000 || bv >= 1000)) unit = 'mm'
+          const f = unit === 'mm' ? 1 : unit === 'm' ? 1000 : 10
+          w = Math.round(ev * f)
+          hh = Math.round(bv * f)
         }
       }
-      const q = cell('adet')
-      const qty = /^\d{1,4}$/.test(q) ? Number(q) : null
+      const intOf = (t: string) => (/^\d{1,4}$/.test(t) ? Number(t) : null)
+      const floors = floorCols.map((c) => ({ label: c.key.slice(4), qty: intOf(cell(c.key)) ?? 0 })).filter((f) => f.qty > 0)
+      let qty = intOf(cell('adet')) ?? intOf(cell('toplam'))
+      if (qty == null && floors.length) qty = floors.reduce((a, f) => a + f.qty, 0)
       const material = cell('malzeme') || null
-      const desc = [cell('cins'), material, cell('aciklama')].filter(Boolean).join(' · ')
+      const extras = ['sistem', 'cam', 'renk', 'acilim', 'mahal'].map((k) => (cell(k) ? `${HEADER_LABEL[k]}: ${cell(k)}` : '')).filter(Boolean)
+      const desc = [cell('cins'), material, ...extras, cell('aciklama')].filter(Boolean).join(' · ')
       const all = line
       for (const r of all) used.add(r)
       rows.push({
@@ -470,96 +472,16 @@ export function parseSchedules(page: number, runs: TextRun[]): { rows: ScheduleR
         bbox: all.reduce((b, r) => bboxUnion(b, r.bbox), EMPTY_BBOX()),
         ids: all.flatMap((r) => r.ids),
         ocr: all.some((r) => r.ocr != null),
+        source: 'tablo',
+        texts: [cell('cins'), material ?? '', ...extras, cell('aciklama')].filter(Boolean),
+        floors: floors.length ? floors : undefined,
       })
     }
   }
   return { rows, used }
 }
 
-// ------------------------------------------------------------------ geometri dizini
-
-interface Segs {
-  x1: Float64Array
-  y1: Float64Array
-  x2: Float64Array
-  y2: Float64Array
-  len: Float64Array
-  id: Int32Array
-  n: number
-  grid: Map<string, number[]>
-  cell: number
-}
-
-const MAX_SEGS = 400_000
-
-export function segmentIndex(scene: Scene | null): Segs {
-  const xs1: number[] = []
-  const ys1: number[] = []
-  const xs2: number[] = []
-  const ys2: number[] = []
-  const ls: number[] = []
-  const ids: number[] = []
-  if (scene) {
-    const c = scene.coords
-    for (const e of scene.entities) {
-      if (e.kind !== 'path' || e.type === 'PDF_FILL') continue
-      const n = e.count + (e.closed ? 0 : -1)
-      for (let i = 0; i < n && xs1.length < MAX_SEGS; i++) {
-        const j = (i + 1) % e.count
-        const x1 = c[e.start + 2 * i]
-        const y1 = c[e.start + 2 * i + 1]
-        const x2 = c[e.start + 2 * j]
-        const y2 = c[e.start + 2 * j + 1]
-        const l = Math.hypot(x2 - x1, y2 - y1)
-        if (l < 1.5) continue
-        xs1.push(x1)
-        ys1.push(y1)
-        xs2.push(x2)
-        ys2.push(y2)
-        ls.push(l)
-        ids.push(e.id)
-      }
-    }
-  }
-  const cell = 40
-  const grid = new Map<string, number[]>()
-  for (let i = 0; i < xs1.length; i++) {
-    const cx0 = Math.floor(Math.min(xs1[i], xs2[i]) / cell)
-    const cx1 = Math.floor(Math.max(xs1[i], xs2[i]) / cell)
-    const cy0 = Math.floor(Math.min(ys1[i], ys2[i]) / cell)
-    const cy1 = Math.floor(Math.max(ys1[i], ys2[i]) / cell)
-    if ((cx1 - cx0 + 1) * (cy1 - cy0 + 1) > 400) continue // çok uzun çizgiler (pafta çerçevesi) dizine girmez
-    for (let gx = cx0; gx <= cx1; gx++)
-      for (let gy = cy0; gy <= cy1; gy++) {
-        const k = `${gx},${gy}`
-        const arr = grid.get(k)
-        if (arr) arr.push(i)
-        else grid.set(k, [i])
-      }
-  }
-  return {
-    x1: Float64Array.from(xs1),
-    y1: Float64Array.from(ys1),
-    x2: Float64Array.from(xs2),
-    y2: Float64Array.from(ys2),
-    len: Float64Array.from(ls),
-    id: Int32Array.from(ids),
-    n: xs1.length,
-    grid,
-    cell,
-  }
-}
-
-function segsNear(s: Segs, x: number, y: number, r: number): number[] {
-  const out = new Set<number>()
-  const c = s.cell
-  for (let gx = Math.floor((x - r) / c); gx <= Math.floor((x + r) / c); gx++)
-    for (let gy = Math.floor((y - r) / c); gy <= Math.floor((y + r) / c); gy++) {
-      const arr = s.grid.get(`${gx},${gy}`)
-      if (arr) for (const i of arr) out.add(i)
-    }
-  return [...out]
-}
+const HEADER_LABEL: Record<string, string> = { sistem: 'Sistem', cam: 'Cam', renk: 'Renk', acilim: 'Açılım', mahal: 'Mahal' }
 
 // ------------------------------------------------------------------ ölçek çıkarımı
 
@@ -578,7 +500,8 @@ export function inferScale(runs: TextRun[], segs: Segs): PageScale['inferred'] {
   const votes = new Map<number, number>()
   let total = 0
   for (const r of runs) {
-    if (!isNumeric(r.text) || r.ocr != null) continue
+    // OCR sayıları yalnız yüksek tanıma güveniyle (ölçek kanıtı olarak) kullanılır
+    if (!isNumeric(r.text) || (r.ocr != null && r.ocr < 0.8)) continue
     const v = num(r.text)
     if (!(v > 0)) continue
     const dir: [number, number] = [Math.cos(r.angle), Math.sin(r.angle)]
@@ -664,26 +587,189 @@ export interface PageInput {
   page: number
   kind: PdfKind
   scene: Scene | null
-  /** OCR ile okunan satırlar (taranmış sayfa) — verilirse sahne metinleri yerine kullanılır */
+  /**
+   * OCR ile okunan satırlar (taranmış sayfa, çizgi olarak gömülü yazı, görüntü bölgesi).
+   * Vektör yazılarla birleştirilir; vektör yazıyla çakışan OCR yazısı atılır.
+   */
   ocrRuns?: TextRun[]
   /** Kullanıcının bu sayfa için onayladığı ölçek paydası (kalibrasyon / ölçek onayı) */
   userDenominator?: number | null
+  /** Sayfada çizgi olarak gömülü yazı bölgeleri (pdfScene) */
+  textGeometry?: TextGeometry | null
+  /** Yazı tipi eşlemesi bozuk metin oranı (pdfScene) */
+  garbledText?: number
+  /** Gömülü görüntü bölgeleri (pdfScene) */
+  imageBoxes?: BBox[]
+  /** Sayfa boyutu (pt) — görüntü bölgesinin önemini değerlendirmek için */
+  pageSize?: { w: number; h: number }
 }
 
 const PAIR_DIST = 3.2 // etiket yüksekliği katı
+const GENERAL_NOTE = /AKSI BELIRTILMEDIK|TUM DOGRAMA|BUTUN DOGRAMA|DOGRAMALAR(IN)? (TAMAMI|HEPSI)|GENEL NOT|PENCERE(LER)? .*(PVC|ALUMINYUM)/
+
+const bboxOverlap = (a: BBox, b: BBox) => {
+  const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0]))
+  const iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]))
+  const ar = Math.max(1e-6, Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1])))
+  return (ix * iy) / ar
+}
+
+const isGarbled = (t: string) => /[\u0000-\u0008\u000e-\u001f\ue000-\uf8ff\ufffd]/.test(t) || (t.length >= 3 && (t.match(/[\p{L}\p{N}]/gu) ?? []).length / t.length < 0.3)
+
+/** OCR yazılarına, altındaki çizgi-harf nesnelerini bağlar (görüntüleyicide vurgulama için) */
+function attachGlyphIds(runs: TextRun[], scene: Scene): void {
+  const C = 20
+  const grid = new Map<string, number[]>()
+  for (const e of scene.entities) {
+    if (e.layer !== GLYPH_LAYER) continue
+    const cx = (e.bbox[0] + e.bbox[2]) / 2
+    const cy = (e.bbox[1] + e.bbox[3]) / 2
+    const k = `${Math.floor(cx / C)},${Math.floor(cy / C)}`
+    const arr = grid.get(k)
+    if (arr) arr.push(e.id)
+    else grid.set(k, [e.id])
+  }
+  if (!grid.size) return
+  for (const r of runs) {
+    if (r.ocr == null || r.ids.length) continue
+    const b = r.bbox
+    const ids: number[] = []
+    for (let gx = Math.floor((b[0] - 1) / C); gx <= Math.floor((b[2] + 1) / C); gx++)
+      for (let gy = Math.floor((b[1] - 1) / C); gy <= Math.floor((b[3] + 1) / C); gy++)
+        for (const id of grid.get(`${gx},${gy}`) ?? []) {
+          const e = scene.entities[id]
+          const cx = (e.bbox[0] + e.bbox[2]) / 2
+          const cy = (e.bbox[1] + e.bbox[3]) / 2
+          if (cx >= b[0] - 1 && cx <= b[2] + 1 && cy >= b[1] - 1 && cy <= b[3] + 1) ids.push(id)
+        }
+    r.ids = ids
+  }
+}
+
+const fracValue = (t: string) => {
+  const s = t.trim()
+  if (/^\d{2,4}$/.test(s)) {
+    const v = Number(s)
+    return v >= 25 && v <= 2000 ? s : null
+  }
+  return /^\d[.,]\d{2}$/.test(s) ? s : null
+}
+
+/**
+ * Kesirli (üst üste) ölçü etiketi: "180" üstte, kesir çizgisi, "150" altta → "180/150".
+ * Ölçü zincirlerindeki sayılarla karışmaması için kesir çizgisi aranır; çizgisi olmayan
+ * (taranmış) sayfalarda yakında bir poz kodu bulunmalıdır.
+ */
+export function stackedFractions(runs: TextRun[], segs: Segs, used: Set<TextRun>): { run: TextRun; parts: [TextRun, TextRun] }[] {
+  const flat = runs.filter((r) => !used.has(r) && Math.abs(normAngle(r.angle)) < 0.02 && fracValue(r.text))
+  if (flat.length < 2) return []
+  const codes = runs.filter((r) => parsePozLabel(r.ocr != null ? fixOcrText(r.text) : r.text))
+  const cand: { a: TextRun; b: TextRun; d: number }[] = []
+  for (const a of flat)
+    for (const b of flat) {
+      if (a === b) continue
+      const h = Math.max(a.height, b.height)
+      const [ax, ay] = runCenter(a)
+      const [bx, by] = runCenter(b)
+      const dy = ay - by
+      if (dy < 1.05 * h || dy > 3.4 * h || Math.abs(ax - bx) > 0.8 * h + 0.25 * Math.max(a.width, b.width)) continue
+      let bar = false
+      if (segs.n) {
+        for (const i of segsNear(segs, (ax + bx) / 2, (ay + by) / 2, 3 * h)) {
+          if (Math.abs(segs.y2[i] - segs.y1[i]) > 0.05 * segs.len[i]) continue
+          const y = (segs.y1[i] + segs.y2[i]) / 2
+          if (y > a.bbox[1] + 0.6 || y < b.bbox[3] - 0.6) continue
+          const x0 = Math.min(segs.x1[i], segs.x2[i])
+          const x1 = Math.max(segs.x1[i], segs.x2[i])
+          const ov = Math.min(x1, Math.max(a.bbox[2], b.bbox[2])) - Math.max(x0, Math.min(a.bbox[0], b.bbox[0]))
+          if (ov >= 0.5 * Math.min(a.width, b.width) && segs.len[i] <= 4 * Math.max(a.width, b.width) + 10) {
+            bar = true
+            break
+          }
+        }
+      } else {
+        bar = codes.some((c) => Math.hypot(runCenter(c)[0] - ax, runCenter(c)[1] - ay) <= 4 * h + c.width)
+      }
+      if (bar) cand.push({ a, b, d: dy })
+    }
+  cand.sort((p, q) => p.d - q.d)
+  const taken = new Set<TextRun>()
+  const out: { run: TextRun; parts: [TextRun, TextRun] }[] = []
+  for (const { a, b } of cand) {
+    if (taken.has(a) || taken.has(b)) continue
+    taken.add(a)
+    taken.add(b)
+    out.push({
+      parts: [a, b],
+      run: {
+        text: `${a.text.trim()}/${b.text.trim()}`,
+        angle: 0,
+        height: Math.max(a.height, b.height),
+        ox: Math.min(a.ox, b.ox),
+        oy: b.oy,
+        width: Math.max(a.width, b.width),
+        bbox: bboxUnion(a.bbox, b.bbox),
+        ids: [...a.ids, ...b.ids],
+        ocr: a.ocr != null || b.ocr != null ? Math.min(a.ocr ?? 1, b.ocr ?? 1) : undefined,
+      },
+    })
+  }
+  return out
+}
 
 export function analyzePage(input: PageInput): PdfPageAnalysis {
-  const runs = input.ocrRuns ?? (input.scene ? extractRuns(input.scene) : [])
+  const vector = input.scene ? extractRuns(input.scene) : []
+  const garbled = input.garbledText ?? 0
+  let runs: TextRun[] = vector
+  let keptVector = vector.length
+  if (input.ocrRuns) {
+    // Bozuk eşlemeli yazılar atılır; vektör yazıyla aynı yerdeki OCR yazısı tekrar sayılmaz
+    const keep = garbled > 0.4 ? vector.filter((r) => !isGarbled(r.text)) : vector
+    keptVector = keep.length
+    const extra = input.ocrRuns.filter((o) => !keep.some((v) => bboxOverlap(v.bbox, o.bbox) > 0.4))
+    runs = [...keep, ...extra]
+    if (input.scene && input.textGeometry) attachGlyphIds(runs, input.scene)
+  }
   const segs = segmentIndex(input.kind === 'taranmis' ? null : input.scene)
   const notes: string[] = []
+  const rects: BBox[] = input.scene
+    ? input.scene.entities.filter((e) => e.rect && e.layer !== GLYPH_LAYER && Math.abs(Math.sin(2 * e.rect.angle)) < 0.01).map((e) => e.bbox)
+    : []
   const { sheet: titleSheet, title } = classifySheet(runs)
   const { rows: schedule, used } = parseSchedules(input.page, runs)
+  const sb = input.scene?.bbox ?? null
+  const extent = input.pageSize ?? (sb ? { w: sb[2] - sb[0], h: sb[3] - sb[1] } : { w: 1200, h: 850 })
+  const cards = parseCards(runs, segs, rects, used, Math.max(extent.w, extent.h))
+  for (const c of cards) {
+    schedule.push({
+      page: input.page,
+      code: c.code,
+      description: c.texts.join(' · '),
+      kind: c.typeText,
+      material: c.materialText,
+      w_mm: c.dims?.w_mm ?? null,
+      h_mm: c.dims?.h_mm ?? null,
+      quantity: c.quantity,
+      unit: c.dims?.unit ?? 'cm',
+      text: [c.anchor.text, ...c.runs.map((r) => r.text)].join(' | '),
+      bbox: cardBox(c),
+      ids: [...c.anchor.ids, ...c.runs.flatMap((r) => r.ids), ...(c.elevation?.segmentIds ?? [])],
+      ocr: c.ocr,
+      source: 'kart',
+      texts: c.texts,
+      elevation: c.elevation,
+      dimsFrom: c.dimsFrom,
+      drawingScale: c.drawingScale,
+      dimsConflict: c.dimsConflict,
+    })
+  }
+  if (cards.length) notes.push(`Kart tipi doğrama listesi: ${cards.length} kart okundu`)
   const sheet: SheetType = schedule.length && (titleSheet === 'bilinmiyor' || titleSheet === 'detay') ? 'cizelge' : titleSheet
 
   // Ölçek
   const hints = findScaleHints(runs.map((r) => r.text))
   const titleDen = hints.length === 1 ? hints[0].denominator : (hints.find((h) => /OLCEK|SCALE/.test(normalizeKey(h.text)))?.denominator ?? null)
-  const inferred = segs.n ? inferScale(runs, segs) : null
+  const inferred = segs.n ? inferScale(runs.filter((r) => !used.has(r)), segs) : null
   let used_: number | null = null
   let usedFrom: PageScale['usedFrom'] = null
   if (input.userDenominator) {
@@ -700,16 +786,21 @@ export function analyzePage(input: PageInput): PdfPageAnalysis {
   if (titleDen && inferred && titleDen !== inferred.denominator)
     conflict = `Antette ölçek 1/${titleDen} yazıyor, ölçü yazıları ise 1/${inferred.denominator} ile uyumlu (${inferred.support}/${inferred.total}). Pafta ölçeklenerek basılmış olabilir.`
   if (hints.length > 1 && !titleDen) notes.push(`Sayfada birden fazla ölçek yazısı var: ${hints.map((h) => `1/${h.denominator}`).join(', ')}`)
+  const verified = usedFrom === 'kullanici' || (usedFrom === 'olcu' && !conflict)
 
-  // Etiketler (çizelgede kullanılan yazılar hariç)
+  // Kesirli etiketler ("180" / "150")
+  const fractions = stackedFractions(runs, segs, used)
+  const fracParts = new Set(fractions.flatMap((f) => f.parts))
+
+  // Etiketler (çizelgede/kartta kullanılan yazılar hariç)
   type Tok = { run: TextRun; code: string | null; dims: DimLabel | null }
   const toks: Tok[] = []
   let numericCount = 0
-  for (const r of runs) {
+  for (const r of [...runs.filter((x) => !fracParts.has(x)), ...fractions.map((f) => f.run)]) {
     if (used.has(r)) continue
     if (isNumeric(r.text)) numericCount++
     const { code, dims } = splitCodeDims(r.ocr != null ? fixOcrText(r.text) : r.text)
-    if (code || dims) toks.push({ run: r, code, dims })
+    if (code || dims) toks.push({ run: r, code, dims: dims && fractions.some((f) => f.run === r) ? { ...dims, stacked: true } : dims })
   }
   // Kod + ölçü eşleştirme (en yakın, her biri bir kez)
   const codesOnly = toks.filter((t) => t.code && !t.dims)
@@ -735,22 +826,32 @@ export function analyzePage(input: PageInput): PdfPageAnalysis {
   for (const c of codesOnly) if (!takenC.has(c)) pairs.push({ code: c, dims: null })
   for (const d of dimsOnly) if (!takenD.has(d)) pairs.push({ code: null, dims: d })
 
-  const scheduleCodes = new Set(schedule.map((r) => r.code))
+  const scheduleCodes = new Set(schedule.map((r) => canonCode(r.code)))
+  const rooms = sheet === 'plan' || sheet === 'bilinmiyor' ? runs.filter((r) => isRoomName(r.text)) : []
   const hits: LabelHit[] = []
   for (const p of pairs) {
     const code = p.code?.code ?? null
     const dims = p.dims?.dims ?? null
     // Ölçüsüz tek başına kod: yalnız bilinen doğrama önekiyse (oda/aks/pafta numaralarını ayıklamak için)
-    if (code && !dims && !KNOWN_PREFIX.test(code) && !scheduleCodes.has(code)) continue
+    if (code && !dims && !KNOWN_PREFIX.test(code) && !scheduleCodes.has(canonCode(code))) continue
     const runsUsed = [p.code?.run, p.dims?.run].filter((r): r is TextRun => !!r)
     const bbox = runsUsed.reduce((b, r) => bboxUnion(b, r.bbox), EMPTY_BBOX())
     // Yakındaki tür/malzeme kelimeleri (ör. "PVC", "SÜRME")
     const [cx, cy] = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
     const hh = Math.max(...runsUsed.map((r) => r.height))
     const near = runs
-      .filter((r) => !runsUsed.includes(r) && r.text.length <= 40 && Math.hypot(runCenter(r)[0] - cx, runCenter(r)[1] - cy) <= 3 * hh)
+      .filter((r) => !runsUsed.includes(r) && !used.has(r) && r.text.length <= 40 && Math.hypot(runCenter(r)[0] - cx, runCenter(r)[1] - cy) <= 3 * hh)
       .map((r) => r.text)
       .filter((t) => inferType([t]).type || inferType([t]).material || OTHER_MATERIAL.test(normalizeKey(t)))
+    let room: string | null = null
+    let best = 320
+    for (const r of rooms) {
+      const d = Math.hypot(runCenter(r)[0] - cx, runCenter(r)[1] - cy)
+      if (d < best) {
+        best = d
+        room = roomLabel(r.text)
+      }
+    }
     hits.push({
       page: input.page,
       sheet,
@@ -762,29 +863,62 @@ export function analyzePage(input: PageInput): PdfPageAnalysis {
       near,
       geometry: null,
       ocr: runsUsed.some((r) => r.ocr != null),
+      room,
     })
   }
 
   // Geometri doğrulaması (yalnız planda: genişlik plan görünüşünde açıklık olarak çizilir)
   for (const h of hits) if (sheet === 'plan' || sheet === 'bilinmiyor' || sheet === 'gorunus') h.geometry = segs.n ? checkGeometry(h, segs, used_) : null
+  // Görünüş paftası: etiketin hemen altındaki doğrama çizimi (açılım sembolleri)
+  if (sheet === 'gorunus' && segs.n)
+    for (const h of hits) {
+      const hh = h.bbox[3] - h.bbox[1]
+      const cx = (h.bbox[0] + h.bbox[2]) / 2
+      let frame: BBox | null = null
+      for (const r of rects) {
+        if (r[3] > h.bbox[1] + 1 || h.bbox[1] - r[3] > 2.5 * hh + 6 || cx < r[0] || cx > r[2]) continue
+        if (!frame || r[2] - r[0] > frame[2] - frame[0]) frame = r
+      }
+      if (frame) h.elevation = analyzeElevation(segs, frame)
+    }
 
+  // Genel notlar (tüm doğramalar için)
+  const generalNotes = runs.filter((r) => !used.has(r) && r.text.length >= 12 && r.text.length <= 240 && GENERAL_NOTE.test(normalizeKey(r.text))).map((r) => r.text)
+
+  // OCR gereksinimi
+  const pageArea = extent.w * extent.h
+  const bigImages = (input.imageBoxes ?? []).filter((b) => b[2] - b[0] >= 80 && b[3] - b[1] >= 40 && ((b[2] - b[0]) * (b[3] - b[1])) / Math.max(1, pageArea) >= 0.03)
+  let ocrNeeded: string | null = null
+  if (input.kind === 'taranmis') ocrNeeded = 'Sayfa taranmış görüntü; yazılar yalnız OCR ile okunabilir'
+  else if (input.textGeometry) ocrNeeded = `Yazılar metin değil çizgi olarak gömülü (AutoCAD SHX yazı tipi vb., ${input.textGeometry.paths.toLocaleString('tr-TR')} harf parçası)`
+  else if (garbled > 0.4) ocrNeeded = `Yazı tipi eşlemesi bozuk: yazıların %${Math.round(garbled * 100)}'i okunamıyor`
+  else if (bigImages.length) ocrNeeded = `Sayfada görüntü olarak gömülü ${bigImages.length} bölüm var (çizelge veya taranmış pafta olabilir)`
+  if (ocrNeeded && !input.ocrRuns) notes.push(`OCR gerekli: ${ocrNeeded}`)
+
+  const textSource: PdfPageAnalysis['textSource'] = input.ocrRuns ? (keptVector ? 'vektor+ocr' : 'ocr') : runs.length ? 'vektor' : 'yok'
   const samples = [...new Set(runs.map((r) => r.text))].slice(0, 40)
   return {
     page: input.page,
     kind: input.kind,
     sheet,
     title,
-    textSource: input.ocrRuns ? 'ocr' : runs.length ? 'vektor' : 'yok',
+    textSource,
     textCount: runs.length,
     numericCount,
     labelCount: hits.length,
     scheduleRows: schedule.length,
     segments: segs.n,
-    scale: { title: titleDen, inferred, used: used_, usedFrom, conflict },
+    scale: { title: titleDen, inferred, used: used_, usedFrom, conflict, verified },
     samples,
     notes,
     hits,
     schedule,
+    floor: floorInfo(title),
+    generalNotes,
+    textAsGeometry: !!input.textGeometry,
+    garbledText: garbled,
+    ocrNeeded,
+    cardCount: cards.length,
   }
 }
 
@@ -797,6 +931,7 @@ function level(conf: number): PozCandidate['level'] {
 }
 
 const fmtCm = (mm: number) => (mm % 10 === 0 ? String(mm / 10) : (mm / 10).toFixed(1))
+const fmtDims = (w: number, h: number) => `${fmtCm(w)}/${fmtCm(h)}`
 
 export interface AggregateOptions {
   pageCount: number
@@ -804,33 +939,62 @@ export interface AggregateOptions {
   ocrUsed?: boolean
 }
 
+const MATERIAL_OF: Record<string, Material> = { PVC: 'pvc', Alüminyum: 'aluminyum' }
+
+function sameSet(a: string[], b: string[]): boolean {
+  const A = new Set(a)
+  const B = new Set(b)
+  return A.size === B.size && [...A].every((x) => B.has(x))
+}
+
 export function aggregatePdf(pages: PdfPageAnalysis[], opts: AggregateOptions): { candidates: PdfPozCandidate[]; diagnostics: PdfDiagnostics } {
-  type Group = { key: string; code: string | null; hits: LabelHit[]; rows: ScheduleRow[] }
+  type Group = { key: string; canon: string | null; codes: Map<string, number>; hits: LabelHit[]; rows: ScheduleRow[] }
   const groups = new Map<string, Group>()
-  const g = (key: string, code: string | null) => {
+  const g = (key: string, canon: string | null) => {
     let x = groups.get(key)
     if (!x) {
-      x = { key, code, hits: [], rows: [] }
+      x = { key, canon, codes: new Map(), hits: [], rows: [] }
       groups.set(key, x)
     }
     return x
   }
+  const pageOf = new Map(pages.map((p) => [p.page, p]))
   for (const p of pages) {
-    for (const r of p.schedule) g(`K:${r.code}`, r.code).rows.push(r)
+    for (const r of p.schedule) {
+      const c = canonCode(r.code)
+      const grp = g(`K:${c}`, c)
+      grp.rows.push(r)
+      grp.codes.set(r.code, (grp.codes.get(r.code) ?? 0) + 100)
+    }
     for (const h of p.hits) {
-      if (h.code) g(`K:${h.code}`, h.code).hits.push(h)
-      else if (h.dims) g(`O:${h.dims.w_mm}x${h.dims.h_mm}`, null).hits.push(h)
+      if (h.code) {
+        const c = canonCode(h.code)
+        const grp = g(`K:${c}`, c)
+        grp.hits.push(h)
+        grp.codes.set(h.code, (grp.codes.get(h.code) ?? 0) + 1)
+      } else if (h.dims) g(`O:${h.dims.w_mm}x${h.dims.h_mm}`, null).hits.push(h)
     }
   }
+  const generalNotes: AttrText[] = pages.flatMap((p) => p.generalNotes.map((t) => ({ text: t, origin: `S${p.page} · genel not`, direct: false, ocr: p.textSource !== 'vektor' })))
 
   const candidates: PdfPozCandidate[] = []
   for (const grp of groups.values()) {
     const reasons: string[] = []
     const evidence: string[] = []
-    const row = grp.rows[0] ?? null
-    if (grp.rows.length > 1) {
-      const qs = new Set(grp.rows.map((r) => `${r.w_mm}x${r.h_mm}x${r.quantity}`))
-      if (qs.size > 1) reasons.push(`Poz ${grp.code} çizelgede birden fazla farklı satırla geçiyor; ilk satır kullanıldı`)
+    const conflicts: PozConflict[] = []
+    // Gösterilen kod: çizelgedeki yazım, yoksa en sık yazım
+    const variants = [...grp.codes.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c)
+    const displayCode = variants[0] ?? null
+    const label = displayCode ? `Poz ${displayCode}` : 'Poz'
+    if (variants.length > 1) evidence.push(`Aynı poz farklı yazılmış: ${variants.join(', ')} (eşleştirildi)`)
+    const rows = [...grp.rows].sort((a, b) => (a.source === b.source ? a.page - b.page : a.source === 'tablo' ? -1 : 1))
+    const row = rows[0] ?? null
+    const listName = row?.source === 'kart' ? 'doğrama listesinde' : 'doğrama çizelgesinde'
+    if (rows.length > 1) {
+      const qs = new Set(rows.map((r) => r.quantity))
+      const ds = new Set(rows.map((r) => `${r.w_mm}x${r.h_mm}`))
+      if (qs.size > 1) conflicts.push({ kind: 'adet', message: `${label}: çizelgelerde farklı adetler var (${rows.map((r) => `S${r.page}: ${r.quantity ?? '—'}`).join(', ')}).` })
+      if (ds.size > 1) conflicts.push({ kind: 'olcu', message: `${label}: çizelgelerde farklı ölçüler var (${rows.map((r) => `S${r.page}: ${r.w_mm && r.h_mm ? fmtDims(r.w_mm, r.h_mm) : '—'}`).join(', ')}).` })
     }
     // Sayım: plan paftaları; görünüş/kesit/detay sayılmaz
     const counted = grp.hits.filter((h) => COUNTED.includes(h.sheet))
@@ -850,7 +1014,24 @@ export function aggregatePdf(pages: PdfPageAnalysis[], opts: AggregateOptions): 
       instHits.push(h)
     }
     if (geomDupes) evidence.push(`${geomDupes} etiket aynı açıklığı gösterdiği için bir kez sayıldı`)
-    let planQty: number | null = instHits.length || null
+    // Kat çarpanı: "NORMAL KAT PLANI (1.-4. KATLAR)" → o paftadaki sayım × 4
+    const perPage = new Map<number, number>()
+    for (const h of instHits) perPage.set(h.page, (perPage.get(h.page) ?? 0) + 1)
+    let planRaw = 0
+    let planMult = 0
+    const multParts: string[] = []
+    let floorMultiplier: number | null = null
+    for (const [pn, n] of perPage) {
+      const m = pageOf.get(pn)?.floor.multiplier ?? null
+      planRaw += n
+      planMult += n * (m ?? 1)
+      if (m) {
+        floorMultiplier = m
+        multParts.push(`S${pn} (${pageOf.get(pn)?.title ?? 'plan'}): ${n} × ${m} kat = ${n * m}`)
+      }
+    }
+    let planQty: number | null = instHits.length ? planMult : null
+    const multText = multParts.length ? ` (${multParts.join('; ')})` : ''
     let fromElevation = false
     if (!planQty && elev.length && !row) {
       planQty = elev.length
@@ -858,14 +1039,15 @@ export function aggregatePdf(pages: PdfPageAnalysis[], opts: AggregateOptions): 
     }
     const scheduleQty = row?.quantity ?? null
 
-    // Ölçüler: çizelge > etiket çoğunluğu
+    // Ölçüler: çizelge/kart > etiket çoğunluğu
     const dimVotes = new Map<string, { d: DimLabel; n: number }>()
-    for (const h of grp.hits) if (h.dims) {
-      const k = `${h.dims.w_mm}x${h.dims.h_mm}`
-      const v = dimVotes.get(k) ?? { d: h.dims, n: 0 }
-      v.n++
-      dimVotes.set(k, v)
-    }
+    for (const h of grp.hits)
+      if (h.dims) {
+        const k = `${h.dims.w_mm}x${h.dims.h_mm}`
+        const v = dimVotes.get(k) ?? { d: h.dims, n: 0 }
+        v.n++
+        dimVotes.set(k, v)
+      }
     const dimList = [...dimVotes.values()].sort((a, b) => b.n - a.n)
     let w: number | null = null
     let hgt: number | null = null
@@ -873,17 +1055,21 @@ export function aggregatePdf(pages: PdfPageAnalysis[], opts: AggregateOptions): 
     if (row?.w_mm && row.h_mm) {
       w = row.w_mm
       hgt = row.h_mm
-      dimsFrom = 'cizelge'
-      evidence.push(`Ölçü çizelgeden: ${fmtCm(w)}/${fmtCm(hgt)} cm (sayfa ${row.page})`)
+      dimsFrom = row.source === 'kart' ? 'kart' : 'cizelge'
+      const how = row.source === 'kart' ? (row.dimsFrom === 'olcu_cizgisi' ? 'kartın ölçü çizgilerinden' : 'kart yazısından') : 'çizelgeden'
+      evidence.push(`Ölçü ${how}: ${fmtDims(w, hgt)} cm (sayfa ${row.page})`)
+      if (row.drawingScale) evidence.push(`Görünüş çizimi 1/${row.drawingScale} ölçekte; ölçü yazıları kasa boyutuyla uyumlu`)
+      if (row.dimsConflict) conflicts.push({ kind: 'olcu', message: `${label}: ${row.dimsConflict}.` })
       const disagree = dimList.filter((x) => x.d.w_mm !== w || x.d.h_mm !== hgt)
-      if (disagree.length) reasons.push(`Plandaki etiket ölçüsü çizelgeyle farklı: ${disagree.map((x) => `${x.d.text} (${x.n})`).join(', ')}`)
+      if (disagree.length)
+        conflicts.push({ kind: 'olcu', message: `${label}: ${listName} ${fmtDims(w, hgt)}, plan etiketinde ${disagree.map((x) => `${x.d.text} (${x.n})`).join(', ')} yazıyor.` })
       else if (dimList.length) evidence.push('Plan etiketleri çizelge ölçüsüyle aynı')
     } else if (dimList.length) {
       w = dimList[0].d.w_mm
       hgt = dimList[0].d.h_mm
       dimsFrom = 'etiket'
-      evidence.push(`Ölçü etiketten: ${dimList[0].d.text}${dimList[0].d.unit === 'cm' ? ' (cm)' : ' (mm)'}`)
-      if (dimList.length > 1) reasons.push(`Aynı poz farklı ölçülerle yazılmış: ${dimList.map((x) => `${x.d.text} ×${x.n}`).join(', ')} — en sık olan alındı`)
+      evidence.push(`Ölçü etiketten: ${dimList[0].d.text}${unitSuffix(dimList[0].d.unit)}${dimList[0].d.stacked ? ', kesirli yazım' : ''}`)
+      if (dimList.length > 1) conflicts.push({ kind: 'olcu', message: `${label}: aynı poz farklı ölçülerle yazılmış: ${dimList.map((x) => `${x.d.text} ×${x.n}`).join(', ')} — en sık olan gösterildi.` })
     } else {
       reasons.push('Ölçü bulunamadı: en ve boy elle girilmeli')
     }
@@ -894,13 +1080,16 @@ export function aggregatePdf(pages: PdfPageAnalysis[], opts: AggregateOptions): 
     let count: number
     if (scheduleQty != null) {
       count = scheduleQty
-      evidence.push(`Adet çizelgeden: ${scheduleQty}`)
-      if (planQty != null && planQty !== scheduleQty) reasons.push(`Çizelgede ${scheduleQty} adet, planlarda ${planQty} etiket sayıldı — adedi kontrol edin`)
-      else if (planQty != null) evidence.push(`Planlarda ${planQty} etiket: çizelgeyle uyumlu`)
+      evidence.push(`Adet ${row?.source === 'kart' ? 'doğrama listesinden' : 'çizelgeden'}: ${scheduleQty}${row?.floors ? ` (${row.floors.map((f) => `${f.label}: ${f.qty}`).join(', ')})` : ''}`)
+      if (planQty != null && planQty !== scheduleQty) {
+        conflicts.push({ kind: 'adet', message: `${label}: Plan paftalarında ${planQty} adet${multText}, ${listName} ${scheduleQty} adet bulunuyor.` })
+        if (floorMultiplier && planRaw === scheduleQty) reasons.push(`Kat çarpanı uygulanmadan plan sayımı (${planRaw}) çizelgeyle aynı; çarpanın geçerli olup olmadığını kontrol edin`)
+      } else if (planQty != null) evidence.push(`Planlarda ${planQty} etiket${multText}: çizelgeyle uyumlu`)
       else reasons.push('Planlarda bu poza ait etiket bulunamadı; adet yalnız çizelgeden')
     } else if (planQty != null) {
       count = planQty
-      evidence.push(`${planQty} adet ${fromElevation ? 'görünüş' : 'plan'} etiketi sayıldı`)
+      evidence.push(`${planQty} adet ${fromElevation ? 'görünüş' : 'plan'} etiketi sayıldı${multText}`)
+      if (floorMultiplier) reasons.push(`Pafta başlığına göre plan ${floorMultiplier} kat için geçerli; sayım kat sayısıyla çarpıldı (${planRaw} × ${floorMultiplier}) — çizelge olmadığından doğrulanamadı`)
       if (fromElevation) reasons.push('Yalnız görünüş paftasında bulundu; plan ile doğrulanmadı (aynı doğrama birden fazla görünüşte olabilir)')
     } else {
       count = 1
@@ -908,26 +1097,61 @@ export function aggregatePdf(pages: PdfPageAnalysis[], opts: AggregateOptions): 
     }
     if (elev.length && !fromElevation) evidence.push(`Görünüşteki ${elev.length} etiket sayılmadı (çift sayım önlendi)`)
     if (otherNot.length) evidence.push(`Kesit/detaydaki ${otherNot.length} etiket sayılmadı`)
-    const tipKat = counted.some((h) => /NORMAL KAT|TIP KAT/.test(normalizeKey(pages.find((p) => p.page === h.page)?.title ?? '')))
-    if (tipKat) reasons.push('Normal/tip kat planı: adet kat sayısıyla çarpılmalı olabilir — kontrol edin')
+    const tipKat = counted.some((h) => !pageOf.get(h.page)?.floor.multiplier && /NORMAL KAT|TIP KAT/.test(normalizeKey(pageOf.get(h.page)?.title ?? '')))
+    if (tipKat) reasons.push('Normal/tip kat planı: kaç kat için geçerli olduğu yazmıyor; adet kat sayısıyla çarpılmalı olabilir — kontrol edin')
 
-    // Tür ve malzeme: çizelge açıklaması > etiket yanındaki yazı > kod öneki > ölçü
-    // Tür önce CİNSİ sütunundan (açıklamadaki "sabit + açılır" gibi ifadeler türü değiştirmez)
-    const texts = [row?.kind ?? '', row?.material ?? '', ...grp.hits.flatMap((h) => h.near), row?.description ?? '']
-    const inf = inferType(texts.filter(Boolean))
+    // Teknik özellikler
+    const texts: AttrText[] = []
+    for (const r of rows) {
+      const origin = `S${r.page} · ${r.source === 'kart' ? 'kart' : 'çizelge satırı'} ${r.code}`
+      for (const t of r.texts?.length ? r.texts : [r.kind ?? '', r.material ?? '', r.description].filter(Boolean)) texts.push({ text: t, origin, direct: true, ocr: r.ocr })
+    }
+    for (const h of grp.hits) for (const t of h.near) texts.push({ text: t, origin: `S${h.page} · ${h.code ?? h.text} etiketi yanında`, direct: false, ocr: h.ocr })
+    texts.push(...generalNotes)
+    const attrs = extractAttributes(texts)
+    const elevation = row?.elevation ?? grp.hits.find((h) => h.elevation)?.elevation ?? null
+    if (elevation) {
+      const src = `S${row?.elevation ? row.page : grp.hits.find((h) => h.elevation)!.page} · görünüş çizimi`
+      const codes = [...new Set(elevation.panels.map((p) => p.opening))]
+      const textual = attrs.acilim?.status === 'dogrulandi' ? openingCodes(attrs.acilim.value)?.codes ?? null : null
+      if (textual && !sameSet(textual, codes)) conflicts.push({ kind: 'acilim', message: `${label}: yazıda "${attrs.acilim!.value}", görünüş çiziminde "${elevation.summary}" görünüyor.` })
+      else if (textual) evidence.push(`Görünüş çizimindeki açılım sembolleri yazıyla uyumlu (${elevation.summary})`)
+      suggestAttr(attrs, 'acilim', elevation.summary, `${src} (açılım sembolleri)`)
+      attrs.bolme = { value: `${elevation.cols} × ${elevation.rows} bölme: ${elevation.panels.map((p) => PANEL_LABEL[p.opening]).join(', ')}`, status: 'aday', source: `${src} (kayıtlar ve semboller)` }
+      if (elevation.sashCount) suggestAttr(attrs, 'kanat', String(elevation.sashCount), `${src} (açılır/sürme bölmeler)`)
+    }
+    // Kat ve mahal
+    const floorCounts = new Map<string, number>()
+    for (const h of instHits) {
+      const p = pageOf.get(h.page)
+      const f = p?.floor.label ?? null
+      if (!f) continue
+      const k = p?.floor.multiplier ? `${f} (×${p.floor.multiplier})` : f
+      floorCounts.set(k, (floorCounts.get(k) ?? 0) + 1)
+    }
+    if (row?.floors?.length) attrs.kat = { value: row.floors.map((f) => `${f.label}: ${f.qty}`).join(' · '), status: row.ocr ? 'aday' : 'dogrulandi', source: `S${row.page} · çizelge kat sütunları` }
+    else if (floorCounts.size) attrs.kat = { value: [...floorCounts].map(([k, n]) => `${k}: ${n}`).join(' · '), status: 'dogrulandi', source: 'Pafta başlıkları' }
+    const roomCounts = new Map<string, number>()
+    for (const h of instHits) if (h.room) roomCounts.set(h.room, (roomCounts.get(h.room) ?? 0) + 1)
+    if (roomCounts.size) attrs.mahal = { value: [...roomCounts].map(([k, n]) => (n > 1 ? `${k} (${n})` : k)).join(', '), status: 'aday', source: 'En yakın mahal yazısı (planda)' }
+
+    // Tür ve malzeme: çizelge/kart açıklaması > etiket yanındaki yazı > kod öneki > ölçü
+    // Açılım yazıları ("AÇILIM: SABİT + AÇILIR") türü belirlemez
+    const notOpening = (t: string) => !/^\s*(AÇILIM|ACILIM|AÇILIŞ|ACILIS)(\s+(TÜRÜ|TURU))?\s*[:=]/i.test(t)
+    const inf = inferType([row?.kind ?? '', ...rows.flatMap((r) => r.texts ?? []), row?.material ?? '', ...grp.hits.flatMap((h) => h.near), row?.source === 'kart' ? '' : (row?.description ?? '')].filter(Boolean).filter(notOpening))
     let type: TypeHint | null = inf.type
     let typeWhy = inf.type ? `metin: ${inf.sources[0]}` : ''
-    if (!type && grp.code) {
-      type = typeFromCode(grp.code)
-      if (type) typeWhy = `kod öneki (${grp.code})`
+    if (!type && grp.canon) {
+      type = typeFromCode(displayCode ?? grp.canon)
+      if (type) typeWhy = `kod öneki (${displayCode})`
     }
     if (!type && w && hgt) {
       type = hgt >= 1900 && w <= 4000 ? 'kapi' : 'pencere'
       typeWhy = 'ölçüden tahmin'
     }
-    const material: Material | null = inf.material
-    const other = texts.map((t) => normalizeKey(t)).find((t) => OTHER_MATERIAL.test(t))
-    const outOfScope = !material && other ? `Malzeme ${other.match(OTHER_MATERIAL)![0].toLocaleLowerCase('tr-TR').replace('ahsap', 'ahşap').replace('celik', 'çelik')}: alüminyum/PVC kapsamı dışında olabilir` : null
+    const matAttr = attrs.malzeme ?? null
+    const material: Material | null = matAttr ? (MATERIAL_OF[matAttr.value] ?? null) : null
+    const outOfScope = matAttr && !material ? `Malzeme ${matAttr.value.toLocaleLowerCase('tr-TR')}: alüminyum/PVC kapsamı dışında olabilir` : null
     let category = categoryFor(type, material)
     if (outOfScope) {
       category = 'belirsiz'
@@ -935,8 +1159,10 @@ export function aggregatePdf(pages: PdfPageAnalysis[], opts: AggregateOptions): 
     }
     if (type) evidence.push(`Tür: ${type} (${typeWhy})`)
     if (typeWhy === 'ölçüden tahmin' || typeWhy.startsWith('kod')) reasons.push('Doğrama türü yazıyla belirtilmemiş; tahmin edildi')
-    if (material) reasons.push(`Malzeme (${material === 'pvc' ? 'PVC' : 'alüminyum'}) yazıdan okundu; onaylayın`)
-    else if (!outOfScope && (type === 'pencere' || type === 'kapi')) reasons.push('Malzeme (PVC / alüminyum) yazılmamış: iş grubu seçilmeli')
+    if (material && matAttr) {
+      if (matAttr.status === 'dogrulandi') evidence.push(`Malzeme (${matAttr.value}) pozun kendi yazısından okundu`)
+      else reasons.push(`Malzeme (${matAttr.value}) ${/genel not/.test(matAttr.source) ? 'genel nottan' : 'yakındaki yazıdan/OCR ile'} alındı; onaylayın`)
+    } else if (!outOfScope && (type === 'pencere' || type === 'kapi')) reasons.push('Malzeme (PVC / alüminyum) yazılmamış: iş grubu seçilmeli')
 
     // Geometri
     const geo = counted.map((h) => h.geometry).filter((x): x is GeometryCheck => !!x)
@@ -950,20 +1176,22 @@ export function aggregatePdf(pages: PdfPageAnalysis[], opts: AggregateOptions): 
 
     // OCR
     const ocr = grp.hits.some((h) => h.ocr) || grp.rows.some((r) => r.ocr)
-    if (ocr) reasons.push('Yazılar taranmış görüntüden OCR ile okundu: rakamları çizimle karşılaştırın')
+    if (ocr) reasons.push('Yazılar görüntüden OCR ile okundu: rakamları çizimle karşılaştırın')
 
     // Güven
     let conf: number
     if (row && planQty != null) conf = planQty === scheduleQty ? 0.85 : 0.5
     else if (row) conf = 0.62
-    else if (grp.code && dimsFrom) conf = 0.68
+    else if (grp.canon && dimsFrom) conf = 0.68
     else if (dimsFrom) conf = 0.55
     else conf = 0.3
     if (ok && !notFound) conf += 0.05
     if (notFound) conf -= 0.1 * Math.min(1, notFound / Math.max(1, geo.length)) + 0.05
     if (dimList.length > 1) conf -= 0.1
+    if (conflicts.length) conf -= 0.08 * Math.min(3, conflicts.length)
     if (ocr) conf -= 0.12
     if (fromElevation) conf -= 0.1
+    if (floorMultiplier && scheduleQty == null) conf -= 0.08
     if (category === 'belirsiz') conf = Math.min(conf, 0.7)
     conf = Math.max(0.05, Math.min(0.95, conf))
 
@@ -977,15 +1205,19 @@ export function aggregatePdf(pages: PdfPageAnalysis[], opts: AggregateOptions): 
       role: 'plan',
     }))
     if (fromElevation) for (const h of elev) instances.push({ entityIds: h.ids, insertId: null, bbox: h.bbox, handle: null, page: h.page, role: 'gorunus' })
-    if (row) instances.push({ entityIds: row.ids, insertId: null, bbox: row.bbox, handle: null, page: row.page, role: 'cizelge' })
+    for (const r of rows) instances.push({ entityIds: r.ids, insertId: null, bbox: r.bbox, handle: null, page: r.page, role: 'cizelge' })
     if (!instances.length) for (const h of grp.hits.slice(0, 20)) instances.push({ entityIds: h.ids, insertId: null, bbox: h.bbox, handle: null, page: h.page, role: h.sheet === 'gorunus' ? 'gorunus' : 'diger' })
 
-    const code = grp.code ?? (w && hgt ? `${fmtCm(w)}/${fmtCm(hgt)}` : '?')
+    const code = displayCode ?? (w && hgt ? fmtDims(w, hgt) : '?')
     const pageSet = [...new Set([...grp.hits.map((h) => h.page), ...grp.rows.map((r) => r.page)])].sort((a, b) => a - b)
-    const sheets = [...new Set(pageSet.map((pn) => {
-      const p = pages.find((x) => x.page === pn)
-      return `S${pn} · ${p?.title ?? SHEET_LABEL[p?.sheet ?? 'bilinmiyor']}`
-    }))]
+    const sheets = [
+      ...new Set(
+        pageSet.map((pn) => {
+          const p = pageOf.get(pn)
+          return `S${pn} · ${p?.title ?? SHEET_LABEL[p?.sheet ?? 'bilinmiyor']}`
+        }),
+      ),
+    ]
     candidates.push({
       key: `pdf:${grp.key}`,
       code,
@@ -1019,9 +1251,15 @@ export function aggregatePdf(pages: PdfPageAnalysis[], opts: AggregateOptions): 
       planQty,
       dimsFrom,
       outOfScope,
+      attrs: withMissing(attrs),
+      conflicts,
+      floorMultiplier,
+      elevation,
+      canon: grp.canon ?? grp.key,
+      codeVariants: variants,
     })
   }
-  // Sıralama: kod (doğal), sonra ölçü
+  // Sıralama: çizelgedekiler önce, sonra kod (doğal)
   candidates.sort((a, b) => (a.source === b.source ? 0 : a.source === 'cizelge' ? -1 : 1) || a.code.localeCompare(b.code, 'tr', { numeric: true }))
 
   // ---------------------------------------------------------------- tanılama
@@ -1034,24 +1272,29 @@ export function aggregatePdf(pages: PdfPageAnalysis[], opts: AggregateOptions): 
     scannedPages: pages.filter((p) => p.kind === 'taranmis').length,
     emptyPages: pages.filter((p) => p.kind === 'bos').length,
   }
+  const pendingOcr = pages.filter((p) => p.ocrNeeded && p.textSource !== 'ocr' && p.textSource !== 'vektor+ocr')
   const whyNone: string[] = []
   const warnings: string[] = []
   if (!candidates.length) {
     if (!pages.length) whyNone.push('Hiçbir sayfa analiz edilmedi.')
     else if (totals.emptyPages === pages.length) whyNone.push('Seçilen sayfalar boş: çizgi, yazı veya görüntü yok.')
-    else if (totals.texts === 0 && totals.scannedPages > 0 && !opts.ocrUsed)
-      whyNone.push('Sayfalar taranmış görüntü; yazı katmanı yok. Yazıları okumak için OCR çalıştırın veya ölçüyü kalibrasyonla elle alın.')
+    else if (pendingOcr.length)
+      for (const p of pendingOcr) whyNone.push(`Sayfa ${p.page}: ${p.ocrNeeded}. Yazıları okumak için OCR'ı açıp analizi yeniden çalıştırın.`)
     else if (totals.texts === 0 && totals.scannedPages > 0) whyNone.push('OCR çalıştı ancak görüntüden poz/ölçü yazısı okunamadı (çözünürlük düşük veya yazılar el yazısı/eğik olabilir).')
     else if (totals.texts === 0) whyNone.push('Çizimde yazı yok (yalnız çizgi). Poz kodu ve ölçü yazısı olmadan doğrama türü ve adedi güvenilir biçimde çıkarılamaz.')
     else {
-      whyNone.push(`${totals.texts} yazı okundu ancak hiçbiri poz kodu ("P1", "K-02") veya doğrama ölçüsü ("120/150", "90x210") biçiminde değil.`)
+      whyNone.push(`${totals.texts} yazı okundu ancak hiçbiri poz kodu ("P1", "K-02") veya doğrama ölçüsü ("120/150", "1.20/1.50", "90x210") biçiminde değil.`)
       if (totals.numeric) whyNone.push(`${totals.numeric} sayısal ölçü yazısı bulundu (ölçü zinciri vb.); bunlar tek başına doğrama tanımlamaz.`)
     }
     if (pages.length && pages.every((p) => !COUNTED.includes(p.sheet) && p.sheet !== 'cizelge')) whyNone.push('Seçilen sayfalar arasında kat planı veya doğrama çizelgesi yok.')
     whyNone.push('Çözüm: doğrama çizelgesi veya poz etiketli kat planı içeren sayfaları seçin; ya da ölçeği kalibre edip alan/mesafe ölçümüyle pozları elle ekleyin.')
+  } else if (pendingOcr.length) {
+    for (const p of pendingOcr) warnings.push(`Sayfa ${p.page}: ${p.ocrNeeded}. Bu sayfadaki yazılar OCR olmadan okunmadı; sonuçlar eksik olabilir.`)
   }
   for (const p of pages) if (p.scale.conflict) warnings.push(`Sayfa ${p.page}: ${p.scale.conflict}`)
-  if (opts.ocrUsed) warnings.push('Taranmış sayfalarda yazılar OCR ile okundu; OCR rakam hatası yapabilir, sonuçları çizimle karşılaştırın.')
+  if (opts.ocrUsed) warnings.push('Bazı yazılar OCR ile okundu; OCR rakam hatası yapabilir, sonuçları çizimle karşılaştırın.')
+  const conflictCount = candidates.filter((c) => c.conflicts.length).length
+  if (conflictCount) warnings.push(`${conflictCount} pozda çelişki var (adet/ölçü/açılım); kullanıcı kararı gerekiyor.`)
   const sugg = pages.find((p) => p.scale.inferred && (!p.scale.title || p.scale.title === p.scale.inferred.denominator))
   const suggestedScale = sugg
     ? {
@@ -1060,6 +1303,41 @@ export function aggregatePdf(pages: PdfPageAnalysis[], opts: AggregateOptions): 
         why: `${sugg.scale.inferred!.support}/${sugg.scale.inferred!.total} ölçü yazısı çizgi uzunluğuyla 1/${sugg.scale.inferred!.denominator} ölçeğinde uyumlu${sugg.scale.title ? '; antetteki ölçekle aynı' : ''}`,
       }
     : null
+
+  // Tanı raporu
+  const drawingPages = pages.filter((p) => (COUNTED.includes(p.sheet) || p.sheet === 'gorunus') && p.segments > 0)
+  const missing: string[] = []
+  const noDims = candidates.filter((c) => !c.width_mm || !c.height_mm).length
+  if (noDims) missing.push(`${noDims} pozda ölçü okunamadı`)
+  const noMat = candidates.filter((c) => c.category === 'belirsiz').length
+  if (noMat) missing.push(`${noMat} pozda malzeme/iş grubu belirlenemedi`)
+  for (const k of ['sistem', 'cam', 'renk', 'acilim'] as const) {
+    const n = candidates.filter((c) => c.attrs[k]?.status === 'belirsiz').length
+    if (n) missing.push(`${n} pozda ${ATTR_LABEL[k].toLocaleLowerCase('tr-TR')} çizimde yok`)
+  }
+  const asks: DiagnosticReport['asks'] = []
+  const unverified = drawingPages.filter((p) => !p.scale.verified && p.hits.length)
+  if (unverified.length)
+    asks.push({ kind: 'referans_olcu', message: `Ölçek doğrulanamadı (sayfa ${unverified.map((p) => p.page).join(', ')}): bilinen bir ölçüyü (ör. kapı genişliği) iki noktayla kalibre edin veya ölçeği onaylayın.` })
+  if (pages.length && !pages.some((p) => COUNTED.includes(p.sheet) || p.sheet === 'cizelge') && opts.pageCount > pages.length)
+    asks.push({ kind: 'pafta_secimi', message: 'Seçilen sayfalarda kat planı veya doğrama çizelgesi yok: analiz için ilgili paftaları seçin.' })
+  if (candidates.length && !totals.scheduleRows)
+    asks.push({ kind: 'cizelge', message: 'Doğrama çizelgesi/listesi bulunamadı: adet ve malzeme yalnız plandan çıkarıldı. Varsa çizelge paftasını da seçin.' })
+  if (noMat) asks.push({ kind: 'malzeme', message: `${noMat} poz için malzeme sınıfı (PVC / alüminyum) seçilmeli.` })
+  if (pendingOcr.length) asks.push({ kind: 'ocr', message: `Sayfa ${pendingOcr.map((p) => p.page).join(', ')} için OCR çalıştırılmalı.` })
+  const report: DiagnosticReport = {
+    readable: pages.length > 0 || (opts.skippedPages?.length ?? 0) < opts.pageCount,
+    pagesFound: opts.pageCount,
+    pagesAnalyzed: pages.length,
+    texts: totals.texts,
+    candidates: candidates.length,
+    scaleVerifiedPages: drawingPages.filter((p) => p.scale.verified).map((p) => p.page),
+    scaleUnverifiedPages: drawingPages.filter((p) => !p.scale.verified).map((p) => p.page),
+    ocrNeededPages: pages.filter((p) => p.ocrNeeded).map((p) => ({ page: p.page, reason: p.ocrNeeded!, done: p.textSource === 'ocr' || p.textSource === 'vektor+ocr' })),
+    failedPages: opts.skippedPages ?? [],
+    missing,
+    asks,
+  }
   return {
     candidates,
     diagnostics: {
@@ -1072,6 +1350,7 @@ export function aggregatePdf(pages: PdfPageAnalysis[], opts: AggregateOptions): 
       warnings,
       suggestedScale,
       ocrUsed: !!opts.ocrUsed,
+      report,
     },
   }
 }

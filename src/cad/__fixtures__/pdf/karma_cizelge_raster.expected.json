@@ -1,0 +1,40 @@
+{
+  "sentetik": true,
+  "aciklama": "Vektörel plan + görüntü olarak gömülü doğrama çizelgesi (karma pafta). Malzeme ve çizelge adetleri yalnız OCR ile okunabilir.",
+  "sayfalar": {
+    "1": {
+      "pafta": "plan",
+      "karma": true
+    }
+  },
+  "pozlar": [
+    {
+      "code": "P1",
+      "width_mm": 1200,
+      "height_mm": 1500,
+      "count": 3,
+      "category": "pvc_pencere"
+    },
+    {
+      "code": "P2",
+      "width_mm": 1800,
+      "height_mm": 1500,
+      "count": 1,
+      "category": "pvc_pencere"
+    },
+    {
+      "code": "K1",
+      "width_mm": 900,
+      "height_mm": 2100,
+      "count": 2,
+      "category": "belirsiz"
+    },
+    {
+      "code": "S1",
+      "width_mm": 3000,
+      "height_mm": 2200,
+      "count": 1,
+      "category": "surme"
+    }
+  ]
+}

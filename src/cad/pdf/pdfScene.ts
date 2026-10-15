@@ -20,12 +20,42 @@ export interface PdfPageInfo {
   widthPt: number
   heightPt: number
   kind: PdfKind
-  stats: { segments: number; paths: number; images: number; imageCoverage: number; textItems: number }
+  stats: PdfPageStats
   scene: Scene
+  /** Çizgi/dolgu olarak gömülmüş yazı bölgeleri (AutoCAD SHX vb.) — OCR ile okunmalıdır */
+  textGeometry: TextGeometry | null
+  /** Sayfadaki gömülü görüntülerin kapladığı alanlar (sayfa noktası, y yukarı) */
+  imageBoxes: BBox[]
   /** Sayfadaki metinden bulunan olası ölçekler (ör. "1/50") — kullanıcı onayı gerekir */
   scaleHints: { text: string; denominator: number }[]
   truncated: boolean
 }
+
+export interface PdfPageStats {
+  segments: number
+  paths: number
+  images: number
+  imageCoverage: number
+  textItems: number
+  /** Harf çizgisine benzeyen küçük yol sayısı (yazı çizgi olarak gömülmüşse yüksektir) */
+  glyphPaths?: number
+  /** Okunamayan (yazı tipi eşlemesi bozuk) metin oranı 0–1 */
+  garbledText?: number
+}
+
+export interface TextGeometry {
+  /** Harf kümelerinin bölgeleri (sayfa noktası, y yukarı) */
+  regions: BBox[]
+  /** Harf yolu sayısı */
+  paths: number
+  /** Tahmini yazı yüksekliği (pt, medyan) */
+  height: number
+  /** Düşey yazı bölgesi var mı (döndürülmüş OCR gerekir) */
+  vertical: boolean
+}
+
+/** Çizgi olarak gömülmüş harflerin katmanı (görüntüleyicide ayrıca gizlenebilir) */
+export const GLYPH_LAYER = 'PDF yazı (çizgi)'
 
 /** pdf.js OPS kodları (pdfjs-dist 6.x ile doğrulandı) */
 const OPS = {
@@ -98,7 +128,7 @@ export function buildPdfScene(
   viewportTransform: number[],
   pageWidth: number,
   pageHeight: number,
-): { scene: Scene; stats: PdfPageInfo['stats']; truncated: boolean; kind: PdfKind } {
+): { scene: Scene; stats: PdfPageStats; truncated: boolean; kind: PdfKind; textGeometry: TextGeometry | null; imageBoxes: BBox[] } {
   const flip: Mat = [1, 0, 0, -1, 0, pageHeight]
   const W: Mat = mul(flip, viewportTransform as unknown as Mat)
   let ctm: Mat = [1, 0, 0, 1, 0, 0]
@@ -110,6 +140,7 @@ export function buildPdfScene(
   let segments = 0
   let images = 0
   let imageArea = 0
+  const imageBoxes: BBox[] = []
   let truncated = false
   const pageArea = pageWidth * pageHeight
 
@@ -194,6 +225,11 @@ export function buildPdfScene(
         images++
         // Görüntü birim kareye çizilir; kapladığı alan = |det(CTM)|
         imageArea += Math.abs(ctm[0] * ctm[3] - ctm[1] * ctm[2])
+        if (imageBoxes.length < 200) {
+          const M = mul(W, ctm)
+          const b = bboxOf([...tx(M, 0, 0), ...tx(M, 1, 0), ...tx(M, 0, 1), ...tx(M, 1, 1)])
+          if (bboxValid(b)) imageBoxes.push(b)
+        }
         break
       }
       case OPS.constructPath: {
@@ -306,6 +342,11 @@ export function buildPdfScene(
     })
   }
 
+  // Çizgi olarak gömülmüş yazılar (harf kümeleri) ayrı katmana alınır
+  const textGeometry = detectTextGeometry(entities, coords)
+  if (textGeometry) for (const id of textGeometry.ids) entities[id].layer = GLYPH_LAYER
+  const garbled = garbledRatio(text.map((t) => t.str ?? ''))
+
   let bbox: BBox = [0, 0, pageWidth, pageHeight]
   let content = EMPTY_BBOX()
   for (const e of entities) content = bboxUnion(content, e.bbox)
@@ -334,8 +375,125 @@ export function buildPdfScene(
       layers: [...layerCounts.entries()].map(([name, count]) => ({ name, rgb: 0xffffff, aci: 7, off: false, frozen: false, locked: false, count })),
       bbox,
     },
-    stats: { segments, paths: entities.filter((e) => e.kind === 'path').length, images, imageCoverage: coverage, textItems },
+    stats: {
+      segments,
+      paths: entities.filter((e) => e.kind === 'path').length,
+      images,
+      imageCoverage: coverage,
+      textItems,
+      glyphPaths: textGeometry?.paths ?? 0,
+      garbledText: garbled,
+    },
     truncated,
     kind,
+    textGeometry: textGeometry ? { regions: textGeometry.regions, paths: textGeometry.paths, height: textGeometry.height, vertical: textGeometry.vertical } : null,
+    imageBoxes,
   }
+}
+
+// ------------------------------------------------------------------ yazı-çizgi tespiti
+
+/** Harf yolu: küçük (≤ 14 pt), nokta olmayan yol */
+const GLYPH_MAX = 14
+const GLYPH_MIN = 0.6
+const CELL = 16
+
+/**
+ * AutoCAD SHX yazı tipleri (ve bazı PDF sürücülerinin "yazıyı eğriye çevir" seçeneği) yazıyı
+ * metin olarak değil, her harfi ayrı çizgi/eğri olarak yazar. Böyle paftalarda metin katmanı
+ * boştur; yazılar ancak OCR ile okunabilir. Harf yolları küçük, yoğun kümeler hâlinde ve
+ * çok yönlü (yatay, düşey, eğik, eğri) parçalardan oluşur; tarama desenleri ise tek/iki yönlüdür.
+ */
+export function detectTextGeometry(entities: SceneEntity[], coords: number[]): (TextGeometry & { ids: number[] }) | null {
+  type Cell = { ids: number[]; mask: number }
+  const cells = new Map<string, Cell>()
+  const heights: number[] = []
+  for (const e of entities) {
+    if (e.kind !== 'path') continue
+    const w = e.bbox[2] - e.bbox[0]
+    const h = e.bbox[3] - e.bbox[1]
+    const big = Math.max(w, h)
+    if (big > GLYPH_MAX || big < GLYPH_MIN) continue
+    // Parça yönleri: 0°, 45°, 90°, 135° kovaları (bit maskesi)
+    let mask = 0
+    for (let i = 0; i + 1 < e.count; i++) {
+      const dx = coords[e.start + 2 * i + 2] - coords[e.start + 2 * i]
+      const dy = coords[e.start + 2 * i + 3] - coords[e.start + 2 * i + 1]
+      if (Math.abs(dx) + Math.abs(dy) < 1e-6) continue
+      let a = (Math.atan2(dy, dx) * 180) / Math.PI
+      if (a < 0) a += 180
+      mask |= 1 << (Math.round(a / 45) % 4)
+      if (mask === 15) break
+    }
+    const cx = Math.floor((e.bbox[0] + e.bbox[2]) / 2 / CELL)
+    const cy = Math.floor((e.bbox[1] + e.bbox[3]) / 2 / CELL)
+    const k = `${cx},${cy}`
+    const c = cells.get(k) ?? { ids: [], mask: 0 }
+    c.ids.push(e.id)
+    c.mask |= mask
+    cells.set(k, c)
+    heights.push(h)
+  }
+  const bits = (m: number) => (m & 1) + ((m >> 1) & 1) + ((m >> 2) & 1) + ((m >> 3) & 1)
+  const glyphCells = new Set<string>()
+  for (const [k, c] of cells) if (c.ids.length >= 3 && bits(c.mask) >= 3) glyphCells.add(k)
+  if (glyphCells.size < 6) return null
+  // Bitişik hücreler → bölge
+  const seen = new Set<string>()
+  const regions: BBox[] = []
+  const ids: number[] = []
+  let vertical = false
+  for (const start of glyphCells) {
+    if (seen.has(start)) continue
+    const stack = [start]
+    seen.add(start)
+    let b = EMPTY_BBOX()
+    let n = 0
+    while (stack.length) {
+      const k = stack.pop()!
+      const c = cells.get(k)!
+      for (const id of c.ids) {
+        b = bboxUnion(b, entities[id].bbox)
+        ids.push(id)
+        n++
+      }
+      const [x, y] = k.split(',').map(Number)
+      // Kesin harf hücrelerinden başlayıp küçük yol içeren komşu hücrelere büyür (kısa kodlar: "K1")
+      for (let dx = -1; dx <= 1; dx++)
+        for (let dy = -1; dy <= 1; dy++) {
+          const nk = `${x + dx},${y + dy}`
+          if (!seen.has(nk) && (glyphCells.has(nk) || (glyphCells.has(k) && cells.has(nk)))) {
+            seen.add(nk)
+            stack.push(nk)
+          }
+        }
+    }
+    if (n < 3) continue
+    if (b[3] - b[1] > 2 * (b[2] - b[0]) && b[3] - b[1] > 20) vertical = true
+    regions.push(b)
+  }
+  if (!regions.length) return null
+  heights.sort((a, b) => a - b)
+  return { regions: regions.slice(0, 2000), paths: ids.length, height: heights[Math.floor(heights.length / 2)] ?? 0, vertical, ids }
+}
+
+/**
+ * Yazı tipi eşlemesi bozuk metin oranı: ToUnicode tablosu olmayan gömülü yazı tiplerinde pdf.js
+ * anlamsız karakterler (özel kullanım alanı, denetim karakterleri, yalnız simge) döndürür.
+ */
+export function garbledRatio(strs: string[]): number {
+  let total = 0
+  let bad = 0
+  for (const raw of strs) {
+    const s = raw.trim()
+    if (!s) continue
+    total++
+    if (/[\u0000-\u0008\u000e-\u001f\ue000-\uf8ff\ufffd]/.test(s)) {
+      bad++
+      continue
+    }
+    const good = (s.match(/[\p{L}\p{N}]/gu) ?? []).length
+    if (s.length >= 3 && good / s.length < 0.3) bad++
+  }
+  return total ? bad / total : 0
 }
