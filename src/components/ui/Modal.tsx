@@ -28,6 +28,9 @@ export function Modal({ open, onClose, title, description, children, footer, siz
   useEffect(() => {
     if (!open) return
     const t = window.setTimeout(() => {
+      // Kullanıcı (veya otomatik giriş) bu arada pencere içinde bir alana geçtiyse odak geri alınmaz:
+      // aksi hâlde yazılan metin ilk alana gider (ör. e-posta yerine firma adına).
+      if (panelRef.current?.contains(document.activeElement)) return
       const first = panelRef.current?.querySelector<HTMLElement>('input:not([disabled]), select, textarea')
       // Dokunmatik cihazlarda klavyenin kendiliğinden açılmaması için yalnızca fareli cihazlarda odakla
       if (first && window.matchMedia('(hover: hover)').matches) first.focus({ preventScroll: true })
