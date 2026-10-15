@@ -15,7 +15,7 @@ import {
   updateExpense,
   updateScheduleRow,
 } from '@/data/financeApi'
-import { listQuoteItems, listQuotesBy } from '@/data/quoteApi'
+import { listQuoteItemsFor, listQuotesBy } from '@/data/quoteApi'
 import { currentRates } from '@/finance/fromTakeoff'
 import { parseRateInput } from '@/finance/fx'
 import {
@@ -42,7 +42,7 @@ import { useFormDirty } from '@/lib/unsaved'
 import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import { computeQuote } from '@/quote/engine'
 import { formatMoney, toCents } from '@/quote/money'
-import { CURRENCIES, type Currency, type Quote } from '@/quote/types'
+import { CURRENCIES, type Currency, type Quote, type QuoteItem } from '@/quote/types'
 import { centsToInput, finErrorMessage, numToInput, parseAmount, parseNumber } from './shared'
 
 type Errors = Record<string, string>
@@ -191,7 +191,15 @@ export function BudgetForm({ open, onClose, projectId, budget, onSaved }: { open
       try {
         const db = requireSupabase()
         const list = (await listQuotesBy(db, 'project_id', projectId)).filter((q) => q.status === 'kabul' && !q.superseded)
-        const withNet = await Promise.all(list.map(async (q) => ({ q, net: computeQuote(q, await listQuoteItems(db, q.id)).net })))
+        // Tüm kalemler tek sorguda; teklife göre istemcide gruplanır
+        const items = await listQuoteItemsFor(db, list.map((q) => q.id))
+        const byQuote = new Map<string, QuoteItem[]>()
+        for (const i of items) {
+          const arr = byQuote.get(i.quote_id)
+          if (arr) arr.push(i)
+          else byQuote.set(i.quote_id, [i])
+        }
+        const withNet = list.map((q) => ({ q, net: computeQuote(q, byQuote.get(q.id) ?? []).net }))
         if (alive) setQuotes(withNet)
       } catch {
         if (alive) setQuotes([])

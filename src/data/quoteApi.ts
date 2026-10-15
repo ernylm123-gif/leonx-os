@@ -69,6 +69,22 @@ export async function listQuoteItems(db: SupabaseClient, quoteId: string): Promi
   return unwrap(await db.from('quote_items').select('*').eq('quote_id', quoteId).order('sort_order', { ascending: true }).order('created_at', { ascending: true }))
 }
 
+/** Birden çok teklifin kalemleri tek sorguda (teklif başına ayrı istek atmamak için); sıra listQuoteItems ile aynı */
+export async function listQuoteItemsFor(db: SupabaseClient, quoteIds: string[]): Promise<QuoteItem[]> {
+  if (!quoteIds.length) return []
+  return fetchAllPages<QuoteItem>((from, to) =>
+    db
+      .from('quote_items')
+      .select('*')
+      .in('quote_id', quoteIds)
+      .order('quote_id', { ascending: true })
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to),
+  )
+}
+
 function toRow(i: Partial<QuoteItemInput>): Partial<QuoteItemInput> {
   const out = { ...i }
   if (out.description != null) out.description = out.description.trim()
