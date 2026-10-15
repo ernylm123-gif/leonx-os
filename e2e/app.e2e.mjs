@@ -262,6 +262,9 @@ await test('Proje: oluşturma, tarih doğrulaması, durum geçmişi, not, dosya,
 
   // Firma silme engeli (projesi var)
   await page.getByRole('link', { name: 'Demir Cephe Ltd.' }).first().click()
+  // Proje sayfasının kendi "Sil" düğmesine basılmasın: önce firma sayfası açılmalı
+  await page.waitForURL(`${BASE}/firmalar/${company.id}`)
+  await page.getByText('1 proje', { exact: true }).waitFor()
   await page.getByRole('button', { name: 'Sil', exact: true }).click()
   await page.getByRole('dialog', { name: 'Firma silinemez' }).waitFor()
   await page.getByRole('button', { name: 'Tamam' }).click()
