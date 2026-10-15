@@ -11,7 +11,7 @@ const run = (name: string) => {
   const mm = a.report.units.mmPerUnit
   return { a, r: detectDxf(a.scene, { mmPerUnit: mm, unitsVerified: mm != null }) }
 }
-const byCode = (cs: { code: string }[]) => new Map(cs.map((c) => [c.code, c]))
+const byCode = <T extends { code: string }>(cs: T[]) => new Map(cs.map((c) => [c.code, c]))
 
 describe('DXF anlamsal analiz (Faz 13)', () => {
   it('model uzayında plan + çizelge: kat tekrarı, çizelge eşleşmesi, malzeme ve ölçü', () => {
