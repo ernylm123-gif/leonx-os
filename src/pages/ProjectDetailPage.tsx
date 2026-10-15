@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Building2, CalendarCheck, CalendarClock, ExternalLink, FolderKanban, Info, MapPin, PauseCircle, Pencil, PlayCircle, Trash2 } from 'lucide-react'
+import { ArrowLeft, Building2, CalendarCheck, CalendarClock, ExternalLink, FolderKanban, Info, MapPin, PauseCircle, Pencil, PlayCircle, Trash2, Wallet } from 'lucide-react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -11,6 +11,7 @@ import { FilterSelect } from '@/components/ui/Toolbar'
 import { useData } from '@/context/data'
 import { useToast } from '@/context/toast'
 import { ConflictError, deleteProject, updateProjectStage } from '@/data/api'
+import { ProjectFinance } from '@/features/finance/ProjectFinance'
 import { ProjectFiles } from '@/features/projects/ProjectFiles'
 import { ProjectForm } from '@/features/projects/ProjectForm'
 import { ProjectNotes } from '@/features/projects/ProjectNotes'
@@ -47,9 +48,9 @@ export function ProjectDetailPage() {
   const [params] = useSearchParams()
   const tab = params.get('sekme')
 
-  // Bildirimden "?sekme=gorevler" ile gelindiyse görev bölümüne kaydır
+  // Bildirimden "?sekme=gorevler" / "?sekme=finans" ile gelindiyse ilgili bölüme kaydır
   useEffect(() => {
-    if (tab === 'gorevler' && project) document.getElementById('gorevler')?.scrollIntoView({ block: 'start' })
+    if ((tab === 'gorevler' || tab === 'finans') && project) document.getElementById(tab)?.scrollIntoView({ block: 'start' })
   }, [tab, project?.id])
 
   if (loading && !project) return <LoadingState label="Proje yükleniyor…" />
@@ -131,6 +132,14 @@ export function ProjectDetailPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link
+            to={`/projeler/${project.id}?sekme=finans`}
+            onClick={() => document.getElementById('finans')?.scrollIntoView({ block: 'start', behavior: 'smooth' })}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-surface px-4 text-sm font-semibold text-ink shadow-card hover:bg-surface-2"
+            data-testid="project-finance-link"
+          >
+            <Wallet className="h-4 w-4" aria-hidden="true" /> Finans
+          </Link>
           <Button variant="secondary" icon={Pencil} onClick={() => setEditOpen(true)}>
             Düzenle
           </Button>
@@ -254,6 +263,7 @@ export function ProjectDetailPage() {
           </Panel>
           <ProjectTasks projectId={project.id} id="gorevler" />
           <RelatedQuotes by="project_id" id={project.id} companyId={project.company_id} />
+          <ProjectFinance project={project} id="finans" />
           <ProjectQuantity projectId={project.id} />
           <ProjectFiles projectId={project.id} />
           <ProjectNotes projectId={project.id} />

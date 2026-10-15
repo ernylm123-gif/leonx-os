@@ -30,6 +30,13 @@ export const REALTIME_TABLES = [
   'project_events',
   'notifications',
   'notification_prefs',
+  'cost_rates',
+  'fx_rates',
+  'project_budgets',
+  'project_cost_lines',
+  'project_expenses',
+  'project_payment_schedule',
+  'project_collections',
 ] as const
 
 export type DetailTable = Exclude<(typeof REALTIME_TABLES)[number], 'companies' | 'projects'>

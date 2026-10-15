@@ -72,6 +72,10 @@ const router = createBrowserRouter([
               })),
           },
           {
+            path: 'finans',
+            lazy: () => import('@/pages/FinancePage').then((m) => ({ Component: m.FinancePage })),
+          },
+          {
             path: 'firmalar',
             lazy: () =>
               import('@/pages/CompaniesPage').then((m) => ({

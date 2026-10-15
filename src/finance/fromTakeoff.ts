@@ -13,6 +13,7 @@
  */
 import { computeItem } from '@/quantity/engine'
 import { CATEGORY_INFO, type QuantityItem } from '@/quantity/types'
+import type { Currency } from '@/quote/types'
 import type { CostGroup, CostLineInput, CostRate, FinUnit, MeasureBasis } from './types'
 
 export interface SuggestedLine extends CostLineInput {
@@ -58,6 +59,8 @@ export function fromApprovedTakeoff(
   rates: readonly CostRate[],
   existing: readonly { source: string; source_item_id: string | null; source_takeoff_id: string | null; cost_group: CostGroup }[],
   today: string,
+  /** Fiyatı tanımlanmamış satırların para birimi (proje ana birimi) */
+  currency: Currency = 'TRY',
 ): TakeoffImport {
   const res: TakeoffImport = { lines: [], excluded: [], alreadyImported: 0, blockedByTakeoff: null }
   const other = existing.find((l) => l.source === 'metraj' && l.source_takeoff_id && l.source_takeoff_id !== takeoff.id)
@@ -125,7 +128,7 @@ export function fromApprovedTakeoff(
         quantity: centiToQty(r.primary.centi),
         unit,
         unit_cost: null,
-        currency: 'TRY',
+        currency,
         cost_rate_id: null,
         measure_basis: unit === 'm2' ? 'alan' : unit === 'mtul' ? 'uzunluk' : unit === 'kg' ? 'kg' : 'adet',
         notes: null,
