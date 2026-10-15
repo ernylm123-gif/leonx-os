@@ -351,6 +351,10 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
                         running={detecting}
                         progress={progress}
                         onRun={runDetection}
+                        onRunOcr={() => {
+                          setOcr(true)
+                          void runPdf([...pdfPages], true)
+                        }}
                         onCancel={() => runAbort.current?.abort()}
                         onGoPage={(p) => void ctx.selectPage(p)}
                         onCalibrate={ctx.startCalibrate}

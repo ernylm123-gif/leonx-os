@@ -15,8 +15,9 @@ import { INTRUDER, MockSupabase, OWNER, SUPABASE_URL } from './mock-supabase.mjs
 import { startStaticServer } from './static-server.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const PORT_CONFIGURED = 4181
-const PORT_UNCONFIGURED = 4182
+// Paralel çalıştırmalarda çakışmamak için E2E_PORT ile değiştirilebilir
+const PORT_CONFIGURED = Number(process.env.E2E_PORT ?? 4181)
+const PORT_UNCONFIGURED = PORT_CONFIGURED + 1
 const BASE = `http://localhost:${PORT_CONFIGURED}`
 const SHOTS = process.env.E2E_SCREENSHOTS
 
@@ -874,6 +875,39 @@ await test('Taranmış PDF: OCR olmadan nedeni açıklanır; OCR (üretim CSP al
   const codes = await page.getByTestId('result-row').evaluateAll((els) => els.map((e) => e.getAttribute('data-poz')))
   expect(codes.includes('P1') && codes.includes('KP1'), `OCR adayları: ${codes.join(', ')}`)
   expect(/OCR/.test(await page.getByTestId('pdf-diagnostics').innerText()), 'OCR uyarısı gösterilmedi')
+  expect(external.length === 0, `harici istek: ${external.join(', ')}`)
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+  expect(unexpected.length === 0, `konsol / CSP hataları: ${unexpected.join(' | ')}`)
+}, { viewport: { width: 1440, height: 900 } })
+
+await test('Faz 5.2: AutoCAD yazı-çizgi paftası ve görüntü çizelge — neden söylenir, karo OCR ile pozlar okunur (kendi sunucudan, harici istek yok)', async ({ page, consoleErrors }) => {
+  const external = []
+  page.on('request', (r) => !r.url().startsWith('http://localhost') && !r.url().includes('supabase') && external.push(r.url()))
+  await login(page, OWNER, '/cad-analiz')
+  await page.getByTestId('cad-workspace').waitFor()
+  await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(PDF_FX, 'autocad_shx_plan.pdf'))
+  await page.getByTestId('cad-canvas').waitFor({ timeout: 20000 })
+  await page.getByRole('tab', { name: /Pozlar/ }).click()
+  await page.getByTestId('pdf-why-none').waitFor({ timeout: 15000 })
+  const why = await page.getByTestId('pdf-why-none').innerText()
+  expect(/çizgi olarak gömülü/.test(why) && !/Çizimde yazı yok/.test(why), `neden yanlış: ${why}`)
+  expect(/OCR/.test(await page.getByTestId('pdf-ocr-box').innerText()), 'OCR seçeneği gösterilmedi')
+  expect(/girdi gerekli/.test(await page.getByTestId('pdf-report').innerText()), 'tanı raporunda kritik girdi yok')
+  await page.getByTestId('pdf-run-ocr').click()
+  await page.locator('[data-testid="result-row"][data-poz="P1"]').waitFor({ timeout: 120000 })
+  const p1 = page.locator('[data-testid="result-row"][data-poz="P1"]')
+  expect((await p1.getByTestId('result-total').innerText()).includes('5,40 m²'), `P1 toplamı (1,2 × 1,5 × 3): ${await p1.getByTestId('result-total').innerText()}`)
+  const codes = await page.getByTestId('result-row').evaluateAll((els) => els.map((e) => e.getAttribute('data-poz')))
+  expect(['P1', 'P2', 'S1'].every((c) => codes.includes(c)), `SHX OCR adayları: ${codes.join(', ')}`)
+  // Karma pafta: çizelge görüntüde; OCR ile adet ve malzeme çizelgeden gelir
+  await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(PDF_FX, 'karma_cizelge_raster.pdf'))
+  await page.getByTestId('cad-canvas').waitFor({ timeout: 20000 })
+  await page.getByRole('tab', { name: /Pozlar/ }).click()
+  await page.getByTestId('pdf-ocr-toggle').check()
+  await page.getByTestId('poz-detect').click()
+  await eventually(async () => /Çizelge \+ plan/.test(await page.locator('[data-testid="result-row"][data-poz="P1"]').innerText().catch(() => '')), 'karma: çizelge okunmadı', 120000)
+  const p1k = page.locator('[data-testid="result-row"][data-poz="P1"]')
+  expect((await p1k.getByTestId('result-category').inputValue()) === 'pvc_pencere', 'karma: P1 malzemesi çizelgeden okunmadı')
   expect(external.length === 0, `harici istek: ${external.join(', ')}`)
   const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
   expect(unexpected.length === 0, `konsol / CSP hataları: ${unexpected.join(' | ')}`)

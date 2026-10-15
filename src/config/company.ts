@@ -42,5 +42,6 @@ export const ROADMAP = [
   { phase: 'Faz 5', title: 'DXF/PDF analiz, CAD görüntüleyici, poz tespiti ve metraj', done: true },
   { phase: 'Faz 6', title: 'Teklif, maliyet, fiyatlandırma, revizyon ve kurumsal PDF/Excel', done: true },
   { phase: 'Faz 7', title: 'Proje aşamaları, görev ve termin, bildirim merkezi ve push', done: true },
+  { phase: 'Faz 5.2', title: 'Mimari PDF analizi: AutoCAD yazı-çizgi OCR, kart tipi liste, teknik özellikler', done: true },
   { phase: 'Sıradaki', title: 'LEONX AI entegrasyonu', done: false },
 ] as const

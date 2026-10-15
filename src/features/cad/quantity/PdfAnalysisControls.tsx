@@ -1,6 +1,6 @@
 import { AlertTriangle, CheckCircle2, ChevronDown, Eye, Info, Loader2, ScanText, Sparkles, X } from 'lucide-react'
 import { useState } from 'react'
-import { SHEET_LABEL } from '@/cad/pdf/archAnalyze'
+import { type PdfDiagnostics, SHEET_LABEL } from '@/cad/pdf/archAnalyze'
 import type { PdfPageEntry } from '@/cad/pdf/pdfLoader'
 import { cn } from '@/lib/cn'
 import type { DetectionResult } from '@/quantity/detect'
@@ -30,6 +30,7 @@ export function PdfAnalysisControls({
   running,
   progress,
   onRun,
+  onRunOcr,
   onCancel,
   onGoPage,
   onCalibrate,
@@ -46,6 +47,8 @@ export function PdfAnalysisControls({
   running: boolean
   progress: PdfRunProgress | null
   onRun: () => void
+  /** OCR açık olarak seçili sayfaları yeniden analiz et */
+  onRunOcr: () => void
   onCancel: () => void
   onGoPage: (page: number) => void
   onCalibrate: () => void
@@ -61,7 +64,8 @@ export function PdfAnalysisControls({
     err: pages.filter((p) => p.error).length,
     skipped: pages.filter((p) => !p.kind && !p.error).length,
   }
-  const scannedSelected = pages.filter((p) => selected.has(p.page) && (p.kind === 'taranmis' || (p.kind === 'karma' && (p.analysis?.textCount ?? 0) < 5)))
+  // OCR gereken sayfalar: taranmış, çizgi olarak gömülü yazı (AutoCAD SHX), bozuk yazı tipi, görüntü çizelge
+  const ocrSelected = pages.filter((p) => selected.has(p.page) && !p.ocr && (p.analysis?.ocrNeeded || p.kind === 'taranmis'))
   const toggle = (n: number) => {
     const s = new Set(selected)
     if (s.has(n)) s.delete(n)
@@ -157,7 +161,9 @@ export function PdfAnalysisControls({
                         ) : (
                           <>
                             {p.kind ? KIND[p.kind] : '—'}
-                            {a ? ` · ${a.textSource === 'ocr' ? 'OCR ' : ''}${a.textCount} yazı · ${a.labelCount} etiket${a.scheduleRows ? ` · ${a.scheduleRows} çizelge satırı` : ''}` : ''}
+                            {a ? ` · ${a.textSource === 'ocr' ? 'OCR ' : a.textSource === 'vektor+ocr' ? 'vektör+OCR ' : ''}${a.textCount} yazı · ${a.labelCount} etiket${a.scheduleRows ? ` · ${a.scheduleRows} çizelge satırı` : ''}${a.cardCount ? ` (${a.cardCount} kart)` : ''}` : ''}
+                            {a?.floor.multiplier ? ` · ${a.floor.multiplier} kat için` : ''}
+                            {a?.ocrNeeded && !p.ocr ? <span className="text-warn"> · OCR gerekli</span> : null}
                             {a?.scale.used ? ` · 1/${a.scale.used}${a.scale.usedFrom === 'olcu' ? ' (ölçü yazılarından)' : a.scale.usedFrom === 'antet' ? ' (antet)' : ' (onaylı)'}` : a && p.kind !== 'bos' ? ' · ölçek yok' : ''}
                           </>
                         )}
@@ -176,15 +182,22 @@ export function PdfAnalysisControls({
         )}
       </div>
 
-      {scannedSelected.length > 0 && (
-        <label className="flex items-start gap-2 rounded-lg border border-line px-2.5 py-2 text-ink">
+      {ocrSelected.length > 0 && (
+        <label className="flex items-start gap-2 rounded-lg border border-line px-2.5 py-2 text-ink" data-testid="pdf-ocr-box">
           <input type="checkbox" className="mt-0.5 h-4 w-4" checked={ocr} onChange={(e) => onOcrChange(e.target.checked)} data-testid="pdf-ocr-toggle" />
           <span>
             <span className="inline-flex items-center gap-1 font-semibold">
               <ScanText className="h-3.5 w-3.5" aria-hidden="true" />
-              {scannedSelected.length} taranmış sayfada OCR ile yazı oku
+              {ocrSelected.length} sayfada OCR ile yazı oku
             </span>
-            <span className="mt-0.5 block text-[11px] text-muted">Türkçe tanıma cihazınızda çalışır (dosya dışarı gönderilmez). İlk kullanımda ~6 MB indirilir; sayfa başına birkaç saniye sürebilir.</span>
+            <span className="mt-0.5 block space-y-0.5 text-[11px] text-muted">
+              {ocrSelected.slice(0, 6).map((p) => (
+                <span key={p.page} className="block">
+                  S{p.page}: {p.analysis?.ocrNeeded ?? 'taranmış sayfa'}
+                </span>
+              ))}
+              <span className="block">Türkçe tanıma cihazınızda çalışır (dosya dışarı gönderilmez). İlk kullanımda ~6 MB indirilir; büyük paftalar yüksek çözünürlükte parça parça okunur, sayfa başına bir dakikayı bulabilir.</span>
+            </span>
           </span>
         </label>
       )}
@@ -214,8 +227,15 @@ export function PdfAnalysisControls({
                   <li key={w}>• {w}</li>
                 ))}
               </ul>
+              {ocrSelected.length > 0 && !running && (
+                <MiniButton className="mt-2" onClick={onRunOcr} testId="pdf-run-ocr">
+                  <ScanText className="h-3.5 w-3.5" aria-hidden="true" />
+                  OCR ile yeniden analiz et
+                </MiniButton>
+              )}
             </div>
           )}
+          <DiagnosticReportView report={diag.report} onCalibrate={onCalibrate} onRunOcr={ocrSelected.length && !running ? onRunOcr : null} />
           {diag.warnings.map((w) => (
             <p key={w} className="flex gap-1.5 text-warn">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -270,6 +290,60 @@ export function PdfAnalysisControls({
           İki noktayla kalibre et
         </MiniButton>
       </div>
+    </div>
+  )
+}
+
+/** Tanı raporu: dosya okunabilirliği, pafta ve yazı sayıları, ölçek, OCR, başarısız sayfalar, eksikler, kritik sorular */
+function DiagnosticReportView({ report, onCalibrate, onRunOcr }: { report: PdfDiagnostics['report']; onCalibrate: () => void; onRunOcr: (() => void) | null }) {
+  const [open, setOpen] = useState(false)
+  const yesNo = (v: boolean) => (v ? 'Evet' : 'Hayır')
+  return (
+    <div className="rounded-lg border border-line px-2.5 py-2" data-testid="pdf-report">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-1 font-semibold text-ink" aria-expanded={open}>
+        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')} aria-hidden="true" />
+        Tanı raporu
+        {report.asks.length > 0 && <span className="ml-auto rounded bg-warn-soft px-1.5 text-[10.5px] text-warn">{report.asks.length} girdi gerekli</span>}
+      </button>
+      {report.asks.length > 0 && (
+        <ul className="mt-1.5 space-y-1" data-testid="pdf-asks">
+          {report.asks.map((a) => (
+            <li key={a.message} className="flex flex-wrap items-center gap-1.5 text-ink">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warn" aria-hidden="true" />
+              <span className="min-w-0 flex-1">{a.message}</span>
+              {a.kind === 'referans_olcu' && <MiniButton onClick={onCalibrate}>Kalibre et</MiniButton>}
+              {a.kind === 'ocr' && onRunOcr && <MiniButton onClick={onRunOcr}>OCR çalıştır</MiniButton>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {open && (
+        <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px]">
+          <dt className="text-muted">Dosya okunabildi mi?</dt>
+          <dd className="text-ink">{yesNo(report.readable)}</dd>
+          <dt className="text-muted">Bulunan / analiz edilen pafta</dt>
+          <dd className="text-ink">
+            {report.pagesFound} / {report.pagesAnalyzed}
+          </dd>
+          <dt className="text-muted">Algılanan metin</dt>
+          <dd className="text-ink">{report.texts}</dd>
+          <dt className="text-muted">Olası poz</dt>
+          <dd className="text-ink">{report.candidates}</dd>
+          <dt className="text-muted">Ölçek doğrulandı</dt>
+          <dd className="text-ink">
+            {report.scaleVerifiedPages.length ? `Sayfa ${report.scaleVerifiedPages.join(', ')}` : 'Hiçbir sayfada'}
+            {report.scaleUnverifiedPages.length ? ` · doğrulanamadı: ${report.scaleUnverifiedPages.join(', ')}` : ''}
+          </dd>
+          <dt className="text-muted">OCR gerekli mi?</dt>
+          <dd className="text-ink">
+            {report.ocrNeededPages.length ? report.ocrNeededPages.map((o) => `S${o.page} (${o.done ? 'yapıldı' : 'yapılmadı'})`).join(', ') : 'Hayır'}
+          </dd>
+          <dt className="text-muted">Başarısız sayfalar</dt>
+          <dd className="text-ink">{report.failedPages.length ? report.failedPages.map((f) => `S${f.page}: ${f.reason}`).join('; ') : 'Yok'}</dd>
+          <dt className="text-muted">Çıkarılamayan bilgiler</dt>
+          <dd className="text-ink">{report.missing.length ? report.missing.join('; ') : '—'}</dd>
+        </dl>
+      )}
     </div>
   )
 }

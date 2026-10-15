@@ -78,6 +78,21 @@ export interface DetectionInfo {
   reasons: string[]
   evidence: string[]
   suggested_category: QuantityCategory
+  /** Teknik özellikler ve doğrulama durumları (Faz 5.2: malzeme, sistem, açılım, cam, renk...) */
+  attrs?: Record<string, { value: string; status: 'dogrulandi' | 'aday' | 'belirsiz'; source: string }>
+  /** Tespit sırasında bulunan çelişkiler (adet/ölçü/açılım) */
+  conflicts?: { kind: string; message: string }[]
+  /** Kaynak: hangi paftalar, ölçü kaynağı, adet kaynakları */
+  provenance?: {
+    pages?: number[]
+    sheets?: string[]
+    dims_from?: string | null
+    schedule_qty?: number | null
+    plan_qty?: number | null
+    floor_multiplier?: number | null
+    code_variants?: string[]
+    ocr?: boolean
+  }
 }
 
 /** İstemcinin yazdığı alanlar */
