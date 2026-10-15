@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Quote, QuoteHistoryEntry, QuoteInput, QuoteItem, QuoteItemInput, QuoteSettings, QuoteSettingsInput, QuoteStatus } from '@/quote/types'
-import { ConflictError, insertManyOnce, insertOnce, LIST_LIMIT, versionedUpdate } from './api'
+import { ConflictError, fetchAllPages, insertManyOnce, insertOnce, LIST_LIMIT, versionedUpdate } from './api'
 
 /**
  * Teklif veri erişimi. Numara, kilit ve revizyon kuralları veritabanında uygulanır
@@ -30,7 +30,7 @@ export async function listQuotes(db: SupabaseClient): Promise<Quote[]> {
 
 /** Tüm tekliflerin kalemleri (liste toplamları için yalnız hesap alanları) */
 export async function listAllQuoteItems(db: SupabaseClient): Promise<QuoteItem[]> {
-  return unwrap(await db.from('quote_items').select(ITEM_TOTAL_COLUMNS).range(0, 9999)) as QuoteItem[]
+  return (await fetchAllPages((from, to) => db.from('quote_items').select(ITEM_TOTAL_COLUMNS).order('id').range(from, to))) as unknown as QuoteItem[]
 }
 
 export async function getQuote(db: SupabaseClient, id: string): Promise<Quote | null> {

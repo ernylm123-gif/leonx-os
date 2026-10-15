@@ -36,6 +36,33 @@ function unwrap<T>(res: { data: T | null; error: unknown }): T {
   return res.data as T
 }
 
+/** Sayfalı okumada bir sayfanın satır sayısı (PostgREST max-rows varsayılanı 1000 ile aynı). */
+export const PAGE_SIZE = 1000
+/** Sayfalı okumada güvenlik sınırı; aşılırsa eksik veri göstermek yerine hata verilir. */
+export const MAX_PAGES = 50
+
+/**
+ * Tüm satırları sayfa sayfa okur. PostgREST yanıtı max-rows (varsayılan 1000) ile keser;
+ * tek `.range(0, 9999)` isteği bu yüzden sessizce yalnız ilk 1000 satırı döndürebilir.
+ * `build(from, to)` sorguyu `.range(from, to)` ile kurmalıdır; sayfalar çakışmasın diye
+ * sorgunun sıralaması belirleyici olmalıdır (ör. son anahtar olarak `.order('id')`).
+ * Bir sayfa `pageSize`'dan az satır döndürdüğünde okuma biter.
+ */
+export async function fetchAllPages<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  pageSize = PAGE_SIZE,
+  maxPages = MAX_PAGES,
+): Promise<T[]> {
+  const out: T[] = []
+  for (let page = 0; page < maxPages; page++) {
+    const from = page * pageSize
+    const rows = unwrap(await build(from, from + pageSize - 1)) ?? []
+    for (const r of rows) out.push(r)
+    if (rows.length < pageSize) return out
+  }
+  throw new Error(`Liste çok büyük: ${(maxPages * pageSize).toLocaleString('tr-TR')} satırdan fazla kayıt var. Eksik veri göstermemek için yükleme durduruldu.`)
+}
+
 /**
  * Tekrarlanabilir (idempotent) ekleme. Kimlik istemcide üretilir; bağlantı koptuğunda istek
  * yeniden gönderilir. İlk deneme sunucuda başarılı olup yanıt kaybolduysa ikinci deneme
