@@ -114,7 +114,7 @@ export function ProjectFiles({ projectId }: { projectId: string }) {
       ) : items.length === 0 ? (
         <div className="rounded-xl border border-dashed border-line-strong px-4 py-8 text-center">
           <p className="text-sm text-muted">Henüz dosya yok.</p>
-          <p className="mt-1 text-xs text-subtle">PDF, görsel, DWG/DXF, Office, CSV, TXT, ZIP. CAD dosyalarının analizi henüz yapılmaz; yalnızca saklanır.</p>
+          <p className="mt-1 text-xs text-subtle">PDF, görsel, DWG/DXF, Office, CSV, TXT, ZIP. DXF ve PDF çizimler CAD Analiz'de açılır; DWG yalnızca saklanır (analiz için DXF'e dönüştürün).</p>
         </div>
       ) : (
         <ul className="divide-y divide-line">
