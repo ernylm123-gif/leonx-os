@@ -52,7 +52,12 @@ export function useQuoteTotals(quotes: Quote[]) {
   const items = useLiveQuery<QuoteItem[]>(['quote_items'], () => listAllQuoteItems(requireSupabase()), [])
   const totals = useMemo(() => {
     const byQuote = new Map<string, QuoteItem[]>()
-    for (const i of items.data) byQuote.set(i.quote_id, [...(byQuote.get(i.quote_id) ?? []), i])
+    for (const i of items.data) {
+      // Mevcut diziye ekle (her eklemede diziyi yeniden kurmak karesel maliyetlidir)
+      const arr = byQuote.get(i.quote_id)
+      if (arr) arr.push(i)
+      else byQuote.set(i.quote_id, [i])
+    }
     const out = new Map<string, QuoteTotals>()
     for (const q of quotes) out.set(q.id, computeQuote(q, byQuote.get(q.id) ?? []))
     return out

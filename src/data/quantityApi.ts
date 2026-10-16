@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { QuantityItem, QuantityItemInput } from '@/quantity/types'
-import { ConflictError, insertManyOnce, insertOnce, LIST_LIMIT } from './api'
+import { ConflictError, fetchAllPages, insertManyOnce, insertOnce, LIST_LIMIT } from './api'
 import { withNetworkRetry } from '@/lib/retry'
 import type { CadAnalysis, CadAnalysisInput, QuantityItemHistory, QuantityTakeoff } from './types'
 
@@ -88,7 +88,7 @@ export async function listItems(db: SupabaseClient, takeoffId: string): Promise<
 }
 
 export async function listProjectItems(db: SupabaseClient, projectId: string): Promise<QuantityItem[]> {
-  return unwrap(await db.from('quantity_items').select('*').eq('project_id', projectId).range(0, LIST_LIMIT * 5 - 1))
+  return fetchAllPages<QuantityItem>((from, to) => db.from('quantity_items').select('*').eq('project_id', projectId).order('id').range(from, to))
 }
 
 function toRow(input: QuantityItemInput) {

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { TextField } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import { nf } from '../format'
 
 /**
@@ -21,12 +22,11 @@ export function CalibrationDialog({
 }) {
   const [value, setValue] = useState('')
   const [error, setError] = useState<string | undefined>()
-  useEffect(() => {
-    if (open) {
-      setValue('')
-      setError(undefined)
-    }
-  }, [open])
+  // Açılışta render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları ezebilir)
+  useResetOnOpen(open, () => {
+    setValue('')
+    setError(undefined)
+  })
 
   const submit = () => {
     const mm = Number(value.replace(/\s/g, '').replace(',', '.'))

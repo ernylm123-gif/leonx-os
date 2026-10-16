@@ -12,6 +12,7 @@ import { useQuoteSettings } from '@/features/quotes/shared'
 import { dataErrorMessage } from '@/lib/errors'
 import { addDays, localISODate } from '@/lib/stats'
 import { requireSupabase } from '@/lib/supabase'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import { computeItem } from '@/quantity/engine'
 import { formatCenti } from '@/quantity/precision'
 import type { QuantityItem } from '@/quantity/types'
@@ -36,10 +37,18 @@ export function SendToQuoteDialog({ open, onClose, projectId, takeoff, items }: 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Açılışta durumu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yapılan seçimleri ezebilir)
+  useResetOnOpen(
+    open,
+    () => {
+      setError(null)
+      setIncludeUnverified(false)
+    },
+    [projectId],
+  )
+
   useEffect(() => {
     if (!open) return
-    setError(null)
-    setIncludeUnverified(false)
     let cancelled = false
     listQuotesBy(requireSupabase(), 'project_id', projectId)
       .then((q) => {

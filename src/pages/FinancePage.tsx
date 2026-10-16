@@ -95,7 +95,8 @@ function FinanceOverview() {
         else expectedMissing++
       }
       if (s.profit.realized) addTo(realized, s.base, s.profit.realized.profit)
-      for (const e of data.expenses) addTo(actual, e.currency, toCents(e.amount))
+      // Komşu göstergelerle aynı küme: yalnız aktif projeler (kapanan/iptal edilenler hariç), para birimi bazında
+      if (active) for (const e of data.expenses) addTo(actual, e.currency, toCents(e.amount))
       for (const [c, t] of Object.entries(s.receivables.perCurrency) as [Currency, NonNullable<(typeof s.receivables.perCurrency)[Currency]>][]) {
         addTo(collected, c, t.collected)
         addTo(outstanding, c, t.outstanding)
@@ -129,7 +130,7 @@ function FinanceOverview() {
           hint={agg.expectedMissing ? `${agg.expectedMissing} aktif projede eksik veri (satış, fiyat veya kur)` : 'Aktif projeler'}
           testId="kpi-expected"
         />
-        <StatTile label="Gerçekleşen gider" badge={<KindBadge kind="gerceklesen" />} value={<MoneyByCurrency map={agg.actual} />} hint="KDV hariç, para birimi bazında" testId="kpi-actual" />
+        <StatTile label="Gerçekleşen gider" badge={<KindBadge kind="gerceklesen" />} value={<MoneyByCurrency map={agg.actual} />} hint="KDV hariç, aktif projeler, para birimi bazında" testId="kpi-actual" />
         <StatTile label="Tahsilat" value={<MoneyByCurrency map={agg.collected} />} testId="kpi-collected" />
         <StatTile label="Açık alacak" value={<MoneyByCurrency map={agg.outstanding} />} testId="kpi-outstanding" />
         <StatTile label="Geciken ödeme" value={<MoneyByCurrency map={agg.overdue} />} tone={Object.values(agg.overdue).some((v) => v! > 0) ? 'danger' : undefined} testId="kpi-overdue" />

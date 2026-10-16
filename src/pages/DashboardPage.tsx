@@ -212,7 +212,7 @@ export function DashboardPage() {
             )}
           </Panel>
 
-          <Panel title="Modüller" subtitle="Projeler, Firmalar ve Raporlar gerçek veriyle çalışır" icon={Layers}>
+          <Panel title="Modüller" subtitle="Projeler, Görevler, CAD Analiz, Metraj, Teklifler, Finans ve Firmalar gerçek veriyle çalışır" icon={Layers}>
             <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {modules.map((m) => (
                 <li key={m.path} className="min-w-0">

@@ -15,7 +15,7 @@ import {
   updateExpense,
   updateScheduleRow,
 } from '@/data/financeApi'
-import { listQuoteItems, listQuotesBy } from '@/data/quoteApi'
+import { listQuoteItemsFor, listQuotesBy } from '@/data/quoteApi'
 import { currentRates } from '@/finance/fromTakeoff'
 import { parseRateInput } from '@/finance/fx'
 import {
@@ -39,9 +39,10 @@ import {
 import { formatDate, localISODate } from '@/lib/stats'
 import { requireSupabase } from '@/lib/supabase'
 import { useFormDirty } from '@/lib/unsaved'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import { computeQuote } from '@/quote/engine'
 import { formatMoney, toCents } from '@/quote/money'
-import { CURRENCIES, type Currency, type Quote } from '@/quote/types'
+import { CURRENCIES, type Currency, type Quote, type QuoteItem } from '@/quote/types'
 import { centsToInput, finErrorMessage, numToInput, parseAmount, parseNumber } from './shared'
 
 type Errors = Record<string, string>
@@ -162,19 +163,27 @@ export function BudgetForm({ open, onClose, projectId, budget, onSaved }: { open
   const [quotesLoading, setQuotesLoading] = useState(false)
   const s = useSave<ProjectBudget>(onClose, onSaved, 'Bütçe kaydı')
 
+  // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları/hataları ezebilir)
+  useResetOnOpen(
+    open,
+    () => {
+      setErrors({})
+      s.setError(null)
+      setD({
+        currency: budget?.currency ?? 'TRY',
+        sale: centsToInput(budget?.sale_net_amount != null ? toCents(budget.sale_net_amount) : null),
+        vat: numToInput(budget?.vat_pct ?? 20),
+        waste: numToInput(budget?.waste_pct ?? 0),
+        overhead: numToInput(budget?.overhead_pct ?? 0),
+        notes: budget?.notes ?? '',
+        quoteId: budget?.source_quote_id ?? '',
+      })
+    },
+    [budget],
+  )
+
   useEffect(() => {
     if (!open) return
-    setErrors({})
-    s.setError(null)
-    setD({
-      currency: budget?.currency ?? 'TRY',
-      sale: centsToInput(budget?.sale_net_amount != null ? toCents(budget.sale_net_amount) : null),
-      vat: numToInput(budget?.vat_pct ?? 20),
-      waste: numToInput(budget?.waste_pct ?? 0),
-      overhead: numToInput(budget?.overhead_pct ?? 0),
-      notes: budget?.notes ?? '',
-      quoteId: budget?.source_quote_id ?? '',
-    })
     // Yalnız kabul edilmiş güncel teklifler bağlanabilir (veritabanı da denetler)
     let alive = true
     setQuotesLoading(true)
@@ -182,7 +191,15 @@ export function BudgetForm({ open, onClose, projectId, budget, onSaved }: { open
       try {
         const db = requireSupabase()
         const list = (await listQuotesBy(db, 'project_id', projectId)).filter((q) => q.status === 'kabul' && !q.superseded)
-        const withNet = await Promise.all(list.map(async (q) => ({ q, net: computeQuote(q, await listQuoteItems(db, q.id)).net })))
+        // Tüm kalemler tek sorguda; teklife göre istemcide gruplanır
+        const items = await listQuoteItemsFor(db, list.map((q) => q.id))
+        const byQuote = new Map<string, QuoteItem[]>()
+        for (const i of items) {
+          const arr = byQuote.get(i.quote_id)
+          if (arr) arr.push(i)
+          else byQuote.set(i.quote_id, [i])
+        }
+        const withNet = list.map((q) => ({ q, net: computeQuote(q, byQuote.get(q.id) ?? []).net }))
         if (alive) setQuotes(withNet)
       } catch {
         if (alive) setQuotes([])
@@ -304,17 +321,21 @@ export function CostLineForm({
   const s = useSave<CostLine>(onClose, onSaved, 'Maliyet satırı')
   const catalog = useMemo(() => currentRates(rates, localISODate()), [rates])
 
-  useEffect(() => {
-    if (!open) return
-    setErrors({})
-    s.setError(null)
-    setDraftId(crypto.randomUUID())
-    setD(
-      line
-        ? { rateId: line.cost_rate_id ?? '', group: line.cost_group, description: line.description, quantity: numToInput(line.quantity), unit: line.unit, cost: line.unit_cost == null ? '' : centsToInput(toCents(line.unit_cost)), currency: line.currency, notes: line.notes ?? '' }
-        : { rateId: '', group: 'profil', description: '', quantity: '', unit: 'm2', cost: '', currency: defaultCurrency, notes: '' },
-    )
-  }, [open, line, defaultCurrency])
+  // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları/hataları ezebilir)
+  useResetOnOpen(
+    open,
+    () => {
+      setErrors({})
+      s.setError(null)
+      setDraftId(crypto.randomUUID())
+      setD(
+        line
+          ? { rateId: line.cost_rate_id ?? '', group: line.cost_group, description: line.description, quantity: numToInput(line.quantity), unit: line.unit, cost: line.unit_cost == null ? '' : centsToInput(toCents(line.unit_cost)), currency: line.currency, notes: line.notes ?? '' }
+          : { rateId: '', group: 'profil', description: '', quantity: '', unit: 'm2', cost: '', currency: defaultCurrency, notes: '' },
+      )
+    },
+    [line, defaultCurrency],
+  )
 
   const pickRate = (id: string) => {
     const r = catalog.find((x) => x.id === id)
@@ -396,29 +417,33 @@ export function ExpenseForm({ open, onClose, projectId, expense, base, onSaved }
   const [draftId, setDraftId] = useState('')
   const s = useSave<Expense>(onClose, onSaved, 'Gider kaydı')
 
-  useEffect(() => {
-    if (!open) return
-    setErrors({})
-    s.setError(null)
-    setDraftId(crypto.randomUUID())
-    setD(
-      expense
-        ? {
-            date: expense.expense_date,
-            group: expense.cost_group,
-            description: expense.description,
-            supplier: expense.supplier ?? '',
-            amount: centsToInput(toCents(expense.amount)),
-            vat: centsToInput(toCents(expense.vat_amount)),
-            currency: expense.currency,
-            fx: expense.fx_rate_to_base != null ? String(expense.fx_rate_to_base).replace('.', ',') : '',
-            doc: expense.document_no ?? '',
-            paid: expense.paid,
-            notes: expense.notes ?? '',
-          }
-        : { ...empty, currency: base },
-    )
-  }, [open, expense, base])
+  // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları/hataları ezebilir)
+  useResetOnOpen(
+    open,
+    () => {
+      setErrors({})
+      s.setError(null)
+      setDraftId(crypto.randomUUID())
+      setD(
+        expense
+          ? {
+              date: expense.expense_date,
+              group: expense.cost_group,
+              description: expense.description,
+              supplier: expense.supplier ?? '',
+              amount: centsToInput(toCents(expense.amount)),
+              vat: centsToInput(toCents(expense.vat_amount)),
+              currency: expense.currency,
+              fx: expense.fx_rate_to_base != null ? String(expense.fx_rate_to_base).replace('.', ',') : '',
+              doc: expense.document_no ?? '',
+              paid: expense.paid,
+              notes: expense.notes ?? '',
+            }
+          : { ...empty, currency: base },
+      )
+    },
+    [expense, base],
+  )
 
   const submit = () => {
     const errs: Errors = {}
@@ -504,17 +529,21 @@ export function ScheduleForm({ open, onClose, projectId, row, base, nextSort, on
   const [draftId, setDraftId] = useState('')
   const s = useSave<PaymentScheduleRow>(onClose, onSaved, 'Ödeme planı')
 
-  useEffect(() => {
-    if (!open) return
-    setErrors({})
-    s.setError(null)
-    setDraftId(crypto.randomUUID())
-    setD(
-      row
-        ? { kind: row.kind, label: row.label ?? '', due: row.due_date, amount: centsToInput(toCents(row.amount)), currency: row.currency, notes: row.notes ?? '' }
-        : { kind: nextSort === 0 ? 'pesinat' : 'ara_odeme', label: '', due: localISODate(), amount: '', currency: base, notes: '' },
-    )
-  }, [open, row, base])
+  // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları/hataları ezebilir)
+  useResetOnOpen(
+    open,
+    () => {
+      setErrors({})
+      s.setError(null)
+      setDraftId(crypto.randomUUID())
+      setD(
+        row
+          ? { kind: row.kind, label: row.label ?? '', due: row.due_date, amount: centsToInput(toCents(row.amount)), currency: row.currency, notes: row.notes ?? '' }
+          : { kind: nextSort === 0 ? 'pesinat' : 'ara_odeme', label: '', due: localISODate(), amount: '', currency: base, notes: '' },
+      )
+    },
+    [row, base],
+  )
 
   const submit = () => {
     const errs: Errors = {}
@@ -569,17 +598,21 @@ export function CollectionForm({
   const [draftId, setDraftId] = useState('')
   const s = useSave<Collection>(onClose, onSaved, 'Tahsilat kaydı')
 
-  useEffect(() => {
-    if (!open) return
-    setErrors({})
-    s.setError(null)
-    setDraftId(crypto.randomUUID())
-    setD(
-      row
-        ? { date: row.received_date, amount: centsToInput(toCents(row.amount)), currency: row.currency, method: row.method, scheduleId: row.schedule_id ?? '', reference: row.reference ?? '', note: row.note ?? '' }
-        : { date: localISODate(), amount: '', currency: base, method: 'havale', scheduleId: '', reference: '', note: '' },
-    )
-  }, [open, row, base])
+  // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları/hataları ezebilir)
+  useResetOnOpen(
+    open,
+    () => {
+      setErrors({})
+      s.setError(null)
+      setDraftId(crypto.randomUUID())
+      setD(
+        row
+          ? { date: row.received_date, amount: centsToInput(toCents(row.amount)), currency: row.currency, method: row.method, scheduleId: row.schedule_id ?? '', reference: row.reference ?? '', note: row.note ?? '' }
+          : { date: localISODate(), amount: '', currency: base, method: 'havale', scheduleId: '', reference: '', note: '' },
+      )
+    },
+    [row, base],
+  )
 
   const options = schedule.filter((x) => x.currency === d.currency)
   const submit = () => {
