@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { useFormDirty } from '@/lib/unsaved'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import { Button } from '@/components/ui/Button'
 import { FormAlert, SelectField, TextAreaField, TextField } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
@@ -77,9 +78,8 @@ export function ProjectForm({ open, onClose, project, defaultCompanyId, defaultN
   const [busy, setBusy] = useState(false)
   const { markDirty } = useFormDirty(open, 'Proje formu')
 
-  // Form açıldığında başlangıç değerleri
-  useEffect(() => {
-    if (!open) return
+  // Form açıldığında başlangıç değerleri (render sırasında; effect ile sıfırlamak açılır açılmaz yazılanları ezebilir)
+  useResetOnOpen(open, () => {
     setErrors({})
     setFormError(null)
     setConflict(null)
@@ -89,13 +89,18 @@ export function ProjectForm({ open, onClose, project, defaultCompanyId, defaultN
     } else {
       setForm({ ...EMPTY, company_id: defaultCompanyId ?? '', name: defaultName ?? '' })
       setBaseVersion(null)
-      let cancelled = false
-      suggestProjectCode(requireSupabase()).then((code) => {
-        if (!cancelled && code) setForm((f) => (f.code ? f : { ...f, code }))
-      })
-      return () => {
-        cancelled = true
-      }
+    }
+  })
+
+  // Yeni projede kod önerisi (asenkron; kullanıcı kod yazdıysa ezmez)
+  useEffect(() => {
+    if (!open || project) return
+    let cancelled = false
+    suggestProjectCode(requireSupabase()).then((code) => {
+      if (!cancelled && code) setForm((f) => (f.code ? f : { ...f, code }))
+    })
+    return () => {
+      cancelled = true
     }
   }, [open])
 

@@ -1,5 +1,6 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useMemo, useState } from 'react'
 import { useFormDirty } from '@/lib/unsaved'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import { Button } from '@/components/ui/Button'
 import { FormAlert, TextAreaField, TextField } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
@@ -43,14 +44,14 @@ export function CompanyForm({ open, onClose, company, onSaved }: CompanyFormProp
   const [busy, setBusy] = useState(false)
   const { markDirty } = useFormDirty(open, 'Firma formu')
 
-  useEffect(() => {
-    if (!open) return
+  // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları/hataları ezebilir)
+  useResetOnOpen(open, () => {
     setErrors({})
     setFormError(null)
     setConflict(null)
     setForm(company ? toForm(company) : EMPTY)
     setBaseVersion(company?.version ?? null)
-  }, [open]) // yalnızca açılışta
+  })
 
   const latest = useMemo(() => (company ? companies.find((c) => c.id === company.id) : undefined), [companies, company])
   const changedElsewhere = !!company && baseVersion !== null && !!latest && latest.version > baseVersion

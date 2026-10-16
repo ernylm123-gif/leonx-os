@@ -1,5 +1,6 @@
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useState } from 'react'
 import { useFormDirty } from '@/lib/unsaved'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import { Button } from '@/components/ui/Button'
 import { FormAlert, TextAreaField, TextField } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
@@ -27,8 +28,8 @@ export function ContactForm({ open, onClose, companyId, contact, onSaved }: Cont
   const [busy, setBusy] = useState(false)
   const { markDirty } = useFormDirty(open, 'İlgili kişi formu')
 
-  useEffect(() => {
-    if (!open) return
+  // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları/hataları ezebilir)
+  useResetOnOpen(open, () => {
     setErrors({})
     setFormError(null)
     setForm({
@@ -39,7 +40,7 @@ export function ContactForm({ open, onClose, companyId, contact, onSaved }: Cont
       notes: contact?.notes ?? '',
     })
     setIsPrimary(contact?.is_primary ?? false)
-  }, [open]) // yalnızca açılışta
+  })
 
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }))
 

@@ -11,6 +11,7 @@ import { COST_GROUP_LABEL, type CostLine, type CostRate, FIN_UNIT_LABEL } from '
 import { cn } from '@/lib/cn'
 import { localISODate } from '@/lib/stats'
 import { requireSupabase } from '@/lib/supabase'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import type { QuantityItem } from '@/quantity/types'
 import { CURRENCY_SYMBOL, formatMoney, toCents } from '@/quote/money'
 import type { Currency } from '@/quote/types'
@@ -33,11 +34,19 @@ export function TakeoffImportDialog({ open, onClose, projectId, lines, rates, ba
   const [skip, setSkip] = useState<Set<string>>(new Set())
   const [prices, setPrices] = useState<Record<string, string>>({})
 
+  // Açılışta durumu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yapılan seçimleri ezebilir)
+  useResetOnOpen(
+    open,
+    () => {
+      setError(null)
+      setSkip(new Set())
+      setPrices({})
+    },
+    [projectId, lines],
+  )
+
   useEffect(() => {
     if (!open) return
-    setError(null)
-    setSkip(new Set())
-    setPrices({})
     let alive = true
     void (async () => {
       try {
