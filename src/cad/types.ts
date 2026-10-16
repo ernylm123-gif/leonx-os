@@ -191,4 +191,6 @@ export interface Scene {
 export interface DxfAnalysis {
   scene: Scene
   report: CadReport
+  /** Kâğıt uzayı (layout) sayfaları: antet ve çizelgeler çoğunlukla buradadır; analizde ayrı pafta olarak okunur */
+  paper?: { name: string; scene: Scene }[]
 }

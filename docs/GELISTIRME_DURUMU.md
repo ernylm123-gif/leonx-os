@@ -1,6 +1,6 @@
 # LEONX OS — Geliştirme durumu
 
-Son güncelleme: Faz 13 (DXF mimari analiz, revizyon karşılaştırma, malzeme bazlı metraj) · uygulama sürümü 0.9.0
+Son güncelleme: Faz 13 (DXF mimari analiz, revizyon karşılaştırma, malzeme bazlı metraj) · uygulama sürümü 0.9.1
 
 0.8.2 (denetim düzeltmeleri): diyalog formları açılışta render sırasında sıfırlanır (hızlı yazılan değer/hata kaybı ve kararsız e2e giderildi);
 büyük listeler 1000 satırlık sayfalarla okunur (sessiz kesilme yok, 50 sayfa sınırında açık hata); bütçe formunda teklif kalemleri
@@ -79,11 +79,12 @@ Testler sentetik fikstürlerle yapıldı (`scripts/cad-fixtures/make_pdf_fixture
 | Doğrama blokları (adında veya geometrisinde ölçü) + poz etiketi | Çalışır: ölçü bloktan; yazılı ölçüyle uyuşmazsa ölçü çelişkisi |
 | Etiketsiz bloklar / kapalı çizgiler | Eski geometri motoruyla çalışır (yazı yoksa) |
 | Birim ($INSUNITS) yok | Ölçek doğrulanmamış sayılır; kalibrasyon gerekir, ölçü kesin sunulmaz |
-| Kâğıt uzayı (layout) ve görünüm pencereleri | Okunmaz (model uzayı analiz edilir) |
+| Kâğıt uzayı (layout) | Her layout ayrı pafta olarak analiz edilir (antet, çizelge); görüntüleyicide gösterilmez |
+| Blok öznitelikleri (POZ/EN/BOY/TIP/MALZEME/SERİ…) | Poz, ölçü, iş grubu ve teknik özellik öznitelikten; geometriyle uyuşmazsa çelişki |
 | Çok büyük model uzayı (yüz binlerce nesne) | Analiz ana iş parçacığında çalışır; çok büyük dosyalarda tarayıcı bir süre yanıt vermeyebilir |
 
 Test: `src/cad/dxfSemantic.test.ts` (yeni fikstür `mimari_plan_cizelge*.dxf` + eski 7 DXF fikstüründe gerileme yok)
-ve tarayıcı testi. **Gerçek ofis DXF'i ile henüz doğrulanmadı.**
+ve tarayıcı testi; öznitelik ve kâğıt uzayı: `src/cad/dxfAttributes.test.ts`. Tam denetim: `docs/CAD_MOTOR_DENETIMI.md`. **Gerçek ofis DXF'i ile henüz doğrulanmadı.**
 
 ## Push bildirimleri — durum
 

@@ -188,7 +188,7 @@ function CadAnalysisView({ projectParam, fileParam }: { projectParam: string | n
     window.setTimeout(() => {
       try {
         // DXF: mimari motor (etiket, çizelge, kat tekrarı, çelişki) + blok geometrisi birlikte
-        const { semantic: _semantic, ...result } = detectDxf(c.doc!.scene, { mmPerUnit: c.units.mmPerUnit, unitsVerified: c.units.verified })
+        const { semantic: _semantic, ...result } = detectDxf(c.doc!.scene, { mmPerUnit: c.units.mmPerUnit, unitsVerified: c.units.verified, paper: c.doc!.paper })
         setDetection(result)
         c.log(`Poz tespiti: ${result.candidates.length} aday`)
       } finally {

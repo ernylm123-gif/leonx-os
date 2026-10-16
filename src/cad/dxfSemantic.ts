@@ -12,7 +12,7 @@
  * Nesne kimlikleri değişmez; görüntüleyicideki vurgulama özgün DXF sahnesinde çalışır. Kutular
  * sonuçta yeniden çizim birimine çevrilir.
  */
-import { type DetectionResult, type DetectOptions, detectPoz, type PozCandidate } from '@/quantity/detect'
+import { categoryFor, type DetectionResult, type DetectOptions, detectPoz, inferType, type PozCandidate } from '@/quantity/detect'
 import { aggregatePdf, analyzePage, canonCode, type PdfDiagnostics, type PdfPageAnalysis, type PdfPozCandidate } from './pdf/archAnalyze'
 import { PT_TO_MM } from './pdf/pdfScene'
 import type { BBox, Mat } from './geometry'
@@ -26,6 +26,8 @@ export interface DxfSemanticResult {
   candidates: PdfPozCandidate[]
   diagnostics: PdfDiagnostics
   analysis: PdfPageAnalysis
+  /** Model + kâğıt uzayı sayfaları */
+  pages: PdfPageAnalysis[]
   /** Sanal kâğıt ölçeği (1/denominator) ve doğrulanıp doğrulanmadığı */
   denominator: number
   unitsKnown: boolean
@@ -102,27 +104,54 @@ function withAdvance(scene: Scene): Scene {
  * DXF sahnesini mimari motorla analiz eder.
  * @param mmPerUnit 1 çizim biriminin mm karşılığı ($INSUNITS ya da kullanıcı kalibrasyonu); null → bilinmiyor
  */
-export function analyzeDxfSemantic(scene: Scene, mmPerUnit: number | null, opts: { unitsVerified?: boolean } = {}): DxfSemanticResult {
+export function analyzeDxfSemantic(
+  scene: Scene,
+  mmPerUnit: number | null,
+  opts: { unitsVerified?: boolean; paper?: readonly { name: string; scene: Scene }[] } = {},
+): DxfSemanticResult {
   const unitsKnown = mmPerUnit != null && mmPerUnit > 0 && opts.unitsVerified !== false
   const k = mmPerUnit && mmPerUnit > 0 ? mmPerUnit : 1
-  const den = chooseDenominator(scene, k)
-  // çizim birimi → kâğıt pt: (birim × mm/birim) / (mm/pt × ölçek)
-  const s = k / (PT_TO_MM * den)
-  const paper = withAdvance(scaleScene(scene, s))
-  const pb = paper.bbox ?? [0, 0, 1190, 842]
-  const analysis = analyzePage({
-    page: 1,
-    kind: 'vektorel',
-    scene: paper,
-    userDenominator: unitsKnown ? den : null,
-    pageSize: { w: Math.max(1, pb[2] - pb[0]), h: Math.max(1, pb[3] - pb[1]) },
+  // Sayfa 1: model uzayı; sayfa 2…: kâğıt uzayı layout'ları (antet, çizelge, pafta bilgisi)
+  const sources = [{ name: 'Model', scene }, ...(opts.paper ?? [])]
+  const analyses: PdfPageAnalysis[] = []
+  const scales: number[] = []
+  let den = 50
+  sources.forEach((src, i) => {
+    const d = chooseDenominator(src.scene, k)
+    if (i === 0) den = d
+    // çizim birimi → kâğıt pt: (birim × mm/birim) / (mm/pt × ölçek)
+    const sc = k / (PT_TO_MM * d)
+    scales.push(sc)
+    const paper = withAdvance(scaleScene(src.scene, sc))
+    const pb = paper.bbox ?? [0, 0, 1190, 842]
+    const a = analyzePage({
+      page: i + 1,
+      kind: 'vektorel',
+      scene: paper,
+      userDenominator: unitsKnown ? d : null,
+      pageSize: { w: Math.max(1, pb[2] - pb[0]), h: Math.max(1, pb[3] - pb[1]) },
+    })
+    if (i === 0) {
+      if (unitsKnown) a.notes.push(`DXF: çizim birimi biliniyor; ölçüler gerçek ölçüden (sanal ölçek 1/${d}).`)
+      else a.notes.push('DXF: çizim birimi bilinmiyor; ölçek kalibre edilmeden ölçüler kesin değildir.')
+    } else {
+      a.title = a.title ?? src.name
+      a.notes.push(`DXF kâğıt uzayı (layout) "${src.name}" ayrı pafta olarak okundu.`)
+    }
+    analyses.push(a)
   })
-  if (unitsKnown) analysis.notes.push(`DXF: çizim birimi biliniyor; ölçüler gerçek ölçüden (sanal ölçek 1/${den}).`)
-  else analysis.notes.push('DXF: çizim birimi bilinmiyor; ölçek kalibre edilmeden ölçüler kesin değildir.')
-  const { candidates, diagnostics } = aggregatePdf([analysis], { pageCount: 1 })
-  const back = 1 / s
-  for (const c of candidates) for (const inst of c.instances) if (inst.bbox) inst.bbox = scaleBox(inst.bbox, back)
-  return { candidates, diagnostics, analysis, denominator: den, unitsKnown }
+  const { candidates, diagnostics } = aggregatePdf(analyses, { pageCount: sources.length })
+  for (const c of candidates) {
+    // Kâğıt uzayındaki örneklerin nesne kimlikleri o layout'un sahnesine aittir: görüntüleyicide
+    // (model uzayı) yanlış nesneyi işaretlememek için çıkarılır, kaynak kanıt olarak yazılır.
+    const fromPaper = c.instances.filter((inst) => (inst.page ?? 1) > 1)
+    if (fromPaper.length) {
+      for (const p of new Set(fromPaper.map((x) => x.page!))) c.evidence.push(`Kaynak: kâğıt uzayı "${sources[p - 1].name}"`)
+      c.instances = c.instances.filter((inst) => (inst.page ?? 1) === 1)
+    }
+    for (const inst of c.instances) if (inst.bbox) inst.bbox = scaleBox(inst.bbox, 1 / scales[0])
+  }
+  return { candidates, diagnostics, analysis: analyses[0], pages: analyses, denominator: den, unitsKnown }
 }
 
 // ------------------------------------------------------------------ hibrit DXF tespiti
@@ -136,10 +165,13 @@ const OLCU_TOL = 0.02
  * geometride bulunan pozlar, mimari motor bir şey bulduysa yalnızca blok referansından
  * geliyorsa eklenir (duvar gibi kapalı çizgilerin poz sanılmaması için).
  */
-export function detectDxf(scene: Scene, opts: DetectOptions): DetectionResult & { semantic: DxfSemanticResult } {
+export function detectDxf(scene: Scene, opts: DetectOptions & { paper?: readonly { name: string; scene: Scene }[] }): DetectionResult & { semantic: DxfSemanticResult } {
   const geo = detectPoz(scene, opts)
-  const sem = analyzeDxfSemantic(scene, opts.mmPerUnit, { unitsVerified: opts.unitsVerified })
-  if (!sem.candidates.length) return { ...geo, semantic: sem }
+  const sem = analyzeDxfSemantic(scene, opts.mmPerUnit, { unitsVerified: opts.unitsVerified, paper: opts.paper })
+  if (!sem.candidates.length) {
+    applyAttributes(geo.candidates, scene)
+    return { ...geo, semantic: sem }
+  }
   const byCanon = new Map(sem.candidates.map((c) => [c.canon, c]))
   const out: PozCandidate[] = [...sem.candidates]
   for (const g of geo.candidates) {
@@ -176,6 +208,7 @@ export function detectDxf(scene: Scene, opts: DetectOptions): DetectionResult & 
       s.evidence.push(`Blok ölçüsü yazılı ölçüyle uyumlu: ${g.block ?? ''} ${g.width_mm}×${g.height_mm} mm`)
     }
   }
+  applyAttributes(out, scene)
   return {
     candidates: out,
     skipped: geo.skipped,
@@ -183,5 +216,175 @@ export function detectDxf(scene: Scene, opts: DetectOptions): DetectionResult & 
     unitsVerified: opts.unitsVerified,
     pdf: sem.diagnostics,
     semantic: sem,
+  }
+}
+
+// ------------------------------------------------------------------ blok öznitelikleri (ATTRIB)
+
+type AttrField = 'code' | 'w' | 'h' | 'type' | 'malzeme' | 'sistem' | 'cam' | 'acilim' | 'renk'
+
+/** Öznitelik etiketi → alan. Etiketler büyük harfe ve ASCII'ye çevrilerek eşleştirilir. */
+const TAG_FIELDS: [AttrField, RegExp][] = [
+  ['code', /^(POZ|POZ_?NO|POZNO|POZ_?KODU|KOD|MARK|ETIKET)$/],
+  ['w', /^(EN|GENISLIK|WIDTH|W|GEN)(_?\(?(MM|CM|M)\)?)?$/],
+  ['h', /^(BOY|YUKSEKLIK|HEIGHT|H|YUK)(_?\(?(MM|CM|M)\)?)?$/],
+  ['type', /^(TIP|TIPI|TYPE|CINS|CINSI|TUR|TURU)$/],
+  ['malzeme', /^(MALZEME|MATERIAL|MAL)$/],
+  ['sistem', /^(SISTEM|SERI|SERIES|PROFIL|PROFIL_?SERISI)$/],
+  ['cam', /^(CAM|GLASS|CAM_?TIPI)$/],
+  ['acilim', /^(ACILIM|OPENING|ACILIS)$/],
+  ['renk', /^(RENK|COLOR|COLOUR)$/],
+]
+
+const tagKey = (t: string) =>
+  t
+    .trim()
+    .toLocaleUpperCase('tr-TR')
+    .replace(/İ/g, 'I')
+    .replace(/Ş/g, 'S')
+    .replace(/Ğ/g, 'G')
+    .replace(/Ü/g, 'U')
+    .replace(/Ö/g, 'O')
+    .replace(/Ç/g, 'C')
+    .replace(/\s+/g, '_')
+
+interface AttrGroup {
+  code: string
+  inserts: number[]
+  values: Partial<Record<AttrField, Set<string>>>
+  /** Etiketteki açık birim (EN_CM, BOY (MM)) */
+  unit: 'mm' | 'cm' | 'm' | null
+}
+
+/** Sahnedeki blok referanslarının özniteliklerini poz koduna göre toplar */
+export function collectAttributes(scene: Scene): Map<string, AttrGroup> {
+  const out = new Map<string, AttrGroup>()
+  for (const ins of scene.inserts) {
+    if (!ins.attribs.length) continue
+    const vals: Partial<Record<AttrField, string>> = {}
+    let unit: AttrGroup['unit'] = null
+    for (const a of ins.attribs) {
+      const k = tagKey(a.tag)
+      const v = a.value.trim()
+      if (!v) continue
+      for (const [f, re] of TAG_FIELDS)
+        if (re.test(k)) {
+          vals[f] = v
+          const u = /(MM|CM|M)\)?$/.exec(k)
+          if ((f === 'w' || f === 'h') && u && k !== 'W' && k !== 'H' && k !== 'GEN' && k !== 'YUK') unit = u[1].toLowerCase() as AttrGroup['unit']
+          break
+        }
+    }
+    if (!vals.code) continue
+    const canon = canonCode(vals.code)
+    let g = out.get(canon)
+    if (!g) {
+      g = { code: vals.code, inserts: [], values: {}, unit }
+      out.set(canon, g)
+    }
+    g.inserts.push(ins.id)
+    if (unit) g.unit = unit
+    for (const [f, v] of Object.entries(vals) as [AttrField, string][]) (g.values[f] ??= new Set()).add(v)
+  }
+  return out
+}
+
+const num = (v: string) => {
+  const n = Number(v.replace(',', '.').replace(/[^\d.]/g, ''))
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+/**
+ * Öznitelik ölçüsünü mm'ye çevirir. Etikette birim yazıyorsa o; yoksa çizimdeki geometrik ölçüyle
+ * karşılaştırılarak mm/cm/m'den uyanı seçilir. Geometri yoksa büyüklükten varsayılır ve
+ * "varsayım" olarak işaretlenir (kesin sayılmaz).
+ */
+export function attrDimMm(value: number, unit: AttrGroup['unit'], geomMm: number | null): { mm: number; how: 'etiket' | 'geometri' | 'varsayim' } {
+  const f = { mm: 1, cm: 10, m: 1000 } as const
+  if (unit) return { mm: Math.round(value * f[unit]), how: 'etiket' }
+  if (geomMm) for (const u of ['mm', 'cm', 'm'] as const) if (Math.abs(value * f[u] - geomMm) / geomMm <= OLCU_TOL) return { mm: Math.round(value * f[u]), how: 'geometri' }
+  const u = value >= 300 ? 'mm' : value >= 30 ? 'cm' : 'm'
+  return { mm: Math.round(value * f[u]), how: 'varsayim' }
+}
+
+const one = (s: Set<string> | undefined) => (s && s.size === 1 ? [...s][0] : null)
+
+/**
+ * Blok özniteliklerini adaylara işler. Öznitelik, nesnenin üzerinde açıkça yazılı veridir:
+ *  - iş grubu (TIP/MALZEME) blok adından gelen genel tahminin önüne geçer,
+ *  - teknik özellikler "çizimden doğrulandı" olarak yazılır,
+ *  - ölçü yoksa öznitelikten alınır; varsa karşılaştırılır, farklıysa çelişki eklenir,
+ *  - aynı poz kodlu bloklarda farklı değerler varsa çelişki olarak gösterilir.
+ */
+export function applyAttributes(candidates: PozCandidate[], scene: Scene): void {
+  const groups = collectAttributes(scene)
+  if (!groups.size) return
+  for (const c of candidates) {
+    const g = groups.get('canon' in c ? (c as PdfPozCandidate).canon : canonCode(c.code.replace(/-[a-z]$/, '')))
+    if (!g) continue
+    const pdf = 'pages' in c ? (c as PdfPozCandidate) : null
+    const conflict = (kind: 'olcu' | 'malzeme' | 'adet' | 'acilim', message: string) => {
+      if (pdf && !pdf.conflicts.some((x) => x.message === message)) pdf.conflicts.push({ kind, message })
+      else if (!pdf) c.reasons.push(`Çelişki: ${message}`)
+    }
+    for (const [f, set] of Object.entries(g.values) as [AttrField, Set<string>][])
+      if (set.size > 1 && f !== 'code') conflict(f === 'w' || f === 'h' ? 'olcu' : f === 'acilim' ? 'acilim' : 'malzeme', `${c.code} bloklarında "${f}" özniteliği farklı: ${[...set].join(' / ')}`)
+
+    // İş grubu: öznitelikteki tip/malzeme
+    const tipText = one(g.values.type)
+    const malText = one(g.values.malzeme)
+    if (tipText || malText) {
+      const t = tipText ? inferType([tipText]).type : null
+      const m = malText ? inferType([malText]).material : null
+      const type = t ?? c.typeHint
+      const material = m ?? c.material
+      const cat = categoryFor(type, material)
+      if (cat !== 'belirsiz' && cat !== c.category) {
+        c.evidence.push(`İş grubu blok özniteliğinden: ${[tipText, malText].filter(Boolean).join(', ')} (önceki tahmin: ${c.category})`)
+        c.category = cat
+      }
+      c.typeHint = type
+      c.material = material
+    }
+
+    // Ölçü
+    for (const axis of ['w', 'h'] as const) {
+      const raw = one(g.values[axis])
+      const v = raw ? num(raw) : null
+      if (v == null) continue
+      const cur = axis === 'w' ? c.width_mm : c.height_mm
+      const d = attrDimMm(v, g.unit, cur)
+      const label = axis === 'w' ? 'EN' : 'BOY'
+      if (cur == null) {
+        if (axis === 'w') c.width_mm = d.mm
+        else c.height_mm = d.mm
+        c.evidence.push(`${label} blok özniteliğinden: ${raw} → ${d.mm} mm${d.how === 'varsayim' ? ' (birim yazılmamış; büyüklükten varsayıldı — doğrulayın)' : ''}`)
+      } else if (Math.abs(d.mm - cur) / Math.max(d.mm, cur) > OLCU_TOL) {
+        conflict('olcu', `${c.code}: blok özniteliği ${label}=${raw} (${d.mm} mm), çizim/yazı ${cur} mm`)
+      } else {
+        c.evidence.push(`${label} blok özniteliğiyle uyumlu: ${raw}`)
+      }
+    }
+
+    // Teknik özellikler
+    if (pdf) {
+      for (const k of ['malzeme', 'sistem', 'cam', 'acilim', 'renk'] as const) {
+        const v = one(g.values[k])
+        if (!v) continue
+        const prev = pdf.attrs[k]
+        if (prev?.status === 'dogrulandi' && prev.value && prev.value.toLocaleUpperCase('tr-TR') !== v.toLocaleUpperCase('tr-TR')) {
+          conflict(k === 'acilim' ? 'acilim' : 'malzeme', `${c.code}: ${k} çizelgede "${prev.value}", blok özniteliğinde "${v}"`)
+          continue
+        }
+        pdf.attrs[k] = { value: v, status: 'dogrulandi', source: `Blok özniteliği (${g.inserts.length} blok)` }
+      }
+    }
+    // Öznitelik bloklarını örnek olarak ekle (çizimde gösterme)
+    const have = new Set(c.instances.map((i) => i.insertId).filter((x): x is number => x != null))
+    for (const id of g.inserts)
+      if (!have.has(id)) {
+        const ins = scene.inserts[id]
+        c.instances.push({ entityIds: [], insertId: id, bbox: ins.bbox, handle: ins.handle, mirrored: ins.mirrored, page: 1, role: 'diger' })
+      }
   }
 }
