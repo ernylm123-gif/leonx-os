@@ -50,6 +50,24 @@ export async function deleteAccount(db: SupabaseClient, id: string): Promise<voi
   unwrap(await db.from('finance_accounts').delete().eq('id', id).select('id'))
 }
 
+/** finance_account_balances görünümü: sunucuda hesaplanan bakiye (TEK tanım: finance_ledger) */
+export interface AccountBalanceRow {
+  account_id: string
+  name: string
+  kind: FinanceAccount['kind']
+  currency: FinanceAccount['currency']
+  active: boolean
+  opening_balance: number
+  total_in: number
+  total_out: number
+  balance: number
+  movement_count: number
+  last_movement_date: string | null
+}
+export function listAccountBalances(db: SupabaseClient): Promise<AccountBalanceRow[]> {
+  return fetchAllPages<AccountBalanceRow>((from, to) => db.from('finance_account_balances').select('*').order('name').order('account_id').range(from, to))
+}
+
 // ------------------------------------------------------------------ Kategoriler
 export function listCategories(db: SupabaseClient): Promise<FinanceCategory[]> {
   return fetchAllPages<FinanceCategory>((from, to) => db.from('finance_categories').select('*').order('kind').order('sort_order').order('name').order('id').range(from, to))

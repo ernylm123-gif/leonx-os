@@ -10,6 +10,7 @@ import type { ProjectEvent, ProjectTask } from '@/data/types'
 import { listAllTasks, listRecentEvents } from '@/data/workflowApi'
 import { listQuotes } from '@/data/quoteApi'
 import type { Quote } from '@/quote/types'
+import { DashboardCashCard } from '@/features/cash/DashboardCashCard'
 import { EventLine } from '@/features/projects/ProjectTimeline'
 import { taskState } from '@/features/projects/ProjectTasks'
 import { NotificationItem } from '@/features/notifications/NotificationItem'
@@ -239,6 +240,7 @@ export function DashboardPage() {
         </div>
 
         <div className="flex min-w-0 flex-col gap-6">
+          <DashboardCashCard />
           <Panel
             title="Yeni bildirimler"
             subtitle={unread ? `${unread} okunmamış` : 'Okunmamış bildirim yok'}

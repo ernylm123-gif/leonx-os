@@ -15,7 +15,10 @@ import {
   updateExpense,
   updateScheduleRow,
 } from '@/data/financeApi'
+import { listAccounts } from '@/data/cashApi'
 import { listQuoteItemsFor, listQuotesBy } from '@/data/quoteApi'
+import { AccountSelect } from '@/features/cash/shared'
+import type { FinanceAccount } from '@/finance/cash'
 import { currentRates } from '@/finance/fromTakeoff'
 import { parseRateInput } from '@/finance/fx'
 import {
@@ -39,6 +42,7 @@ import {
 import { formatDate, localISODate } from '@/lib/stats'
 import { requireSupabase } from '@/lib/supabase'
 import { useFormDirty } from '@/lib/unsaved'
+import { useLiveQuery } from '@/lib/useLiveList'
 import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import { computeQuote } from '@/quote/engine'
 import { formatMoney, toCents } from '@/quote/money'
@@ -153,6 +157,11 @@ function GroupField({ value, onChange, testId }: { value: CostGroup; onChange: (
       ))}
     </SelectField>
   )
+}
+
+/** Kasa/banka hesapları (gider ve tahsilat formlarında isteğe bağlı hesap seçimi) */
+function useAccounts(): FinanceAccount[] {
+  return useLiveQuery<FinanceAccount[]>(['finance_accounts'], () => listAccounts(requireSupabase()), []).data
 }
 
 // ================================================================== Bütçe
@@ -411,11 +420,12 @@ export function CostLineForm({
 
 // ================================================================== Gerçekleşen gider
 export function ExpenseForm({ open, onClose, projectId, expense, base, onSaved }: { open: boolean; onClose: () => void; projectId: string; expense: Expense | null; base: Currency; onSaved?: (e: Expense) => void }) {
-  const empty = { date: localISODate(), group: 'profil' as CostGroup, description: '', supplier: '', amount: '', vat: '', currency: base, fx: '', doc: '', paid: true, notes: '' }
+  const empty = { date: localISODate(), group: 'profil' as CostGroup, description: '', supplier: '', amount: '', vat: '', currency: base, fx: '', doc: '', paid: true, notes: '', accountId: '' }
   const [d, setD] = useState(empty)
   const [errors, setErrors] = useState<Errors>({})
   const [draftId, setDraftId] = useState('')
   const s = useSave<Expense>(onClose, onSaved, 'Gider kaydı')
+  const accounts = useAccounts()
 
   // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları/hataları ezebilir)
   useResetOnOpen(
@@ -438,6 +448,7 @@ export function ExpenseForm({ open, onClose, projectId, expense, base, onSaved }
               doc: expense.document_no ?? '',
               paid: expense.paid,
               notes: expense.notes ?? '',
+              accountId: expense.account_id ?? '',
             }
           : { ...empty, currency: base },
       )
@@ -455,6 +466,8 @@ export function ExpenseForm({ open, onClose, projectId, expense, base, onSaved }
     if (amount == null || Number.isNaN(amount) || amount <= 0) errs.amount = 'Sıfırdan büyük tutar girin.'
     if (Number.isNaN(vat)) errs.vat = 'Geçerli bir tutar girin.'
     if (d.currency !== base && d.fx.trim() && fx == null) errs.fx = 'Geçerli bir kur girin (ör. 34,5).'
+    const acc = d.paid && d.accountId ? accounts.find((a) => a.id === d.accountId) : null
+    if (acc && acc.currency !== d.currency) errs.accountId = `Hesap ${acc.currency}; gider ${d.currency}. Aynı para biriminde hesap seçin.`
     setErrors(errs)
     if (Object.keys(errs).length) return
     const input = {
@@ -470,6 +483,8 @@ export function ExpenseForm({ open, onClose, projectId, expense, base, onSaved }
       document_no: d.doc.trim() || null,
       paid: d.paid,
       notes: d.notes.trim() || null,
+      // Hesaba yalnız ödenmiş gider yazılır (ödenmemiş gider hiçbir bakiyeyi etkilemez)
+      account_id: d.paid ? d.accountId || null : null,
     }
     const db = requireSupabase()
     void s.run(() => (expense ? updateExpense(db, expense, input) : createExpense(db, { ...input, id: draftId, project_id: projectId })), expense ? 'Gider güncellendi.' : 'Gider kaydedildi.')
@@ -517,6 +532,19 @@ export function ExpenseForm({ open, onClose, projectId, expense, base, onSaved }
         <input type="checkbox" checked={d.paid} onChange={(e) => setD((x) => ({ ...x, paid: e.target.checked }))} className="h-4 w-4 accent-[var(--color-titanium,#8a9099)]" data-testid="ex-paid" />
         Ödendi (nakit akışına çıkış olarak yansır)
       </label>
+      {d.paid && (
+        <AccountSelect
+          accounts={accounts}
+          currency={d.currency}
+          value={d.accountId}
+          onChange={(accountId) => setD((x) => ({ ...x, accountId }))}
+          label="Ödendiği kasa / banka"
+          noneLabel="Hesapsız (bakiyeyi etkilemez)"
+          error={errors.accountId}
+          className="sm:col-span-2"
+          testId="ex-account"
+        />
+      )}
       <TextAreaField label="Not" value={d.notes} onChange={(e) => setD((x) => ({ ...x, notes: e.target.value }))} className="sm:col-span-2" maxLength={2000} />
     </FormModal>
   )
@@ -593,10 +621,11 @@ export function CollectionForm({
   base: Currency
   onSaved?: (c: Collection) => void
 }) {
-  const [d, setD] = useState({ date: localISODate(), amount: '', currency: base, method: 'havale' as PaymentMethod, scheduleId: '', reference: '', note: '' })
+  const [d, setD] = useState({ date: localISODate(), amount: '', currency: base, method: 'havale' as PaymentMethod, scheduleId: '', reference: '', note: '', accountId: '' })
   const [errors, setErrors] = useState<Errors>({})
   const [draftId, setDraftId] = useState('')
   const s = useSave<Collection>(onClose, onSaved, 'Tahsilat kaydı')
+  const accounts = useAccounts()
 
   // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları/hataları ezebilir)
   useResetOnOpen(
@@ -607,8 +636,8 @@ export function CollectionForm({
       setDraftId(crypto.randomUUID())
       setD(
         row
-          ? { date: row.received_date, amount: centsToInput(toCents(row.amount)), currency: row.currency, method: row.method, scheduleId: row.schedule_id ?? '', reference: row.reference ?? '', note: row.note ?? '' }
-          : { date: localISODate(), amount: '', currency: base, method: 'havale', scheduleId: '', reference: '', note: '' },
+          ? { date: row.received_date, amount: centsToInput(toCents(row.amount)), currency: row.currency, method: row.method, scheduleId: row.schedule_id ?? '', reference: row.reference ?? '', note: row.note ?? '', accountId: row.account_id ?? '' }
+          : { date: localISODate(), amount: '', currency: base, method: 'havale', scheduleId: '', reference: '', note: '', accountId: '' },
       )
     },
     [row, base],
@@ -621,9 +650,11 @@ export function CollectionForm({
     if (!d.date) errs.date = 'Tarih zorunludur.'
     if (amount == null || Number.isNaN(amount) || amount <= 0) errs.amount = 'Sıfırdan büyük tutar girin.'
     if (d.scheduleId && !options.some((x) => x.id === d.scheduleId)) errs.scheduleId = 'Seçilen taksit farklı para biriminde.'
+    const acc = d.accountId ? accounts.find((a) => a.id === d.accountId) : null
+    if (acc && acc.currency !== d.currency) errs.accountId = `Hesap ${acc.currency}; tahsilat ${d.currency}. Aynı para biriminde hesap seçin.`
     setErrors(errs)
     if (Object.keys(errs).length) return
-    const input = { received_date: d.date, amount: amount!, currency: d.currency, method: d.method, schedule_id: d.scheduleId || null, reference: d.reference.trim() || null, note: d.note.trim() || null }
+    const input = { received_date: d.date, amount: amount!, currency: d.currency, method: d.method, schedule_id: d.scheduleId || null, reference: d.reference.trim() || null, note: d.note.trim() || null, account_id: d.accountId || null }
     const db = requireSupabase()
     void s.run(() => (row ? updateCollection(db, row, input) : createCollection(db, { ...input, id: draftId, project_id: projectId })), row ? 'Tahsilat güncellendi.' : 'Tahsilat kaydedildi.')
   }
@@ -656,6 +687,17 @@ export function CollectionForm({
           </option>
         ))}
       </SelectField>
+      <AccountSelect
+        accounts={accounts}
+        currency={d.currency}
+        value={d.accountId}
+        onChange={(accountId) => setD((x) => ({ ...x, accountId }))}
+        label="Giren kasa / banka"
+        noneLabel="Hesapsız (bakiyeyi etkilemez)"
+        error={errors.accountId}
+        className="sm:col-span-2"
+        testId="co-account"
+      />
       <TextField label="Referans (dekont / çek no)" value={d.reference} onChange={(e) => setD((x) => ({ ...x, reference: e.target.value }))} maxLength={120} className="sm:col-span-2" />
       <TextAreaField label="Not" value={d.note} onChange={(e) => setD((x) => ({ ...x, note: e.target.value }))} className="sm:col-span-2" maxLength={2000} />
     </FormModal>
