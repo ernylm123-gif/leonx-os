@@ -1,6 +1,6 @@
 # LEONX OS — Geliştirme durumu
 
-Son güncelleme: PR-2 (DWG → DXF → PDF dönüştürme prototipi) · uygulama sürümü 0.9.2
+Son güncelleme: PR-5 (Malzeme reçetesi — BOM) · uygulama sürümü 0.11.0
 
 0.8.2 (denetim düzeltmeleri): diyalog formları açılışta render sırasında sıfırlanır (hızlı yazılan değer/hata kaybı ve kararsız e2e giderildi);
 büyük listeler 1000 satırlık sayfalarla okunur (sessiz kesilme yok, 50 sayfa sınırında açık hata); bütçe formunda teklif kalemleri
@@ -24,10 +24,11 @@ Tek üretim adresi: <https://leonx-os.vercel.app> (yalnızca `main` dalından). 
 | 7 | 12 aşamalı proje akışı (liste + pano), ilerleme, adres/harita, gerçek bitiş tarihi; görev ve termin (hatırlatma, gecikme); sunucu olaylarından işlem geçmişi; bildirim merkezi (zil, geçmiş, okundu eşitleme, tercihler); Web Push (VAPID, kendi service worker'ı); canlı yönetim paneli; teklif kabulünde aşama önerisi |
 | 13 | CAD/BIM: **DXF mimari analiz** — model uzayı mimari motora (PDF ile aynı) sanal kâğıt olarak verilir: pafta türü, doğrama çizelgesi (metin tablosu), poz etiketi, kat tekrarı, teknik özellik, çelişki; blok geometrisiyle birleşik (yazılı ölçü yoksa ölçü bloktan, uyuşmazsa ölçü çelişkisi; duvarlar poz sayılmaz). **Metraj revizyon karşılaştırması** — eklenen/silinen/değişen pozlar, metraj farkı, katalog maliyet farkı ve teklif tutarı etkisi (fiyat yoksa tutar yok, para birimleri ayrı). Metraj özetinde brüt (boşluk) alan, çevre ve **malzeme/seri bazlı** tablo. DWG değerlendirmesi (`docs/DWG_DEGERLENDIRME.md`) |
 | PR-2 | **DWG → DXF → PDF dönüştürme prototipi**: ayrı, yalıtılmış dönüştürme servisi (`services/cad-worker`: GNU LibreDWG + ezdxf, Supabase JWT, kaynak sınırları, dosya saklamaz), kalite raporu (kaybolan nesne/katman/blok, birim, layout, XREF, proxy), PDF önizleme; uygulamada açık onayla sunucuda dönüştürme, dönüştürülen DXF'in mevcut analize verilmesi, özgün DWG/DXF/PDF indirme. Barındırma onay bekliyor (`docs/DWG_DONUSTURME.md`) |
+| PR-5 | **Malzeme reçetesi (BOM)** — /receteler: kullanıcı tanımlı ürün sistemleri (boş başlar; üretici verisi uydurulmaz), bileşen ve güvenli formül dili ile üretim kuralları, önizleme hesaplayıcı; onaylı metrajdan poz → sistem ataması, malzeme toplamları, profil kesim listesi, tahmini boy adedi, katalogdan maliyet; sürümleme, onay kilidi, metraj revizyonunda yeniden hesap, sürüm karşılaştırma, Excel/PDF (`docs/MALZEME_RECETESI.md`) |
 
 ## Veritabanı
 
-Migration'lar `supabase/migrations/` altında, sırasıyla 001–009, 011 (Faz 8 finans) ve 012 (Faz 5.2 inceleme); 010 numarası kullanılmadı.
+Migration'lar `supabase/migrations/` altında, sırasıyla 001–009, 011 (Faz 8 finans), 012 (Faz 5.2 inceleme) ve 014 (PR-5 malzeme reçetesi, `20261016001400_leonx_bom.sql`); 010 numarası kullanılmadı, 013 finans (kasa/banka) dalına ayrıldı. 014 henüz uzak Supabase'e uygulanmadı (yalnız yerel `npm run test:db`).
 Hepsi gerçek Supabase projesine uygulandı (011 uzak test 14/14; 012 uzakta katalog doğrulaması: 5 sütun, tetikleyici, 3 kısıt, anon erişimi kapalı, mevcut satırlara dokunulmadı). Tümü
 tekrar çalıştırılabilir ve DROP/veri silme içermez.
 
