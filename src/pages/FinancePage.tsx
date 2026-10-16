@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowRightLeft, BarChart3, Gauge, Landmark, LayoutGrid, ListFilter, Plus, Repeat, Table2, Tags, Wallet } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Panel } from '@/components/ui/Panel'
@@ -48,6 +48,13 @@ export function FinancePage() {
   const cash = useCash()
   const [quick, setQuick] = useState<{ open: boolean; kind: EntryKind }>({ open: false, kind: 'gider' })
   const add = (kind: EntryKind) => setQuick({ open: true, kind })
+  // Telefonda seçili bölüm sekmesi kaydırılabilir şeritte görünür kalır
+  const tabs = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = tabs.current?.querySelector<HTMLElement>('[aria-checked="true"]')
+    const row = tabs.current
+    if (el && row && row.scrollWidth > row.clientWidth) row.scrollTo({ left: el.offsetLeft - row.clientWidth / 2 + el.clientWidth / 2 })
+  }, [section])
   return (
     <>
       <PageHeader
@@ -58,7 +65,7 @@ export function FinancePage() {
         description="Kasa ve banka hesapları, manuel gelir-gider, sözleşme değeri, maliyet, tahsilat ve kârlılık. Tutarlar KDV hariç girilir; farklı para birimleri yalnız girdiğiniz kurla çevrilir."
         status="ready"
       />
-      <div role="radiogroup" aria-label="Finans bölümü" className="-mx-4 mb-6 flex gap-1.5 overflow-x-auto overscroll-x-contain px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" data-testid="finance-sections">
+      <div ref={tabs} role="radiogroup" aria-label="Finans bölümü" className="-mx-4 mb-6 flex gap-1.5 overflow-x-auto overscroll-x-contain px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" data-testid="finance-sections">
         {SECTIONS.map((o) => {
           const selected = o.value === section
           return (
@@ -88,11 +95,13 @@ export function FinancePage() {
       {section === 'duzenli' && <RecurringPanel cash={cash} />}
       {section === 'birim-maliyetler' && <CostRatesPanel />}
       {section === 'kurlar' && <FxRatesPanel />}
+      {/* Hızlı ekleme düğmesinin son satırı örtmemesi için boşluk */}
+      <div className="h-20" aria-hidden="true" />
       {/* Her bölümde görünen hızlı ekleme düğmesi (telefonda alt sekme çubuğunun üstünde) */}
       <button
         type="button"
         onClick={() => add('gider')}
-        className="fixed right-4 bottom-[calc(80px+env(safe-area-inset-bottom))] z-30 inline-flex h-14 items-center gap-2 rounded-full bg-primary px-5 text-[15px] font-semibold text-primary-ink shadow-raised transition hover:bg-primary-hover active:scale-[0.98] md:right-8 md:bottom-8"
+        className="fixed right-4 bottom-[calc(80px+env(safe-area-inset-bottom))] z-30 inline-flex h-12 items-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold md:right-8 md:bottom-8 md:h-14 md:px-5 md:text-[15px] text-primary-ink shadow-raised transition hover:bg-primary-hover active:scale-[0.98]"
         data-testid="quick-add"
       >
         <Plus className="h-5 w-5" aria-hidden="true" />

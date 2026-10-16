@@ -286,6 +286,9 @@ export function EntriesPanel({ cash, onAdd }: { cash: CashState; onAdd: (k: Entr
   const [history, setHistory] = useState<CashRecord | null>(null)
   const [docs, setDocs] = useState<CashRecord | null>(null)
   const [exporting, setExporting] = useState<null | 'xlsx' | 'pdf'>(null)
+  // Telefonda süzgeçler varsayılan kapalı (liste hemen görünsün); geniş ekranda açık
+  const [showFilters, setShowFilters] = useState(() => typeof window === 'undefined' || window.matchMedia('(min-width: 640px)').matches)
+  const activeFilters = [f.to, f.kind, f.status, f.scope, f.accountId, f.categoryId, f.projectId, f.text].filter(Boolean).length
   const rows = useMemo(() => filterRecords(cash.records, f), [cash.records, f])
   const totals = useMemo(() => recordTotals(rows), [rows])
   const entryById = useMemo(() => new Map(cash.data.entries.map((e) => [e.id, e])), [cash.data.entries])
@@ -351,7 +354,13 @@ export function EntriesPanel({ cash, onAdd }: { cash: CashState; onAdd: (k: Entr
         </div>
       }
     >
-      <div className="grid grid-cols-2 gap-2 border-b border-line px-4 py-3 sm:grid-cols-3 lg:grid-cols-5" data-testid="ledger-filters">
+      <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2 sm:hidden">
+        <span className="text-[12.5px] text-muted">{f.from ? `${formatDate(f.from)}’den itibaren` : 'Tüm tarihler'}{activeFilters ? ` · ${activeFilters} süzgeç` : ''}</span>
+        <Button variant="ghost" icon={ListFilter} className="h-10 px-3" onClick={() => setShowFilters((v) => !v)} aria-expanded={showFilters} data-testid="ledger-filters-toggle">
+          {showFilters ? 'Süzgeçleri gizle' : 'Süzgeçler'}
+        </Button>
+      </div>
+      <div className={cn('grid grid-cols-2 gap-2 border-b border-line px-4 py-3 sm:grid sm:grid-cols-3 lg:grid-cols-5', !showFilters && 'hidden')} data-testid="ledger-filters">
         <TextField label="Başlangıç" type="date" value={f.from ?? ''} onChange={(e) => set({ from: e.target.value })} data-testid="lf-from" />
         <TextField label="Bitiş" type="date" value={f.to ?? ''} onChange={(e) => set({ to: e.target.value })} data-testid="lf-to" />
         <FilterSelect label="Tür" value={f.kind ?? ''} onChange={(v) => set({ kind: v as RecordFilter['kind'] })} className="mt-auto">
@@ -424,7 +433,7 @@ export function EntriesPanel({ cash, onAdd }: { cash: CashState; onAdd: (k: Entr
             const voidable = r.status !== 'iptal' && (r.table === 'finance_entries' || r.table === 'finance_transfers')
             return (
               <li key={`${r.table}:${r.id}`} className={cn('flex flex-wrap items-start gap-x-3 gap-y-1.5 px-4 py-3', r.status === 'iptal' && 'opacity-60')} data-testid="ledger-row" data-table={r.table} data-id={r.id} data-status={r.status}>
-                <div className="w-[74px] shrink-0 font-mono text-[12px] text-muted">{formatDate(r.date)}</div>
+                <div className="w-[92px] shrink-0 font-mono text-[12px] whitespace-nowrap text-muted">{formatDate(r.date)}</div>
                 <div className="min-w-0 flex-1 basis-56">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <MovementKindBadge kind={r.kind} />
@@ -455,7 +464,7 @@ export function EntriesPanel({ cash, onAdd }: { cash: CashState; onAdd: (k: Entr
                   {r.transfer && r.transfer.toCurrency !== r.currency && <div className="font-mono text-[11px] text-muted">→ {formatMoney(r.transfer.toAmount, r.transfer.toCurrency)}</div>}
                   {r.vat > 0 && <div className="text-[11px] text-muted">KDV {formatMoney(r.vat, r.currency)}</div>}
                 </div>
-                <div className="flex w-full justify-end gap-0.5 sm:w-auto">
+                <div className="flex w-full justify-end gap-0.5 sm:w-[188px]">
                   {r.status === 'bekliyor' && r.table === 'finance_entries' && (
                     <button type="button" onClick={() => setEditing({ kind: 'entry', entry: entryById.get(r.id)!, realize: true })} className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-ok" aria-label="Gerçekleşti olarak işaretle" title="Ödendi / tahsil edildi" data-testid="record-realize">
                       <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
