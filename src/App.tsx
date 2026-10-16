@@ -58,6 +58,10 @@ const router = createBrowserRouter([
               })),
           },
           {
+            path: 'receteler',
+            lazy: () => import('@/pages/RecipesPage').then((m) => ({ Component: m.RecipesPage })),
+          },
+          {
             path: 'teklifler',
             lazy: () =>
               import('@/pages/QuotesPage').then((m) => ({
