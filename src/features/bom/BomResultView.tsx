@@ -8,7 +8,7 @@ import type { Currency } from '@/quote/types'
 import { CostText, WarningList } from './shared'
 
 const TH = 'px-3 py-2 whitespace-nowrap'
-const TD = 'px-3 py-1.5'
+const TD = 'px-3 py-1.5 whitespace-nowrap'
 const NUM = 'px-3 py-1.5 text-right font-mono tabular-nums whitespace-nowrap'
 
 type Tab = 'toplam' | 'kesim' | 'satirlar'

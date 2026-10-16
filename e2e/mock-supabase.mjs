@@ -49,6 +49,12 @@ const TABLES = [
   'project_expenses',
   'project_payment_schedule',
   'project_collections',
+  'product_systems',
+  'system_components',
+  'system_rules',
+  'bom_versions',
+  'bom_assignments',
+  'bom_lines',
 ]
 // Faz 7: aşama → eski durum ve asgari ilerleme (supabase/migrations/20261014000700_leonx_workflow.sql ile aynı)
 const STAGE_STATUS = { yeni_firsat: 'kesif', teklif_hazirlaniyor: 'teklif', teklif_gonderildi: 'teklif', gorusme: 'teklif', onaylandi: 'teklif', olcu_kesif: 'olcu', uretime_hazirlik: 'tasarim', uretimde: 'uretim', montajda: 'montaj', tamamlandi: 'tamamlandi', teslim_edildi: 'tamamlandi', iptal: 'iptal' }
@@ -87,6 +93,15 @@ const FIN_DEFAULTS = {
   project_collections: { currency: 'TRY', method: 'havale', schedule_id: null, reference: null, note: null },
 }
 const MATERIAL_GROUPS = ['profil', 'pvc_sistem', 'cam', 'aksesuar']
+// 014 malzeme reçetesi varsayılanları (supabase/migrations/20261016001400_leonx_bom.sql ile aynı)
+const BOM_DEFAULTS = {
+  product_systems: { manufacturer: null, series: null, system_type: 'diger', color: null, notes: null, active: true },
+  system_components: { code: null, standard_length_mm: null, waste_pct: 0, weight_kg_per_m: null, cost_rate_id: null, sort_order: 0, notes: null },
+  system_rules: { applies_to: null, basis: 'birim', quantity_formula: null, cut_length_formula: null, pieces_formula: null, angle: null, notes: null, sort_order: 0 },
+}
+/** Sürüm, atama ve satır yalnız create_bom_version RPC'siyle yazılır */
+const BOM_RPC_ONLY = ['bom_versions', 'bom_assignments', 'bom_lines']
+const FORMULA_RE = /^[0-9A-Za-z_+*/(). ,;-]+$/
 const cents = (x) => Math.round(Number(x) * 100)
 const fmt2 = (c) => (c / 100).toFixed(2)
 
@@ -368,6 +383,83 @@ export class MockSupabase {
     return this.db.notifications.length - before
   }
 
+  // ---------------------------------------------------------------- 014 reçete kısıt karşılıkları
+  bomGuard(table, row) {
+    if (table === 'product_systems' && !String(row.name ?? '').trim()) return guardError('product_systems_name_check')
+    if (table === 'system_components') {
+      if (!this.db.product_systems.some((x) => x.id === row.system_id)) return { error: { status: 409, code: '23503', message: 'Ürün sistemi bulunamadı' } }
+      if (row.unit !== 'mm_profil' && (row.standard_length_mm != null || row.weight_kg_per_m != null)) return guardError('system_components_profile_check')
+      if (!(Number(row.waste_pct) >= 0 && Number(row.waste_pct) <= 100)) return guardError('system_components_waste_pct_check')
+    }
+    if (table === 'system_rules') {
+      if (!this.db.system_components.some((x) => x.id === row.component_id)) return { error: { status: 409, code: '23503', message: 'Bileşen bulunamadı' } }
+      const f = [row.quantity_formula, row.cut_length_formula, row.pieces_formula]
+      if (f.every((x) => x == null)) return guardError('system_rules_formula_check')
+      if (f.some((x) => x != null && (String(x).length > 500 || !FORMULA_RE.test(String(x))))) return guardError('system_rules_quantity_formula_check')
+    }
+    return null
+  }
+
+  /** public.create_bom_version karşılığı (tek işlem: önce doğrula, sonra yaz) */
+  createBomVersion(projectId, takeoffId, payload, actor) {
+    const bad = (m) => ({ error: { status: 400, code: '23514', message: m } })
+    if (!payload || !Array.isArray(payload.assignments) || !Array.isArray(payload.lines)) return { error: { status: 400, code: '22023', message: 'Geçersiz reçete verisi' } }
+    if (payload.assignments.length === 0) return { error: { status: 400, code: '22023', message: 'Reçetede poz yok' } }
+    const tk = this.db.quantity_takeoffs.find((t) => t.id === takeoffId)
+    if (!tk || tk.project_id !== projectId) return bad('Metraj sürümü bu projeye ait değil')
+    let approved = tk.status === 'onaylandi'
+    const seen = new Set()
+    for (const a of payload.assignments) {
+      const it = this.db.quantity_items.find((x) => x.id === a.quantity_item_id)
+      if (!it || it.takeoff_id !== tk.id) return bad('Poz bu metraj sürümüne ait değil')
+      if (it.verification === 'reddedildi') return bad(`Reddedilmiş poz reçeteye alınamaz: ${it.poz_code}`)
+      if (it.verification !== 'onaylandi' || it.uncertain) approved = false
+      if (seen.has(it.id)) return bad('Aynı poz reçetede iki kez yer alamaz')
+      seen.add(it.id)
+      if (a.system_id && !this.db.product_systems.some((x) => x.id === a.system_id)) return { error: { status: 409, code: '23503', message: 'Ürün sistemi bulunamadı' } }
+    }
+    const keys = new Set(payload.assignments.map((a) => a.key).filter(Boolean))
+    for (const l of payload.lines) {
+      if (l.assignment_key && !keys.has(l.assignment_key)) return { error: { status: 400, code: '22023', message: 'Satırın poz ataması bulunamadı' } }
+      if (!(Number(l.net_quantity) > 0) || !(Number(l.quantity) > 0)) return bad('bom_lines_quantity_check')
+      if (l.unit === 'mm_profil' && (l.cut_length_mm == null || l.pieces == null || l.total_length_mm == null)) return bad('bom_lines_profile_check')
+      if ((l.unit_cost == null) !== (l.currency == null) || (l.unit_cost == null) !== (l.line_cost == null)) return bad('bom_lines_cost_check')
+    }
+    const revision = Math.max(0, ...this.db.bom_versions.filter((v) => v.project_id === projectId).map((v) => v.revision)) + 1
+    const based = this.db.bom_versions.find((v) => v.id === payload.based_on && v.project_id === projectId)?.id ?? null
+    const { row: version } = this.insertRow('bom_versions', {
+      project_id: projectId, takeoff_id: tk.id, takeoff_revision: tk.revision, takeoff_name: tk.name, takeoff_status: tk.status, revision, status: 'taslak',
+      source_approved: approved, error_count: Math.max(0, Number(payload.error_count ?? 0)), warning_count: Math.max(0, Number(payload.warning_count ?? 0)),
+      warnings: Array.isArray(payload.warnings) ? payload.warnings : [], engine_version: payload.engine_version || 'bom-1', based_on: based, notes: payload.notes || null,
+      approved_by: null, approved_at: null,
+    }, actor, true)
+    const ids = new Map()
+    payload.assignments.forEach((a, i) => {
+      const it = this.db.quantity_items.find((x) => x.id === a.quantity_item_id)
+      const sys = a.system_id ? this.db.product_systems.find((x) => x.id === a.system_id) : null
+      const { row } = this.insertRow('bom_assignments', {
+        bom_version_id: version.id, quantity_item_id: it.id, poz_code: it.poz_code, category: it.category, width_mm: it.width_mm ?? null, height_mm: it.height_mm ?? null,
+        quantity: it.quantity, verification: it.verification === 'onaylandi' && it.uncertain ? 'bekliyor' : it.verification, kanat: a.kanat ?? null, opening: a.opening || null,
+        system_id: sys?.id ?? null, system_name: sys?.name ?? null, sort_order: a.sort_order ?? i,
+      }, actor, true)
+      if (a.key) ids.set(a.key, row)
+    })
+    payload.lines.forEach((l, i) => {
+      const a = l.assignment_key ? ids.get(l.assignment_key) : null
+      this.insertRow('bom_lines', {
+        bom_version_id: version.id, assignment_id: a?.id ?? null,
+        component_id: this.db.system_components.some((x) => x.id === l.component_id) ? l.component_id : null,
+        rule_id: this.db.system_rules.some((x) => x.id === l.rule_id) ? l.rule_id : null,
+        line_key: l.line_key, poz_code: a?.poz_code ?? null, role: l.role, code: l.code || null, name: l.name, unit: l.unit,
+        cut_length_mm: l.cut_length_mm ?? null, angle: l.angle || null, pieces: l.pieces ?? null, total_length_mm: l.total_length_mm ?? null,
+        net_quantity: l.net_quantity, waste_pct: l.waste_pct ?? 0, waste_qty: l.waste_qty ?? 0, quantity: l.quantity, standard_length_mm: l.standard_length_mm ?? null,
+        weight_kg: l.weight_kg ?? null, cost_rate_id: this.db.cost_rates.some((x) => x.id === l.cost_rate_id) ? l.cost_rate_id : null,
+        unit_cost: l.unit_cost ?? null, currency: l.currency || null, cost_unit: l.cost_unit || null, line_cost: l.line_cost ?? null, sort_order: l.sort_order ?? i,
+      }, actor, true)
+    })
+    return { row: version }
+  }
+
   // ---------------------------------------------------------------- yardımcılar
   userFromAuth(headers) {
     const auth = headers['authorization'] || ''
@@ -477,6 +569,12 @@ export class MockSupabase {
       if (g) return g
     }
     if (table === 'notifications' || table === 'project_events') return { error: { status: 403, code: '42501', message: 'permission denied' } }
+    if (BOM_RPC_ONLY.includes(table) && !system) return { error: { status: 403, code: '42501', message: `permission denied for table ${table}` } }
+    if (BOM_DEFAULTS[table]) {
+      row = { ...BOM_DEFAULTS[table], ...row }
+      const g = this.bomGuard(table, row)
+      if (g) return g
+    }
     this.db[table].push(row)
     this.broadcast(table, 'INSERT', row, null)
     this.afterInsert(table, row, actor)
@@ -525,6 +623,22 @@ export class MockSupabase {
       if (old.status === 'arsiv' && patch.status && patch.status !== 'arsiv') return guardError('Arşivlenmiş sürüm yeniden açılamaz; yeni sürüm oluşturun')
       if (patch.status === 'onaylandi' && old.status === 'taslak') patch = { ...patch, approved_at: this.now(), approved_by: actor }
     }
+    if ((table === 'bom_assignments' || table === 'bom_lines') && !system) return { error: { status: 403, code: '42501', message: `permission denied for table ${table}` } }
+    if (table === 'bom_versions' && !system) {
+      if (old.status === 'onayli') return guardError('Onaylanmış reçete sürümü değiştirilemez; yeniden hesaplayıp yeni sürüm oluşturun')
+      if (old.status === 'iptal' && patch.status && patch.status !== 'iptal') return guardError('İptal edilen reçete sürümü yeniden açılamaz')
+      const locked = ['project_id', 'takeoff_id', 'revision', 'source_approved', 'takeoff_revision', 'takeoff_status', 'takeoff_name', 'error_count', 'warning_count', 'warnings', 'engine_version', 'based_on']
+      if (locked.some((k) => k in patch && JSON.stringify(patch[k]) !== JSON.stringify(old[k]))) return guardError('Reçete sürümünün hesap içeriği değiştirilemez; yeniden hesaplayın')
+      if (patch.status === 'onayli' && old.status === 'taslak') {
+        if (!old.source_approved) return guardError('Onaysız metrajdan oluşturulan reçete onaylanamaz; önce metrajı ve pozları onaylayın')
+        if (old.error_count > 0) return guardError(`Hatalı satırı olan reçete onaylanamaz (${old.error_count} hata)`)
+        patch = { ...patch, approved_at: this.now(), approved_by: actor }
+      } else patch = { ...patch, approved_at: old.approved_at, approved_by: old.approved_by }
+    }
+    if (BOM_DEFAULTS[table] && !system) {
+      const g = this.bomGuard(table, { ...old, ...patch })
+      if (g) return g
+    }
     if (table === 'notifications' && Object.keys(patch).some((k) => k !== 'read_at')) return { error: { status: 403, code: '42501', message: 'permission denied for table notifications' } }
     let next = { ...old, ...patch, id: old.id, created_at: old.created_at, created_by: old.created_by, updated_at: this.now(), version: (old.version ?? 0) + 1 }
     if (table === 'quantity_items') {
@@ -572,6 +686,8 @@ export class MockSupabase {
       if (t && t.status !== 'taslak') return guardError('Onaylanmış veya arşivlenmiş metraj sürümündeki poz silinemez')
     }
     if (!cascade && table === 'quantity_takeoffs' && this.db[table][i].status === 'onaylandi') return guardError('Onaylanmış metraj sürümü silinemez; arşivleyebilirsiniz')
+    if (!cascade && (table === 'bom_assignments' || table === 'bom_lines')) return { error: { status: 403, code: '42501', message: `permission denied for table ${table}` } }
+    if (!cascade && table === 'bom_versions' && this.db[table][i].status === 'onayli') return guardError('Onaylanmış reçete sürümü silinemez')
     if (!cascade && table === 'quotes') {
       const q = this.db[table][i]
       if (q.superseded) return guardError('Eski teklif revizyonu silinemez; geçmiş olarak saklanır')
@@ -592,11 +708,30 @@ export class MockSupabase {
     // ON DELETE CASCADE karşılıkları
     if (table === 'companies') for (const c of this.db.contacts.filter((x) => x.company_id === id)) this.deleteRow('contacts', c.id)
     if (table === 'projects') {
+      for (const v of this.db.bom_versions.filter((x) => x.project_id === id)) this.deleteRow('bom_versions', v.id, true)
       for (const t of ['project_notes', 'project_files', 'project_status_history', 'project_collections', 'project_payment_schedule', 'project_expenses', 'project_cost_lines', 'project_budgets', 'fx_rates', 'quantity_items', 'quantity_takeoffs', 'cad_analyses', 'quantity_item_history', 'project_tasks', 'project_events']) {
         for (const r of this.db[t].filter((x) => x.project_id === id)) this.deleteRow(t, r.id, true)
       }
     }
     if (table === 'quantity_takeoffs') for (const r of this.db.quantity_items.filter((x) => x.takeoff_id === id)) this.deleteRow('quantity_items', r.id, true)
+    // 014 reçete: zincirleme silme ve bağlantı boşaltma (anlık görüntüler korunur)
+    if (table === 'bom_versions') {
+      for (const r of this.db.bom_lines.filter((x) => x.bom_version_id === id)) this.deleteRow('bom_lines', r.id, true)
+      for (const r of this.db.bom_assignments.filter((x) => x.bom_version_id === id)) this.deleteRow('bom_assignments', r.id, true)
+      for (const v of this.db.bom_versions.filter((x) => x.based_on === id)) this.updateRow('bom_versions', v.id, { based_on: null }, OWNER.id, true)
+    }
+    if (table === 'product_systems') {
+      for (const c of this.db.system_components.filter((x) => x.system_id === id)) this.deleteRow('system_components', c.id, true)
+      for (const a of this.db.bom_assignments.filter((x) => x.system_id === id)) this.updateRow('bom_assignments', a.id, { system_id: null }, OWNER.id, true)
+    }
+    if (table === 'system_components') {
+      for (const r of this.db.system_rules.filter((x) => x.component_id === id)) this.deleteRow('system_rules', r.id, true)
+      for (const l of this.db.bom_lines.filter((x) => x.component_id === id)) this.updateRow('bom_lines', l.id, { component_id: null }, OWNER.id, true)
+    }
+    if (table === 'system_rules') for (const l of this.db.bom_lines.filter((x) => x.rule_id === id)) this.updateRow('bom_lines', l.id, { rule_id: null }, OWNER.id, true)
+    if (table === 'cost_rates') for (const c of this.db.system_components.filter((x) => x.cost_rate_id === id)) this.updateRow('system_components', c.id, { cost_rate_id: null }, OWNER.id, true)
+    if (table === 'quantity_takeoffs') for (const v of this.db.bom_versions.filter((x) => x.takeoff_id === id)) this.updateRow('bom_versions', v.id, { takeoff_id: null }, OWNER.id, true)
+    if (table === 'quantity_items') for (const a of this.db.bom_assignments.filter((x) => x.quantity_item_id === id)) this.updateRow('bom_assignments', a.id, { quantity_item_id: null }, OWNER.id, true)
     if (table === 'projects') for (const q of this.db.quotes.filter((x) => x.project_id === id)) this.updateRow('quotes', q.id, { project_id: null }, OWNER.id, true)
     if (table === 'quantity_items') for (const qi of this.db.quote_items.filter((x) => x.source_item_id === id)) this.updateRow('quote_items', qi.id, { source_item_id: null }, OWNER.id, true)
     if (table === 'quantity_takeoffs') for (const qi of this.db.quote_items.filter((x) => x.source_takeoff_id === id)) this.updateRow('quote_items', qi.id, { source_takeoff_id: null }, OWNER.id, true)
@@ -755,6 +890,22 @@ export class MockSupabase {
       return json(200, row.id)
     }
 
+    if (p === '/rest/v1/rpc/create_bom_version') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      const b = req.postDataJSON()
+      const r = this.createBomVersion(b.p_project, b.p_takeoff, b.p_payload, user.id)
+      if (r.error) return json(r.error.status, { code: r.error.code, message: r.error.message, details: null, hint: null })
+      return json(200, r.row.id)
+    }
+    if (p === '/rest/v1/rpc/approve_bom_version') {
+      if (!user) return json(401, { code: '42501', message: 'permission denied' })
+      const { p_id } = req.postDataJSON()
+      const v = this.isOwner(user) ? this.db.bom_versions.find((x) => x.id === p_id && x.status === 'taslak') : null
+      if (!v) return json(400, { code: 'P0002', message: 'Taslak reçete sürümü bulunamadı' })
+      const r = this.updateRow('bom_versions', v.id, { status: 'onayli' }, user.id)
+      if (r?.error) return json(r.error.status, { code: r.error.code, message: r.error.message, details: null, hint: null })
+      return json(200, null)
+    }
     if (p === '/rest/v1/rpc/check_reminders') {
       if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
       return json(200, this.runReminders())

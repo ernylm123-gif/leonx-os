@@ -1557,6 +1557,233 @@ await test('Faz 8: kuru girilmemiş para birimi uyarısı, kur girilince birleş
   expect(await d.getByTestId('ti-submit').isDisabled(), 'aynı metraj tekrar aktarılabilir')
 }, { viewport: { width: 1366, height: 900 } })
 
+// ================================================================== Malzeme reçetesi (BOM) — PR-5
+// Test sistemi SENTETİKTİR: kodlar, düşümler ve fiyatlar gerçek üretici verisi değildir.
+function seedBomProject(mock, code = 'LX-2026-950') {
+  const project = mock.externalInsert('projects', { code, name: 'Reçete projesi', category: 'aluminyum_dograma' })
+  const base = { shape: 'dikdortgen', unit: 'm2', measure_basis: 'dograma', glass_mode: 'yok', floor: null, space: null, description: null }
+  const r1 = mock.externalInsert('quantity_takeoffs', { project_id: project.id, name: 'Uygulama', revision: 1 })
+  mock.externalInsert('quantity_items', { ...base, takeoff_id: r1.id, project_id: project.id, poz_code: 'P1', category: 'al_pencere', width_mm: 1200, height_mm: 1500, quantity: 4, verification: 'onaylandi' })
+  mock.externalInsert('quantity_items', { ...base, takeoff_id: r1.id, project_id: project.id, poz_code: 'P2', category: 'al_pencere', width_mm: 800, height_mm: 1000, quantity: 2, verification: 'bekliyor' })
+  mock.externalUpdate('quantity_takeoffs', r1.id, { status: 'onaylandi' })
+  return { project, r1, base }
+}
+function seedBomSystem(mock) {
+  const sys = mock.externalInsert('product_systems', { name: 'SENTETİK HAZIR SİSTEM', system_type: 'al_pencere' })
+  const kasa = mock.externalInsert('system_components', { system_id: sys.id, role: 'kasa', code: 'SENT-KASA', name: 'Sentetik kasa', unit: 'mm_profil', standard_length_mm: 6000, waste_pct: 5, sort_order: 10 })
+  mock.externalInsert('system_rules', { component_id: kasa.id, cut_length_formula: 'W', pieces_formula: '2', angle: '45', sort_order: 10 })
+  mock.externalInsert('system_rules', { component_id: kasa.id, cut_length_formula: 'H', pieces_formula: '2', angle: '45', sort_order: 20 })
+  const cam = mock.externalInsert('system_components', { system_id: sys.id, role: 'cam', name: 'Sentetik cam', unit: 'm2', sort_order: 20 })
+  mock.externalInsert('system_rules', { component_id: cam.id, quantity_formula: '(W-120)*(H-120)/1000000', sort_order: 10 })
+  return sys
+}
+
+await test('Malzeme reçetesi: sentetik sistem tanımı, onaylı metrajdan hesap, kesim listesi, onay ve kilit, metraj revizyonunda yeni taslak, Excel/PDF', async ({ page, mock, consoleErrors }) => {
+  const { project, r1, base } = seedBomProject(mock)
+  const rate = mock.externalInsert('cost_rates', { code: 'SENT-KASA-M', name: 'Sentetik kasa profili', cost_group: 'profil', unit: 'm', currency: 'TRY', unit_cost: 100, valid_from: '2026-01-01' })
+  await login(page, OWNER, '/receteler?bolum=sistemler')
+  await page.getByRole('heading', { name: 'Reçeteler', exact: true }).waitFor()
+  // Kütüphane boş başlar (uydurma üretici verisi yok)
+  await page.getByTestId('sys-empty').waitFor()
+  expect(mock.db.product_systems.length === 0, 'kütüphane boş başlamadı')
+
+  // Sistem
+  await page.getByTestId('sys-add').click()
+  let d = page.getByRole('dialog', { name: 'Yeni ürün sistemi' })
+  await d.getByTestId('sys-submit').click()
+  await d.getByText('Sistem adı zorunludur.').waitFor()
+  await d.getByTestId('sys-name').fill('SENTETİK E2E SİSTEMİ')
+  await d.getByTestId('sys-manufacturer').fill('TEST')
+  await d.getByTestId('sys-type').selectOption('al_pencere')
+  await d.getByTestId('sys-submit').click()
+  await page.getByTestId('sys-title').getByText('SENTETİK E2E SİSTEMİ').waitFor()
+
+  // Kasa bileşeni (profil, standart boy, fire, katalog fiyatı)
+  await page.getByTestId('comp-add').click()
+  d = page.getByRole('dialog', { name: 'Yeni bileşen' })
+  await d.getByTestId('comp-role').selectOption('kasa')
+  await d.getByTestId('comp-unit').selectOption('mm_profil')
+  await d.getByTestId('comp-code').fill('SENT-KASA')
+  await d.getByTestId('comp-name').fill('Sentetik kasa')
+  await d.getByTestId('comp-std').fill('6000')
+  await d.getByTestId('comp-waste').fill('5')
+  await d.getByTestId('comp-rate').selectOption(rate.id)
+  await d.getByTestId('comp-submit').click()
+  const kasaRow = page.locator('[data-testid="comp-row"][data-code="SENT-KASA"]')
+  await kasaRow.waitFor()
+  await kasaRow.getByText(/fiyat SENT-KASA-M/).waitFor()
+
+  // Kural: canlı formül doğrulaması, sonra W ve H kesimleri
+  for (const [cut, i] of [['W', 0], ['H', 1]]) {
+    await kasaRow.getByTestId('rule-add').click()
+    d = page.getByRole('dialog', { name: 'Yeni üretim kuralı' })
+    if (i === 0) {
+      await d.getByTestId('rule-cut').fill('W +')
+      await d.getByTestId('rule-cut-error').getByText(/eksik bitiyor/).waitFor()
+      await d.getByTestId('rule-cut').fill('constructor')
+      await d.getByTestId('rule-cut-error').getByText(/Bilinmeyen değişken/).waitFor()
+      await d.getByTestId('rule-submit').click()
+      await d.getByText(/Formül hatalı|parça formülü zorunludur/).first().waitFor()
+    }
+    await d.getByTestId('rule-cut').fill(cut)
+    await d.getByTestId('rule-cut-ok').waitFor()
+    await d.getByTestId('rule-pieces').fill('2')
+    await d.getByTestId('rule-angle').fill('45')
+    await d.getByTestId('rule-submit').click()
+    await eventually(async () => (await kasaRow.getByTestId('rule-row').count()) === i + 1, 'kural eklenmedi')
+  }
+  expect(mock.db.system_rules.every((r) => r.cut_length_formula && r.pieces_formula === '2'), 'kural kaydı hatalı')
+
+  // Cam bileşeni (m², fiyat yok → uydurulmaz)
+  await page.getByTestId('comp-add').click()
+  d = page.getByRole('dialog', { name: 'Yeni bileşen' })
+  await d.getByTestId('comp-role').selectOption('cam')
+  await d.getByTestId('comp-unit').selectOption('m2')
+  await d.getByTestId('comp-name').fill('Sentetik cam')
+  await d.getByTestId('comp-submit').click()
+  const camRow = page.locator('[data-testid="comp-row"]', { hasText: 'Sentetik cam' })
+  await camRow.waitFor()
+  await camRow.getByTestId('rule-add').click()
+  d = page.getByRole('dialog', { name: 'Yeni üretim kuralı' })
+  await d.getByTestId('rule-qty').fill('(W-120)*(H-120)/1000000')
+  await d.getByTestId('rule-submit').click()
+  await camRow.getByTestId('rule-row').waitFor()
+
+  // Önizleme: 1200 × 1500 × 4 → kasa 22,680 m (fire dahil), 4 boy; kesim 1200/1500 × 8
+  await page.getByTestId('pv-n').fill('4')
+  const pv = page.getByTestId('preview-result')
+  await pv.locator('[data-testid="bom-total-row"][data-code="SENT-KASA"]').getByTestId('bom-total-qty').getByText('22,680').waitFor()
+  await pv.locator('[data-testid="bom-total-row"][data-code="SENT-KASA"]').getByTestId('bom-total-bars').getByText('4').waitFor()
+  await pv.getByTestId('bom-tab-kesim').click()
+  await pv.locator('[data-testid="bom-cut-row"][data-cut="1200"]').getByTestId('bom-cut-pieces').getByText('8').waitFor()
+
+  // Boş şablon: yalnız satır yapısı, hiçbir sayısal değer yok
+  await page.getByTestId('sys-add').click()
+  d = page.getByRole('dialog', { name: 'Yeni ürün sistemi' })
+  await d.getByTestId('sys-name').fill('Şablon deneme')
+  await d.getByTestId('sys-submit').click()
+  await page.getByTestId('sys-title').getByText('Şablon deneme').waitFor()
+  await page.getByTestId('sys-template').click()
+  await eventually(async () => (await page.getByTestId('comp-row').count()) === 6, 'şablon satırları eklenmedi')
+  const tpl = mock.db.system_components.filter((c) => c.system_id === mock.db.product_systems.find((s) => s.name === 'Şablon deneme').id)
+  expect(tpl.length === 6 && tpl.every((c) => c.code === null && c.standard_length_mm === null && c.weight_kg_per_m === null && c.cost_rate_id === null && Number(c.waste_pct) === 0), 'şablon sayısal değer içeriyor')
+  expect(mock.db.system_rules.filter((r) => tpl.some((c) => c.id === r.component_id)).length === 0, 'şablon kural içeriyor')
+
+  // Başka cihazda eklenen sistem anında görünür (Realtime)
+  mock.externalInsert('product_systems', { name: 'Başka cihaz sistemi', system_type: 'pvc_pencere' })
+  await page.getByTestId('sys-list').getByText('Başka cihaz sistemi').waitFor()
+
+  // ------------------------------------------------ Proje reçetesi
+  await page.goto(`${BASE}/receteler?proje=${project.id}`)
+  await page.getByTestId('bom-calculator').waitFor()
+  expect((await page.getByTestId('bom-takeoff').inputValue()) === r1.id, 'onaylı metraj varsayılan değil')
+  await page.getByTestId('bom-skipped').getByText(/P2/).waitFor()
+  const sysId = mock.db.product_systems.find((s) => s.name === 'SENTETİK E2E SİSTEMİ').id
+  await page.getByTestId('bom-bulk-category').selectOption('al_pencere')
+  await page.getByTestId('bom-bulk-system').selectOption(sysId)
+  await page.getByTestId('bom-bulk-apply').click()
+  const res = page.getByTestId('bom-result')
+  await res.locator('[data-testid="bom-total-row"][data-code="SENT-KASA"]').getByTestId('bom-total-qty').getByText('22,680').waitFor()
+  await res.getByTestId('bom-tile-cost').getByText(/2\.268,00/).waitFor()
+  await res.getByTestId('bom-tile-cost').getByText(/1 satır fiyat tanımlı değil/).waitFor()
+  await res.getByTestId('bom-tab-kesim').click()
+  await res.locator('[data-testid="bom-cut-row"][data-code="SENT-KASA"][data-cut="1500"]').getByTestId('bom-cut-pieces').getByText('8').waitFor()
+  await res.getByTestId('bom-tab-satirlar').click()
+  expect((await res.getByTestId('bom-line').count()) === 3, 'satır sayısı 3 değil (kasa W, kasa H, cam)')
+  await page.getByTestId('bom-save').click()
+  await page.getByTestId('bom-version-title').getByText('Reçete Rev 1').waitFor()
+  const v1 = mock.db.bom_versions[0]
+  expect(v1 && v1.source_approved === true && v1.status === 'taslak' && v1.takeoff_revision === 1, `sürüm hatalı: ${JSON.stringify(v1)}`)
+  const lines1 = mock.db.bom_lines.filter((l) => l.bom_version_id === v1.id)
+  const k1200 = lines1.find((l) => l.cut_length_mm === 1200)
+  expect(lines1.length === 3 && k1200.pieces === 8 && k1200.quantity === 10.08 && k1200.line_cost === 1008 && lines1.find((l) => l.role === 'cam').unit_cost === null, `satırlar hatalı: ${JSON.stringify(lines1)}`)
+
+  // Onay → kilit
+  await page.getByTestId('bom-approve').click()
+  await page.getByRole('dialog', { name: /onaylansın mı/ }).getByTestId('confirm-ok').click()
+  await page.getByTestId('bom-version').getByTestId('bom-status').getByText('Onaylı').waitFor()
+  expect(mock.db.bom_versions[0].status === 'onayli' && mock.db.bom_versions[0].approved_at, 'onay kaydedilmedi')
+  expect((await page.getByTestId('bom-delete').count()) === 0 && (await page.getByTestId('bom-approve').count()) === 0, 'onaylı sürümde silme/onay görünüyor')
+  expect(mock.externalUpdate('bom_versions', v1.id, { notes: 'x' }).error, 'onaylı sürüm güncellenebildi (sahte arka uç kuralı)')
+
+  // Dışa aktarma
+  for (const [id, ext] of [['bom-export-xlsx', '.xlsx'], ['bom-export-pdf', '.pdf']]) {
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByTestId(id).click()])
+    expect(dl.suggestedFilename().startsWith('LX-2026-950-recete-rev1-') && dl.suggestedFilename().endsWith(ext), `dosya adı: ${dl.suggestedFilename()}`)
+  }
+
+  // Metraj revizyonu (başka cihazda): banner, yeniden hesapla → yeni taslak; onaylı Rev 1 aynen kalır
+  const r2 = mock.externalInsert('quantity_takeoffs', { project_id: project.id, name: 'Uygulama', revision: 2, based_on: r1.id })
+  mock.externalInsert('quantity_items', { ...base, takeoff_id: r2.id, project_id: project.id, poz_code: 'P1', category: 'al_pencere', width_mm: 1300, height_mm: 1500, quantity: 4, verification: 'onaylandi' })
+  mock.externalUpdate('quantity_takeoffs', r2.id, { status: 'onaylandi' })
+  await page.getByTestId('bom-stale').getByText(/Rev 2/).waitFor()
+  await page.getByTestId('bom-recalc').click()
+  await page.getByTestId('bom-carried').getByText(/Rev 1/).waitFor()
+  expect((await page.getByTestId('bom-takeoff').inputValue()) === r2.id, 'yeniden hesapta son metraj seçilmedi')
+  expect((await page.locator('[data-testid="bom-assign-row"][data-poz="P1"]').getByTestId('bom-assign-system').inputValue()) === sysId, 'sistem ataması aktarılmadı')
+  // 1300: (2×1300 + 2×1500) × 4 = 22.400 mm; %5 fire → 23,520 m
+  await page.getByTestId('bom-result').locator('[data-testid="bom-total-row"][data-code="SENT-KASA"]').getByTestId('bom-total-qty').getByText('23,520').waitFor()
+  await page.getByTestId('bom-save').click()
+  await page.getByTestId('bom-version-title').getByText('Reçete Rev 2').waitFor()
+  expect(mock.db.bom_versions.length === 2 && mock.db.bom_versions.find((v) => v.revision === 1).status === 'onayli' && mock.db.bom_lines.filter((l) => l.bom_version_id === v1.id).length === 3, 'eski onaylı sürüm değişti')
+  const v2 = mock.db.bom_versions.find((v) => v.revision === 2)
+  expect(v2.status === 'taslak' && v2.source_approved && v2.takeoff_revision === 2 && v2.based_on === v1.id, `Rev 2 hatalı: ${JSON.stringify(v2)}`)
+  // Karşılaştırma: P1 kasa W kesimi ve cam değişti, H kesimi aynı
+  const cmp = page.getByTestId('bom-compare')
+  await cmp.locator('[data-testid="bom-diff-row"][data-kind="degisen"][data-poz="P1"]').first().waitFor()
+  await cmp.getByText(/Kesim 1\.200 → 1\.300 mm/).waitFor()
+  await cmp.getByTestId('bom-diff-degisen').getByText('2 değişen').waitFor()
+
+  // Onaysız metrajdan: açık uyarı, taslak olarak kaydedilir, onaylanamaz
+  const r3 = mock.externalInsert('quantity_takeoffs', { project_id: project.id, name: 'Taslak metraj', revision: 3, based_on: r2.id })
+  mock.externalInsert('quantity_items', { ...base, takeoff_id: r3.id, project_id: project.id, poz_code: 'P1', category: 'al_pencere', width_mm: 1300, height_mm: 1500, quantity: 4, verification: 'onaylandi' })
+  await page.getByTestId('bom-new-calc').click()
+  await page.getByTestId('bom-calculator').waitFor()
+  await page.getByTestId('bom-takeoff').selectOption(r3.id)
+  await page.getByTestId('bom-source-unapproved').waitFor()
+  await page.getByTestId('bom-draft-banner').getByText(/onaysız metrajdan — taslak/).waitFor()
+  await page.getByTestId('bom-save').click()
+  await page.getByTestId('bom-version-title').getByText('Reçete Rev 3').waitFor()
+  await page.getByTestId('bom-unapproved-source').waitFor()
+  expect(await page.getByTestId('bom-approve').isDisabled(), 'onaysız metrajdan reçete onaylanabilir görünüyor')
+  expect(mock.db.bom_versions.find((v) => v.revision === 3).source_approved === false, 'onaysız kaynak işaretlenmedi')
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+})
+
+for (const [label, dev] of [['iPhone SE', devices['iPhone SE']], ['iPad Pro 11', devices['iPad Pro 11']]]) {
+  const { defaultBrowserType: _ignored, ...opts } = dev
+  await test(`Malzeme reçetesi ${label}: kütüphane, hesap ve kayıtlı sürüm taşmadan kullanılabilir`, async ({ page, mock }) => {
+    const { project, r1 } = seedBomProject(mock, 'LX-2026-951')
+    const sys = seedBomSystem(mock)
+    const items = mock.db.quantity_items.filter((i) => i.takeoff_id === r1.id && i.verification === 'onaylandi')
+    const r = mock.createBomVersion(project.id, r1.id, {
+      error_count: 0, warning_count: 0, warnings: [],
+      assignments: items.map((i) => ({ key: i.id, quantity_item_id: i.id, system_id: sys.id })),
+      lines: [{ assignment_key: items[0].id, line_key: 'P1|SENT-KASA|kasa|mm_profil|1', role: 'kasa', code: 'SENT-KASA', name: 'Sentetik kasa', unit: 'mm_profil', cut_length_mm: 1200, angle: '45', pieces: 8, total_length_mm: 9600, net_quantity: 9.6, waste_pct: 5, waste_qty: 0.48, quantity: 10.08, standard_length_mm: 6000 }],
+    }, OWNER.id)
+    const vw = opts.viewport.width
+    const overflow = () => page.evaluate((w) => document.documentElement.scrollWidth > w + 1, vw)
+    await login(page, OWNER, '/receteler?bolum=sistemler')
+    await page.getByTestId('sys-title').getByText('SENTETİK HAZIR SİSTEM').waitFor()
+    await page.getByTestId('preview-result').waitFor()
+    expect(!(await overflow()), 'kütüphane yatay taşıyor')
+    await page.goto(`${BASE}/receteler?proje=${project.id}`)
+    await page.locator('[data-testid="bom-assign-row"][data-poz="P1"]').waitFor()
+    await page.locator('[data-testid="bom-assign-row"][data-poz="P1"]').getByTestId('bom-assign-system').selectOption(sys.id)
+    await page.getByTestId('bom-result').waitFor()
+    expect(!(await overflow()), 'hesap ekranı yatay taşıyor')
+    const box = await page.getByTestId('bom-save').boundingBox()
+    expect(box && box.x >= 0 && box.x + box.width <= vw + 1, 'kaydet düğmesi ekran dışında')
+    await page.goto(`${BASE}/receteler?proje=${project.id}&surum=${r.row.id}`)
+    await page.getByTestId('bom-version-title').getByText('Reçete Rev 1').waitFor()
+    await page.getByTestId('bom-version-result').locator('[data-testid="bom-total-row"][data-code="SENT-KASA"]').getByTestId('bom-total-qty').getByText('10,080').waitFor()
+    expect(!(await overflow()), 'kayıtlı sürüm yatay taşıyor')
+    const fs = await page.getByTestId('bom-project').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+    if (vw < 640) expect(fs >= 16, `iOS yakınlaşmasını önlemek için seçim yazısı ≥16px olmalı (${fs})`)
+  }, opts)
+}
+
 // ================================================================== Duyarlı ekranlar ve temalar
 const SCREENS = {
   'iphone-se': devices['iPhone SE'],
@@ -1603,6 +1830,7 @@ for (const [name, dev] of Object.entries(SCREENS)) {
           ['/teklifler', 'Teklifler'],
           [`/teklifler/${sq.id}`, sq.title],
           ['/finans', 'Finans'],
+          ['/receteler', 'Reçeteler'],
           ['/ayarlar', 'Ayarlar'],
         ]) {
           await page.goto(`${BASE}${route}`)
