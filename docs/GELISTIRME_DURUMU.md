@@ -1,6 +1,6 @@
 # LEONX OS — Geliştirme durumu
 
-Son güncelleme: Faz 13 (DXF mimari analiz, revizyon karşılaştırma, malzeme bazlı metraj) · uygulama sürümü 0.9.1
+Son güncelleme: PR-2 (DWG → DXF → PDF dönüştürme prototipi) · uygulama sürümü 0.9.2
 
 Tek üretim adresi: <https://leonx-os.vercel.app> (yalnızca `main` dalından). Çalışan derlemenin kimliği
 **Ayarlar → Sürüm bilgisi** ekranında ve `/version.json` adresinde görünür.
@@ -19,6 +19,7 @@ Tek üretim adresi: <https://leonx-os.vercel.app> (yalnızca `main` dalından). 
 | 8 | Finans: birim maliyet kataloğu, kullanıcı kurları, proje bütçesi (kabul edilen teklif anlık görüntüsü), tahmini maliyet (elle / onaylı metrajdan), gerçekleşen gider (KDV ayrı), ödeme planı ve tahsilat (FIFO), tahmini/beklenen/gerçekleşen kâr, bütçe aşımı ve tahsilat bildirimleri, /finans paneli (nakit akışı, geciken ödemeler) |
 | 7 | 12 aşamalı proje akışı (liste + pano), ilerleme, adres/harita, gerçek bitiş tarihi; görev ve termin (hatırlatma, gecikme); sunucu olaylarından işlem geçmişi; bildirim merkezi (zil, geçmiş, okundu eşitleme, tercihler); Web Push (VAPID, kendi service worker'ı); canlı yönetim paneli; teklif kabulünde aşama önerisi |
 | 13 | CAD/BIM: **DXF mimari analiz** — model uzayı mimari motora (PDF ile aynı) sanal kâğıt olarak verilir: pafta türü, doğrama çizelgesi (metin tablosu), poz etiketi, kat tekrarı, teknik özellik, çelişki; blok geometrisiyle birleşik (yazılı ölçü yoksa ölçü bloktan, uyuşmazsa ölçü çelişkisi; duvarlar poz sayılmaz). **Metraj revizyon karşılaştırması** — eklenen/silinen/değişen pozlar, metraj farkı, katalog maliyet farkı ve teklif tutarı etkisi (fiyat yoksa tutar yok, para birimleri ayrı). Metraj özetinde brüt (boşluk) alan, çevre ve **malzeme/seri bazlı** tablo. DWG değerlendirmesi (`docs/DWG_DEGERLENDIRME.md`) |
+| PR-2 | **DWG → DXF → PDF dönüştürme prototipi**: ayrı, yalıtılmış dönüştürme servisi (`services/cad-worker`: GNU LibreDWG + ezdxf, Supabase JWT, kaynak sınırları, dosya saklamaz), kalite raporu (kaybolan nesne/katman/blok, birim, layout, XREF, proxy), PDF önizleme; uygulamada açık onayla sunucuda dönüştürme, dönüştürülen DXF'in mevcut analize verilmesi, özgün DWG/DXF/PDF indirme. Barındırma onay bekliyor (`docs/DWG_DONUSTURME.md`) |
 
 ## Veritabanı
 
@@ -61,7 +62,7 @@ Otomatik testler Chromium cihaz öykünmesiyle yapılır; aşağıdakiler gerçe
 | Taranmış (görüntü) PDF | Sınırlı: tüm sayfa karolar hâlinde OCR; güven düşük tutulur, rakam hataları olabilir, geometri doğrulaması yapılmaz |
 | Yazısız (yalnız çizgi) PDF | Otomatik metraj üretilmez; neden gösterilir, kalibrasyon + elle ölçüm önerilir |
 | Normal/tip kat planları | Başlıkta kat aralığı/sayısı yazıyorsa ("1.-4. KATLAR") sayım çarpılır ve çizelgeyle karşılaştırılır; yazmıyorsa uyarı |
-| DWG | Desteklenmez (DXF'e dönüştürme rehberi; seçenekler ve lisanslar: `docs/DWG_DEGERLENDIRME.md`) |
+| DWG | Tarayıcıda okunmaz. Dönüştürme sunucusu yapılandırılmışsa kullanıcı onayıyla sunucuda DXF'e (ve PDF önizlemeye) çevrilip DXF analizine verilir; yapılandırılmamışsa (şu an production) DXF'e dönüştürme rehberi. Bkz. `docs/DWG_DONUSTURME.md` |
 
 Testler sentetik fikstürlerle yapıldı (`scripts/cad-fixtures/make_pdf_fixtures*.mjs`, beklenen sonuçlar
 `*.expected.json`). **Kullanıcıya ait gerçek proje PDF'i ile henüz doğrulanmadı**; gerçek referans projelerle
@@ -94,7 +95,7 @@ ve tarayıcı testi; öznitelik ve kâğıt uzayı: `src/cad/dxfAttributes.test.
 
 ## Bilinen sınırlar
 
-- DWG dosyaları doğrudan okunmaz (DXF'e dönüştürme rehberi gösterilir; seçenekler `docs/DWG_DEGERLENDIRME.md`).
+- DWG dönüştürme sunucusu (`services/cad-worker`) henüz barındırılmıyor; production'da DWG için DXF'e dönüştürme rehberi gösterilir (`docs/DWG_DONUSTURME.md`). Dönüşüm gerçek ofis DWG'leriyle doğrulanmadı.
 - Revizyon karşılaştırmasında maliyet farkı yalnız katalogda fiyatı tanımlı iş grupları, teklif farkı yalnız teklifte aynı poz kodlu kalem için hesaplanır.
 - Push gönderimi dakikalık zamanlayıcıyla yapılır (en geç ~1–2 dk gecikme). iOS'ta push yalnız ana ekrana
   eklenmiş uygulamada çalışır.

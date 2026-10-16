@@ -31,6 +31,8 @@ import { CadCanvas, type CadCanvasHandle } from '../CadCanvas'
 import { formatAreaWorld, formatCoord, formatLengthWorld, type UnitState } from '../format'
 import { type CadSource, initialUnits, type LoadedCad, UNKNOWN_UNITS, unitsFromPdfScale, useCadDocument } from '../useCadDocument'
 import { CalibrationDialog } from './CalibrationDialog'
+import { DwgConversionBar } from './DwgConversionBar'
+import { dwgServiceHost } from '@/cad/dwgService'
 import { FilePanel, HistoryPanel, LayersPanel, type LogEntry, MeasurementsPanel, PropertiesPanel, UnitsCard, WarningsPanel } from './panels'
 import { CAD_ACCEPT, DropZone, DwgGuide, ErrorView, LoadingView } from './states'
 import { PageSelect } from './PageSelect'
@@ -111,7 +113,7 @@ export function CadWorkspace({
   initialFile?: { load: () => Promise<{ name: string; bytes: ArrayBuffer }>; source: CadSource } | null
   headerExtra?: ReactNode
 }) {
-  const { state, load, cancel, reset, fail, pending, selectPage, setPageAnalysis, pageBusy } = useCadDocument()
+  const { state, load, cancel, reset, fail, pending, selectPage, setPageAnalysis, pageBusy, convertDwg, dwgService } = useCadDocument()
   const doc = state.status === 'ready' ? state.doc : null
   const canvasRef = useRef<CadCanvasHandle>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -534,7 +536,14 @@ export function CadWorkspace({
                   {state.status === 'loading' && <LoadingView fileName={state.fileName} stage={state.stage} fraction={state.fraction} onCancel={cancel} />}
                   {state.status === 'error' &&
                     (state.code === 'dwg' ? (
-                      <DwgGuide fileName={state.fileName} version={state.detail} onReset={() => fileInput.current?.click()} />
+                      <DwgGuide
+                        fileName={state.fileName}
+                        version={state.detail}
+                        onReset={() => fileInput.current?.click()}
+                        service={dwgService ? dwgServiceHost(dwgService) : null}
+                        onConvert={() => void convertDwg()}
+                        error={/DWG dosyası doğrudan okunamaz/.test(state.message) ? null : state.message}
+                      />
                     ) : (
                       <ErrorView fileName={state.fileName} message={state.message} onReset={reset} />
                     ))}
@@ -543,6 +552,7 @@ export function CadWorkspace({
             )}
             {doc && (
               <>
+                {doc.conversion && <DwgConversionBar doc={doc} />}
                 <CadCanvas
                   ref={canvasRef}
                   scene={doc.scene}
