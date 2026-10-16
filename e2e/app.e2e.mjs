@@ -8,6 +8,7 @@
  * Çalıştırma: npm run test:e2e
  */
 import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, devices } from 'playwright'
@@ -23,11 +24,13 @@ const SHOTS = process.env.E2E_SCREENSHOTS
 
 // ------------------------------------------------------------------ derleme
 if (!process.env.E2E_SKIP_BUILD) {
-  const env = { ...process.env, VITE_SUPABASE_URL: SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_e2e_test_key' }
+  // DWG dönüştürme servisi aynı kökenden (/cad-worker) sunulur; testte page.route ile taklit edilir
+  const env = { ...process.env, VITE_SUPABASE_URL: SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_e2e_test_key', VITE_CAD_WORKER_URL: '/cad-worker' }
   execSync('npx vite build --outDir dist-e2e --emptyOutDir --logLevel error', { cwd: ROOT, env, stdio: 'inherit' })
   const bare = { ...process.env }
   delete bare.VITE_SUPABASE_URL
   delete bare.VITE_SUPABASE_PUBLISHABLE_KEY
+  delete bare.VITE_CAD_WORKER_URL
   execSync('npx vite build --outDir dist-e2e-unconfigured --emptyOutDir --logLevel error', { cwd: ROOT, env: bare, stdio: 'inherit' })
 }
 const servers = [
@@ -1062,6 +1065,80 @@ await test('CAD motoru: kâğıt uzayındaki çizelge ve blok öznitelikleri tar
   const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
   expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
 })
+
+await test('DWG → DXF: onaylı sunucu dönüştürmesi, oturum belirteci, kalite raporu, analiz ve indirme; hata açıkça gösterilir', async ({ page, consoleErrors }) => {
+  const dxf = readFileSync(path.join(ROOT, 'src/cad/__fixtures__/mimari_plan_cizelge.dxf'))
+  const calls = []
+  let fail = true
+  await page.route('**/cad-worker/v1/dwg/donustur**', async (route) => {
+    const req = route.request()
+    calls.push({ auth: req.headers()['authorization'] ?? '', url: req.url(), size: (req.postDataBuffer() ?? Buffer.alloc(0)).length })
+    if (fail) return route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ detail: { kod: 'surum_desteklenmiyor', mesaj: 'DWG sürümü AC1009 desteklenmiyor (R13–AutoCAD 2018 arası desteklenir).' } }) })
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        surum: 'AC1032',
+        surum_adi: 'AutoCAD 2018',
+        sure_sn: 0.08,
+        onarilan_metin: 0,
+        uyarilar: [],
+        kalite: { status: 'eksik', dxf_valid: true, audit_errors: 0, units: 'mm', counts_dwg: { INSERT: 5 }, counts_dxf: { INSERT: 4 }, lost: { INSERT: 1 }, layers: { dwg: 6, dxf: 6 }, blocks: { dwg: 3, dxf: 3 }, layouts: ['Layout1', 'Model'], xrefs: [], proxy_entities: 0, notes: [] },
+        dxf: dxf.toString('base64'),
+        pdf: Buffer.from('%PDF-1.4\n%%EOF').toString('base64'),
+        pdf_rapor: { pages: [{ name: 'Model', width_mm: 420, height_mm: 297, entities: 60, scale_note: 'sayfaya sığdırıldı (ölçeksiz önizleme)' }], skipped: [] },
+      }),
+    })
+  })
+  await login(page, OWNER, '/cad-analiz')
+  await page.getByTestId('cad-workspace').waitFor()
+  await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(ROOT, 'src/cad/__fixtures__/fake.dwg'))
+  await page.getByTestId('dwg-convert-box').getByText(/localhost/).waitFor()
+  expect(calls.length === 0, 'kullanıcı onayı olmadan dosya gönderildi')
+  // 1) Servis hata döndürür: neden gösterilir, analiz yapılmaz
+  await page.getByTestId('dwg-convert').click()
+  await page.getByTestId('dwg-convert-error').getByText(/AC1009 desteklenmiyor/).waitFor()
+  expect(calls.length === 1 && /^Bearer \S+/.test(calls[0].auth) && calls[0].size > 0, `istek: ${JSON.stringify(calls[0])}`)
+  // 2) Başarılı dönüşüm: DXF mevcut analiz motoruna gider; kayıp raporlanır
+  fail = false
+  await page.getByTestId('dwg-convert').click()
+  await page.getByTestId('cad-canvas').waitFor()
+  const report = page.getByTestId('dwg-report')
+  await report.waitFor()
+  expect((await report.getAttribute('data-status')) === 'eksik', 'kalite durumu gösterilmedi')
+  await report.getByRole('button', { name: 'Rapor' }).click()
+  await page.getByTestId('dwg-report-detail').getByText(/Dönüşümde kaybolan: 1 INSERT/).waitFor()
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('dwg-dl-dxf').click()])
+  expect(dl.suggestedFilename() === 'fake.dxf', `indirilen: ${dl.suggestedFilename()}`)
+  await page.getByRole('tab', { name: /Pozlar/ }).click()
+  await page.getByTestId('poz-detect').click()
+  await page.getByRole('tab', { name: /Tespit sonuçları/ }).click()
+  await page.locator('[data-testid="result-row"][data-poz="K1"]').getByTestId('result-conflict-badge').waitFor()
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime|422/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+})
+
+// Gerçek servisle (taklit yok): CAD_WORKER_REAL_URL ve LIBREDWG_TESTDATA verilirse çalışır
+if (process.env.CAD_WORKER_REAL_URL && process.env.LIBREDWG_TESTDATA) {
+  await test('DWG → DXF (gerçek servis): AutoCAD 2018 DWG LibreDWG ile dönüştürülür, kalite raporu ve tarayıcıda analiz', async ({ page }) => {
+    await page.route('**/cad-worker/**', async (route) => {
+      const u = new URL(route.request().url())
+      const res = await route.fetch({ url: process.env.CAD_WORKER_REAL_URL + u.pathname.replace('/cad-worker', '') + u.search })
+      await route.fulfill({ response: res })
+    })
+    await login(page, OWNER, '/cad-analiz')
+    await page.getByTestId('cad-workspace').waitFor()
+    await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(process.env.LIBREDWG_TESTDATA, 'example_2018.dwg'))
+    await page.getByTestId('dwg-convert').click()
+    await page.getByTestId('cad-canvas').waitFor({ timeout: 60000 })
+    const report = page.getByTestId('dwg-report')
+    await report.waitFor()
+    await report.getByRole('button', { name: 'Rapor' }).click()
+    console.log('      gerçek rapor:', (await page.getByTestId('dwg-report-detail').innerText()).replace(/\s+/g, ' ').slice(0, 300), '| durum:', await report.getAttribute('data-status'))
+    expect((await report.getAttribute('data-status')) !== 'basarisiz', 'gerçek dönüşüm başarısız')
+    await page.getByRole('tab', { name: /Rapor|Analiz/ }).first().click().catch(() => {})
+  })
+}
 
 await test('Faz 13: metraj revizyon karşılaştırması — eklenen/silinen/değişen poz, metraj farkı, katalog maliyeti ve teklif etkisi; fiyatsız poz uydurulmaz', async ({ page, mock }) => {
   const project = mock.externalInsert('projects', { code: 'LX-2026-813', name: 'Revizyonlu blok', category: 'pvc_dograma' })

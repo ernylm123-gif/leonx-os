@@ -1,6 +1,10 @@
 # DWG desteği — teknik ve lisans değerlendirmesi (Faz 13)
 
-**Durum: LEONX OS DWG dosyalarını okumaz ve okumuş gibi davranmaz.** DWG yüklendiğinde ekran bunu açıkça
+> **Güncelleme (PR-2):** B seçeneğinin (LibreDWG, kendi sunucumuzda) çalışan prototipi
+> `services/cad-worker` altında hazırlandı; ayrıntılar `docs/DWG_DONUSTURME.md`. Servis henüz
+> barındırılmıyor; aşağıdaki durum production için geçerlidir.
+
+**Durum: LEONX OS DWG dosyalarını tarayıcıda okumaz ve okumuş gibi davranmaz.** DWG yüklendiğinde ekran bunu açıkça
 söyler ve DXF'e dönüştürme yollarını gösterir (`src/features/cad/workspace/states.tsx`, `DwgGuide`).
 Proje dosyalarında DWG saklanabilir; analiz için DXF veya vektörel PDF gerekir.
 

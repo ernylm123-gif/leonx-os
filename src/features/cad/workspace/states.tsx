@@ -83,19 +83,55 @@ export function LoadingView({ fileName, stage, fraction, onCancel }: { fileName:
 }
 
 /** DWG: dosya okunuyormuş gibi davranılmaz. Lisans koşullarına uygun dönüştürme yolları açıklanır. */
-export function DwgGuide({ fileName, version, onReset }: { fileName: string; version?: string; onReset: () => void }) {
+export function DwgGuide({
+  fileName,
+  version,
+  onReset,
+  service,
+  onConvert,
+  error,
+}: {
+  fileName: string
+  version?: string
+  onReset: () => void
+  /** Yapılandırılmış dönüştürme servisinin sunucu adı; yoksa yalnız rehber gösterilir */
+  service?: string | null
+  onConvert?: () => void
+  /** Önceki dönüştürme denemesinin hatası */
+  error?: string | null
+}) {
   return (
     <div className="mx-auto w-full max-w-2xl p-3 sm:p-6" data-testid="dwg-guide">
+      {service && onConvert && (
+        <div className="mb-5 rounded-xl border border-primary/30 bg-primary/5 p-3.5 text-sm" data-testid="dwg-convert-box">
+          <p className="font-semibold text-ink">Otomatik dönüştürme</p>
+          <p className="mt-1 text-muted">
+            Dosya DXF'e dönüştürülmek üzere <span className="font-mono text-ink-2">{service}</span> adresindeki LEONX dönüştürme sunucusuna gönderilir; sunucu dosyayı
+            saklamaz. Dönüşüm raporu kaybolan katman, blok, öznitelik ve ölçüleri gösterir. Sonuçlar gerçek projelerle doğrulanana kadar kontrol edilmelidir.
+          </p>
+          {error && (
+            <p className="mt-2 rounded-md border border-danger/30 bg-danger-soft px-2 py-1 text-danger" role="alert" data-testid="dwg-convert-error">
+              {error}
+            </p>
+          )}
+          <div className="mt-3">
+            <Button variant="primary" icon={FileUp} onClick={onConvert} data-testid="dwg-convert">
+              Sunucuda DXF'e dönüştür
+            </Button>
+          </div>
+        </div>
+      )}
       <div className="flex items-start gap-3">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-warn-line bg-warn-soft">
           <FileWarning className="h-5 w-5 text-warn" aria-hidden="true" />
         </span>
         <div className="min-w-0">
-          <h2 className="text-base font-semibold text-ink">DWG dosyası doğrudan analiz edilemiyor</h2>
+          <h2 className="text-base font-semibold text-ink">{service ? 'DWG tarayıcıda okunmaz' : 'DWG dosyası doğrudan analiz edilemiyor'}</h2>
           <p className="mt-1 text-sm text-muted">
             <span className="font-mono text-ink-2">{fileName}</span>
             {version && <> · {version}</>}. DWG kapalı bir biçimdir; tarayıcıda güvenilir, ücretsiz ve ticari kullanıma uygun bir okuyucu bulunmadığı için
-            LEONX OS DWG içeriğini okumaz ve okumuş gibi davranmaz.
+            LEONX OS DWG içeriğini tarayıcıda okumaz ve okumuş gibi davranmaz.
+            {service ? ' Yukarıdaki sunucu dönüştürmesini onaylayabilir ya da aşağıdaki yollarla DXF üretebilirsiniz.' : ''}
           </p>
         </div>
       </div>
