@@ -151,3 +151,75 @@ export function formatScore(name: string, s: BenchScore, synthetic: boolean): st
     .filter(Boolean)
     .join('\n')
 }
+
+/** Poz bazında metraj farkı satırı (rapor için): referans ↔ motor */
+export interface PozDiffRow {
+  kod: string
+  durum: 'dogru' | 'farkli' | 'eksik' | 'fazla'
+  beklenen: { en: number | null; boy: number | null; adet: number | null } | null
+  bulunan: { en: number | null; boy: number | null; adet: number; guven: ScoredCandidate['level']; celiski: boolean } | null
+  /** Bulunan − beklenen alan (m²); iki taraf da tamsa */
+  alanFarkM2: number | null
+  notlar: string[]
+}
+
+export function pozDiffTable(cands: ScoredCandidate[], expected: ExpectedPoz[]): PozDiffRow[] {
+  const got = new Map<string, ScoredCandidate>()
+  for (const c of cands) if (!got.has(canonCode(c.code))) got.set(canonCode(c.code), c)
+  const rows: PozDiffRow[] = []
+  const seen = new Set<string>()
+  for (const e of expected) {
+    const k = canonCode(e.code)
+    seen.add(k)
+    const c = got.get(k)
+    const beklenen = { en: e.width_mm ?? null, boy: e.height_mm ?? null, adet: e.count ?? null }
+    if (!c) {
+      rows.push({ kod: e.code, durum: 'eksik', beklenen, bulunan: null, alanFarkM2: null, notlar: ['motor bu pozu bulamadı'] })
+      continue
+    }
+    const notlar: string[] = []
+    if (e.count != null && c.count !== e.count) notlar.push(`adet ${c.count} (beklenen ${e.count})`)
+    if (e.width_mm != null && e.height_mm != null) {
+      const ok = c.width_mm != null && c.height_mm != null && Math.abs(c.width_mm - e.width_mm) <= 1 && Math.abs(c.height_mm - e.height_mm) <= 1
+      if (!ok) notlar.push(`ölçü ${c.width_mm ?? '—'}×${c.height_mm ?? '—'} (beklenen ${e.width_mm}×${e.height_mm})`)
+    }
+    if (e.category && c.category !== e.category) notlar.push(`iş kalemi ${c.category} (beklenen ${e.category})`)
+    const a1 = area(c.width_mm, c.height_mm, c.count)
+    const a0 = area(e.width_mm, e.height_mm, e.count)
+    rows.push({
+      kod: e.code,
+      durum: notlar.length ? 'farkli' : 'dogru',
+      beklenen,
+      bulunan: { en: c.width_mm, boy: c.height_mm, adet: c.count, guven: c.level, celiski: !!c.conflicts?.length },
+      alanFarkM2: a0 && a1 ? Math.round((a1 - a0) * 100) / 100 : null,
+      notlar,
+    })
+  }
+  for (const [k, c] of got) {
+    if (seen.has(k)) continue
+    rows.push({ kod: c.code, durum: 'fazla', beklenen: null, bulunan: { en: c.width_mm, boy: c.height_mm, adet: c.count, guven: c.level, celiski: !!c.conflicts?.length }, alanFarkM2: null, notlar: ['referansta yok'] })
+  }
+  return rows
+}
+
+/**
+ * Aynı projenin iki biçimdeki (ör. PDF ve DWG→DXF) sonuçlarının uyumu. Referanstan bağımsızdır:
+ * biçimler birbirini tutmuyorsa en az biri yanlıştır.
+ */
+export function compareFormats(a: ScoredCandidate[], b: ScoredCandidate[]) {
+  const ma = new Map(a.map((c) => [canonCode(c.code), c]))
+  const mb = new Map(b.map((c) => [canonCode(c.code), c]))
+  const yalnizA = [...ma.keys()].filter((k) => !mb.has(k)).map((k) => ma.get(k)!.code)
+  const yalnizB = [...mb.keys()].filter((k) => !ma.has(k)).map((k) => mb.get(k)!.code)
+  const farklar: string[] = []
+  let ortak = 0
+  for (const [k, x] of ma) {
+    const y = mb.get(k)
+    if (!y) continue
+    ortak++
+    if (x.count !== y.count) farklar.push(`${x.code}: adet ${x.count} ↔ ${y.count}`)
+    if (x.width_mm !== y.width_mm || x.height_mm !== y.height_mm) farklar.push(`${x.code}: ölçü ${x.width_mm ?? '—'}×${x.height_mm ?? '—'} ↔ ${y.width_mm ?? '—'}×${y.height_mm ?? '—'}`)
+  }
+  const union = new Set([...ma.keys(), ...mb.keys()]).size
+  return { ortak, yalnizA, yalnizB, farklar, uyum: union ? (ortak - new Set(farklar.map((f) => f.split(':')[0])).size) / union : 1 }
+}
