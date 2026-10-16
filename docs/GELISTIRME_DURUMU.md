@@ -2,6 +2,10 @@
 
 Son güncelleme: Faz 13 (DXF mimari analiz, revizyon karşılaştırma, malzeme bazlı metraj) · uygulama sürümü 0.9.0
 
+0.8.2 (denetim düzeltmeleri): diyalog formları açılışta render sırasında sıfırlanır (hızlı yazılan değer/hata kaybı ve kararsız e2e giderildi);
+büyük listeler 1000 satırlık sayfalarla okunur (sessiz kesilme yok, 50 sayfa sınırında açık hata); bütçe formunda teklif kalemleri
+tek sorguda; finans panelinde gerçekleşen gider yalnız aktif projeler; Raporlar ve Dashboard metinleri güncellendi.
+
 Tek üretim adresi: <https://leonx-os.vercel.app> (yalnızca `main` dalından). Çalışan derlemenin kimliği
 **Ayarlar → Sürüm bilgisi** ekranında ve `/version.json` adresinde görünür.
 

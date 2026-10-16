@@ -875,8 +875,10 @@ export class MockSupabase {
           return 0
         })
       }
-      const limit = Number(url.searchParams.get('limit') ?? 1000)
-      return reply(rows.slice(0, limit))
+      // .range(from, to) → offset/limit; gerçek PostgREST gibi yanıt max-rows (1000) ile kesilir
+      const offset = Number(url.searchParams.get('offset') ?? 0)
+      const limit = Math.min(Number(url.searchParams.get('limit') ?? 1000), 1000)
+      return reply(rows.slice(offset, offset + limit))
     }
     if (!owner) return json(403, { code: '42501', message: 'new row violates row-level security policy' })
 

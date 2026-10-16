@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { NAV_ITEMS } from '@/config/navigation'
 import { cn } from '@/lib/cn'
 import { useOverlay } from '@/lib/useOverlay'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 
 interface CommandPaletteProps {
   open: boolean
@@ -29,12 +30,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return NAV_ITEMS.filter((i) => normalize(`${i.label} ${i.description} ${i.code}`).includes(q))
   }, [query])
 
+  // Açılışta render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları ezebilir)
+  useResetOnOpen(open, () => {
+    setQuery('')
+    setActive(0)
+  })
+
   useEffect(() => {
-    if (open) {
-      setQuery('')
-      setActive(0)
-      requestAnimationFrame(() => inputRef.current?.focus())
-    }
+    if (open) requestAnimationFrame(() => inputRef.current?.focus())
   }, [open])
 
   useEffect(() => setActive(0), [query])

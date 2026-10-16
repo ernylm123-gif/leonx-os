@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Quote, QuoteHistoryEntry, QuoteInput, QuoteItem, QuoteItemInput, QuoteSettings, QuoteSettingsInput, QuoteStatus } from '@/quote/types'
-import { ConflictError, insertManyOnce, insertOnce, LIST_LIMIT, versionedUpdate } from './api'
+import { ConflictError, fetchAllPages, insertManyOnce, insertOnce, LIST_LIMIT, versionedUpdate } from './api'
 
 /**
  * Teklif veri erişimi. Numara, kilit ve revizyon kuralları veritabanında uygulanır
@@ -30,7 +30,7 @@ export async function listQuotes(db: SupabaseClient): Promise<Quote[]> {
 
 /** Tüm tekliflerin kalemleri (liste toplamları için yalnız hesap alanları) */
 export async function listAllQuoteItems(db: SupabaseClient): Promise<QuoteItem[]> {
-  return unwrap(await db.from('quote_items').select(ITEM_TOTAL_COLUMNS).range(0, 9999)) as QuoteItem[]
+  return (await fetchAllPages((from, to) => db.from('quote_items').select(ITEM_TOTAL_COLUMNS).order('id').range(from, to))) as unknown as QuoteItem[]
 }
 
 export async function getQuote(db: SupabaseClient, id: string): Promise<Quote | null> {
@@ -67,6 +67,22 @@ export async function copyQuote(db: SupabaseClient, sourceId: string, mode: 'rev
 // ------------------------------------------------------------------ kalemler
 export async function listQuoteItems(db: SupabaseClient, quoteId: string): Promise<QuoteItem[]> {
   return unwrap(await db.from('quote_items').select('*').eq('quote_id', quoteId).order('sort_order', { ascending: true }).order('created_at', { ascending: true }))
+}
+
+/** Birden çok teklifin kalemleri tek sorguda (teklif başına ayrı istek atmamak için); sıra listQuoteItems ile aynı */
+export async function listQuoteItemsFor(db: SupabaseClient, quoteIds: string[]): Promise<QuoteItem[]> {
+  if (!quoteIds.length) return []
+  return fetchAllPages<QuoteItem>((from, to) =>
+    db
+      .from('quote_items')
+      .select('*')
+      .in('quote_id', quoteIds)
+      .order('quote_id', { ascending: true })
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to),
+  )
 }
 
 function toRow(i: Partial<QuoteItemInput>): Partial<QuoteItemInput> {

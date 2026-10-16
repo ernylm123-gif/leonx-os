@@ -16,7 +16,7 @@ import type {
   ProjectBudgetInput,
   ProjectFinanceData,
 } from '@/finance/types'
-import { ConflictError, insertManyOnce, insertOnce, versionedUpdate } from './api'
+import { ConflictError, fetchAllPages, insertManyOnce, insertOnce, versionedUpdate } from './api'
 
 /**
  * Faz 8 finans veri erişimi. Kurallar (yalnız onaylı metraj, tek metraj revizyonu, kabul edilmiş
@@ -30,11 +30,9 @@ function unwrap<T>(res: { data: T | null; error: unknown }): T {
   return res.data as T
 }
 
-const BIG = 9999
-
 // ------------------------------------------------------------------ Birim maliyet kataloğu
 export async function listCostRates(db: SupabaseClient): Promise<CostRate[]> {
-  return unwrap(await db.from('cost_rates').select('*').order('code').order('valid_from', { ascending: false }).range(0, BIG))
+  return fetchAllPages<CostRate>((from, to) => db.from('cost_rates').select('*').order('code').order('valid_from', { ascending: false }).order('id').range(from, to))
 }
 export function createCostRate(db: SupabaseClient, input: CostRateInput & { id?: string }): Promise<CostRate> {
   return insertOnce<CostRate>(db, 'cost_rates', input)
@@ -48,7 +46,7 @@ export async function deleteCostRate(db: SupabaseClient, id: string): Promise<vo
 
 // ------------------------------------------------------------------ Kurlar
 export async function listFxRates(db: SupabaseClient): Promise<FxRate[]> {
-  return unwrap(await db.from('fx_rates').select('*').order('rate_date', { ascending: false }).order('created_at', { ascending: false }).range(0, BIG))
+  return fetchAllPages<FxRate>((from, to) => db.from('fx_rates').select('*').order('rate_date', { ascending: false }).order('created_at', { ascending: false }).order('id').range(from, to))
 }
 export function createFxRate(db: SupabaseClient, input: FxRateInput & { id?: string }): Promise<FxRate> {
   return insertOnce<FxRate>(db, 'fx_rates', input)
@@ -61,28 +59,28 @@ export async function deleteFxRate(db: SupabaseClient, id: string): Promise<void
 export async function getProjectFinance(db: SupabaseClient, projectId: string): Promise<ProjectFinanceData> {
   const [budget, lines, expenses, schedule, collections] = await Promise.all([
     db.from('project_budgets').select('*').eq('project_id', projectId).maybeSingle(),
-    db.from('project_cost_lines').select('*').eq('project_id', projectId).order('sort_order').order('created_at').range(0, BIG),
-    db.from('project_expenses').select('*').eq('project_id', projectId).order('expense_date', { ascending: false }).order('created_at', { ascending: false }).range(0, BIG),
-    db.from('project_payment_schedule').select('*').eq('project_id', projectId).order('due_date').order('sort_order').range(0, BIG),
-    db.from('project_collections').select('*').eq('project_id', projectId).order('received_date', { ascending: false }).order('created_at', { ascending: false }).range(0, BIG),
+    fetchAllPages<CostLine>((from, to) => db.from('project_cost_lines').select('*').eq('project_id', projectId).order('sort_order').order('created_at').order('id').range(from, to)),
+    fetchAllPages<Expense>((from, to) => db.from('project_expenses').select('*').eq('project_id', projectId).order('expense_date', { ascending: false }).order('created_at', { ascending: false }).order('id').range(from, to)),
+    fetchAllPages<PaymentScheduleRow>((from, to) => db.from('project_payment_schedule').select('*').eq('project_id', projectId).order('due_date').order('sort_order').order('id').range(from, to)),
+    fetchAllPages<Collection>((from, to) => db.from('project_collections').select('*').eq('project_id', projectId).order('received_date', { ascending: false }).order('created_at', { ascending: false }).order('id').range(from, to)),
   ])
   return {
     budget: unwrap(budget) as ProjectBudget | null,
-    lines: unwrap(lines) as CostLine[],
-    expenses: unwrap(expenses) as Expense[],
-    schedule: unwrap(schedule) as PaymentScheduleRow[],
-    collections: unwrap(collections) as Collection[],
+    lines,
+    expenses,
+    schedule,
+    collections,
   }
 }
 
 /** Tüm projelerin finans verisi (panel) — proje kimliğine göre gruplanmış */
 export async function listAllFinance(db: SupabaseClient): Promise<Map<string, ProjectFinanceData>> {
   const [budgets, lines, expenses, schedule, collections] = await Promise.all([
-    db.from('project_budgets').select('*').range(0, BIG),
-    db.from('project_cost_lines').select('*').order('sort_order').range(0, BIG),
-    db.from('project_expenses').select('*').range(0, BIG),
-    db.from('project_payment_schedule').select('*').order('due_date').range(0, BIG),
-    db.from('project_collections').select('*').range(0, BIG),
+    fetchAllPages<ProjectBudget>((from, to) => db.from('project_budgets').select('*').order('id').range(from, to)),
+    fetchAllPages<CostLine>((from, to) => db.from('project_cost_lines').select('*').order('sort_order').order('id').range(from, to)),
+    fetchAllPages<Expense>((from, to) => db.from('project_expenses').select('*').order('id').range(from, to)),
+    fetchAllPages<PaymentScheduleRow>((from, to) => db.from('project_payment_schedule').select('*').order('due_date').order('id').range(from, to)),
+    fetchAllPages<Collection>((from, to) => db.from('project_collections').select('*').order('id').range(from, to)),
   ])
   const out = new Map<string, ProjectFinanceData>()
   const of = (pid: string) => {
@@ -93,11 +91,11 @@ export async function listAllFinance(db: SupabaseClient): Promise<Map<string, Pr
     }
     return d
   }
-  for (const b of unwrap(budgets) as ProjectBudget[]) of(b.project_id).budget = b
-  for (const l of unwrap(lines) as CostLine[]) of(l.project_id).lines.push(l)
-  for (const e of unwrap(expenses) as Expense[]) of(e.project_id).expenses.push(e)
-  for (const s of unwrap(schedule) as PaymentScheduleRow[]) of(s.project_id).schedule.push(s)
-  for (const c of unwrap(collections) as Collection[]) of(c.project_id).collections.push(c)
+  for (const b of budgets) of(b.project_id).budget = b
+  for (const l of lines) of(l.project_id).lines.push(l)
+  for (const e of expenses) of(e.project_id).expenses.push(e)
+  for (const s of schedule) of(s.project_id).schedule.push(s)
+  for (const c of collections) of(c.project_id).collections.push(c)
   return out
 }
 

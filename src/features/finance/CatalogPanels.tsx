@@ -1,5 +1,5 @@
 import { ArrowRightLeft, Pencil, Plus, Tags, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { FormAlert, SelectField, TextAreaField, TextField } from '@/components/ui/Field'
@@ -16,6 +16,7 @@ import { cn } from '@/lib/cn'
 import { formatDate, localISODate } from '@/lib/stats'
 import { requireSupabase } from '@/lib/supabase'
 import { useFormDirty } from '@/lib/unsaved'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import { CATEGORY_INFO, QUANTITY_CATEGORIES } from '@/quantity/types'
 import { formatMoney, toCents } from '@/quote/money'
 import { CURRENCIES, type Currency } from '@/quote/types'
@@ -32,17 +33,21 @@ function CostRateForm({ open, onClose, rate }: { open: boolean; onClose: () => v
   const [draftId, setDraftId] = useState('')
   const { markDirty } = useFormDirty(open, 'Birim maliyet formu')
 
-  useEffect(() => {
-    if (!open) return
-    setErrors({})
-    setError(null)
-    setDraftId(crypto.randomUUID())
-    setD(
-      rate
-        ? { code: rate.code, name: rate.name, group: rate.cost_group, unit: rate.unit, currency: rate.currency, cost: centsToInput(toCents(rate.unit_cost)), category: rate.quantity_category ?? '', validFrom: rate.valid_from, active: rate.active, notes: rate.notes ?? '' }
-        : empty,
-    )
-  }, [open, rate])
+  // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları/hataları ezebilir)
+  useResetOnOpen(
+    open,
+    () => {
+      setErrors({})
+      setError(null)
+      setDraftId(crypto.randomUUID())
+      setD(
+        rate
+          ? { code: rate.code, name: rate.name, group: rate.cost_group, unit: rate.unit, currency: rate.currency, cost: centsToInput(toCents(rate.unit_cost)), category: rate.quantity_category ?? '', validFrom: rate.valid_from, active: rate.active, notes: rate.notes ?? '' }
+          : empty,
+      )
+    },
+    [rate],
+  )
 
   const submit = async () => {
     const errs: Record<string, string> = {}
