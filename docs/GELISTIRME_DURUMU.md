@@ -1,6 +1,6 @@
 # LEONX OS — Geliştirme durumu
 
-Son güncelleme: PR-2 (DWG → DXF → PDF dönüştürme prototipi) · uygulama sürümü 0.9.2
+Son güncelleme: PR-2b (DWG dönüştürme sunucusu: yalıtılmış işler, ücretsiz test ortamı) · uygulama sürümü 0.9.3
 
 0.8.2 (denetim düzeltmeleri): diyalog formları açılışta render sırasında sıfırlanır (hızlı yazılan değer/hata kaybı ve kararsız e2e giderildi);
 büyük listeler 1000 satırlık sayfalarla okunur (sessiz kesilme yok, 50 sayfa sınırında açık hata); bütçe formunda teklif kalemleri

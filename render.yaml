@@ -1,0 +1,47 @@
+# LEONX CAD dönüştürme servisi — Render ücretsiz TEST ortamı (Blueprint)
+#
+# Yalnız deneme içindir: ücretsiz plan 15 dk trafik yoksa uyur (ilk istek ~1 dk sürebilir),
+# 512 MB bellek ve paylaşımlı işlemci sunar. Ücretli plan seçilmez; plan değiştirmek kullanıcı onayı ister.
+# Kurulum: docs/DWG_DONUSTURME.md → "Ücretsiz test ortamı (Render)".
+#
+# Gizli/kişisel değerler (izinli kullanıcı kimliği vb.) bu dosyaya YAZILMAZ; Render panelinde girilir (sync: false).
+services:
+  - type: web
+    name: leonx-cad-worker
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./services/cad-worker/Dockerfile
+    dockerContext: ./services/cad-worker
+    healthCheckPath: /saglik
+    # Her main gönderiminde yeniden derlenmesin; servis yalnız elle (veya servis klasörü değişince) güncellenir
+    autoDeploy: false
+    buildFilter:
+      paths:
+        - services/cad-worker/**
+    envVars:
+      - key: PORT
+        value: "8080"
+      # Supabase proje adresi (ör. https://<proje>.supabase.co) — oturum imzası JWKS ile doğrulanır
+      - key: SUPABASE_URL
+        sync: false
+      # Supabase eski (HS256) imza yöntemini kullanıyorsa: Proje ayarları → API → JWT gizli anahtarı
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      # Dönüştürmeyi kullanabilecek Supabase kullanıcı kimlikleri (virgülle)
+      - key: ALLOWED_USER_IDS
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://leonx-os.vercel.app
+      # 512 MB sunucu: aynı anda tek dönüşüm; ağır adımlar ayrı süreçte bu sınırlarla çalışır
+      # (ölçüm: docs/DWG_DONUSTURME.md → "512 MB sunucuda ölçüm")
+      - key: CAD_WORKER_PARALLEL
+        value: "1"
+      - key: CAD_WORKER_JOB_MEMORY_MB
+        value: "400"
+      - key: CAD_WORKER_TOOL_MEMORY_MB
+        value: "320"
+      - key: CAD_WORKER_RENDER_MEMORY_MB
+        value: "320"
+      - key: CAD_WORKER_RENDER_TIMEOUT_S
+        value: "90"

@@ -26,7 +26,8 @@ from .repair import repair_text_breaks
 
 MAX_INPUT_BYTES = 50 * 1024 * 1024
 DEFAULT_TIMEOUT_S = 90
-DEFAULT_MEMORY_MB = 1024
+# Dönüştürücü sürecinin bellek sınırı; küçük (ör. 512 MB) sunucularda CAD_WORKER_TOOL_MEMORY_MB ile düşürülür
+DEFAULT_MEMORY_MB = int(os.environ.get('CAD_WORKER_TOOL_MEMORY_MB', '1024'))
 MAX_OUTPUT_MB = 400
 
 # DWG sürüm imzaları (dosyanın ilk 6 baytı)
@@ -97,8 +98,9 @@ def _limits(memory_mb: int, cpu_s: int):
     return apply
 
 
-def run_tool(args: list[str], cwd: str, timeout_s: int = DEFAULT_TIMEOUT_S, memory_mb: int = DEFAULT_MEMORY_MB) -> ToolResult:
-    env = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'}
+def run_tool(args: list[str], cwd: str, timeout_s: int = DEFAULT_TIMEOUT_S, memory_mb: int = DEFAULT_MEMORY_MB,
+             extra_env: dict[str, str] | None = None) -> ToolResult:
+    env = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', **(extra_env or {})}
     if os.environ.get('LD_LIBRARY_PATH'):
         env['LD_LIBRARY_PATH'] = os.environ['LD_LIBRARY_PATH']
     t0 = time.monotonic()

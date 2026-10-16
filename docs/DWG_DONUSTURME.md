@@ -78,24 +78,76 @@ doğrulanamadı.
 - Kapsayıcı: root olmayan kullanıcı (uid 10001), LibreDWG kaynağı sha256 + GNU anahtarlığıyla GPG
   doğrulamalı derlenir. Çalıştırırken önerilen: `--read-only --tmpfs /tmp --cap-drop ALL
   --security-opt no-new-privileges --memory 1g --pids-limit 64`.
+- Yalıtım: ağır adımlar (dönüştürme, envanter, PDF) HTTP sunucusundan ayrı, bellek/süre sınırlı
+  süreçlerde çalışır; sınır aşımı sunucuyu düşürmez.
 - Gizlilik: dosyalar diske kalıcı yazılmaz ve günlüklenmez; yalnız kullanıcı onayıyla gönderilir.
 - Bağımlılıklar sabit sürümlü; `pip-audit` CI'da çalışır (bu PR'da bilinen açık yok).
 
-## Barındırma seçenekleri (onay gerekli)
+## Barındırma seçenekleri (karşılaştırma — Ekim 2026)
 
-Vercel fonksiyonları uygun değildir (yerel ikili, bellek ve süre sınırları). Kapsayıcı herhangi bir
-Docker barındırmasında çalışır. Fiyatlar değişkendir; seçim öncesi sağlayıcının güncel fiyatı
-doğrulanmalıdır.
+Vercel fonksiyonları uygun değildir (yerel ikili, bellek ve süre sınırları). Servis tek bir Docker
+imajıdır; aşağıdakilerin hepsinde çalışır. Bilgiler sağlayıcıların belgelerinden ve güncel üçüncü taraf
+özetlerinden derlendi; **fiyat/sınırlar değişebilir, hesap açmadan önce sağlayıcı sayfasında
+doğrulanmalıdır.**
 
-| Seçenek | Not |
-| --- | --- |
-| Küçük bir VPS (1–2 vCPU, 2 GB RAM) + Docker + HTTPS ters vekil | En düşük sabit maliyet; bakım (güncelleme, sertifika) bizde |
-| Google Cloud Run / benzeri kapsayıcı platformu | İstek başına ölçeklenir, boştayken maliyet çok düşük; soğuk başlatma gecikmesi |
-| Fly.io / Render / Railway | Basit Docker dağıtımı; ücretsiz katmanlar değişken |
+| | Render (Free) | Google Cloud Run | Fly.io | Koyeb (Free) | Oracle Cloud Always Free |
+| --- | --- | --- | --- | --- | --- |
+| Ücretsiz kullanım | 750 örnek-saat/ay (çalışma alanı başına) | Aylık ücretsiz kota (yaklaşık 180 bin vCPU-sn, 360 bin GiB-sn, 2 M istek) | Yeni hesaplara kalıcı ücretsiz katman yok; kısa deneme | 1 ücretsiz örnek | Ampere A1 sanal makine (4 OCPU/24 GB olarak belgelenmiş; bazı kaynaklar 2/12 diyor) |
+| Kart / faturalandırma | Ücretsiz plan için gerekmez | **Faturalandırma hesabı (kart) zorunlu**, kota içinde ücret yok | Deneme sonrası kart gerekir | Ücretsiz örnek için gerekmeyebilir | Kart doğrulaması gerekir (ücret alınmaz) |
+| Bellek / işlemci | 512 MB, paylaşımlı 0,1 CPU | Seçilebilir (ör. 1 GiB, 1 vCPU) | Seçilebilir | 512 MB, 0,1 vCPU | Büyük |
+| Uyku | 15 dk trafik yoksa uyur, uyanma ~1 dk | Sıfıra ölçeklenir, soğuk başlatma birkaç saniye | Otomatik durdurma | 1 saat sonra uyur | Uyumaz (sürekli VM) |
+| Dosya boyutu | Uygulama sınırı (50 MB) | HTTP/1 istek gövdesi **32 MiB** sınırı (HTTP/2 ile kalkar) | Sınır yok sayılır | — | Yok |
+| İşlem süresi | Uzun isteklere izin verir | En fazla 60 dk | — | — | Sınırsız |
+| Bakım | Yok (yönetilen) | Yok (yönetilen) | Az | Yok | **Sunucu bakımı bizde** (güncelleme, sertifika, güvenlik) |
+| Bölge | Frankfurt | europe-west (Belçika/Frankfurt) | Avrupa | Frankfurt | Seçilen ev bölgesi |
 
-Gerekli ayarlar (gizli değerler yalnız barındırma ortamında tutulur, depoda değil):
-`SUPABASE_URL` (veya `SUPABASE_JWT_SECRET`), `ALLOWED_USER_IDS`, `ALLOWED_ORIGINS`,
-`CAD_WORKER_PARALLEL`.
+### 512 MB sunucuda ölçüm (Render Free ayarlarıyla, bu ortamda)
+
+Ağır adımlar ayrı süreçte sınırlı çalışır (`render.yaml`: iş 400 MB, dönüştürücü 320 MB, PDF 320 MB);
+HTTP sunucusu ~50 MB kalır. DWG envanteri satır satır sayılır (tam JSON belleğe alınmaz; eski
+yöntemle 139/139 örnekte aynı sonuç).
+
+| Örnek | DWG | Dönüşüm + denetim | PDF önizleme |
+| --- | --- | --- | --- |
+| example_2018 (AutoCAD 2018) | 0,1 MB | tamam, ~2 sn | var |
+| Dynblocks (2018, dinamik bloklar) | 2,1 MB | **eksik** — 7 INSERT DXF'e geçmedi (raporda gösterilir), ~12 sn | **üretilemedi** (bellek sınırı; not olarak bildirilir) |
+| LibreDWG test paketinin tümü (R13–2018) | ≤2,1 MB | 128/128 dönüştü | — |
+
+Sonuç: ücretsiz 512 MB sunucu küçük/orta çizimlerin dönüştürülmesi için yeterli; ağır blok içeren
+çizimlerde PDF önizleme üretilemeyebilir. Gerçek proje DWG'leri (çoğu 5–30 MB) bu sınırları aşabilir —
+gerçek dosyalarla ölçülmeden kesin bir şey söylenemez. Yetmezse 1–2 GB bellekli Cloud Run önerilir.
+
+### Öneri
+
+1. **Şimdi — ücretsiz test: Render Free (Frankfurt).** Kart gerekmez; depo kökündeki `render.yaml`
+   ile tek tıkla kurulur. Sınırları: uyku sonrası ilk dönüşüm ~1 dk, 512 MB bellek (büyük DWG'lerde
+   bellek yetersizliği olabilir — rapor açıkça "dönüştürülemedi" der), ayda 750 saat. Gerçek proje
+   dosyalarıyla denemek için yeterlidir.
+2. **Sürdürülebilir kullanım: Google Cloud Run.** Bu kullanım hacminde (günde birkaç dönüşüm) aylık
+   ücretsiz kota içinde kalması beklenir; uyku gecikmesi kısa, bellek 1 GiB seçilebilir. Ancak
+   faturalandırma hesabı (kart) gerektirdiği için **kullanıcı onayı olmadan açılmaz**; açılırsa
+   `--max-instances 1`, bütçe uyarısı (ör. 1 USD) ve 32 MiB yükleme sınırı (uygulama sınırı 50 MB →
+   Cloud Run'da 30 MB'a çekilmeli) ayarlanmalıdır.
+3. Oracle Always Free güçlüdür ama sanal makine bakımını (güvenlik güncellemeleri, HTTPS) bizim
+   üstlenmemizi gerektirir; ikinci seçenek olarak tutulur.
+
+### Ücretsiz test ortamı (Render) — kurulum
+
+Hesap açma ve gizli değer girme kullanıcı tarafından yapılır (bu oturumda Render hesabına erişim yok).
+
+1. <https://render.com> → GitHub ile giriş (ücretsiz plan; kart istenmez).
+2. **New → Blueprint** → `ernylm123-gif/leonx-os` deposu → `render.yaml` algılanır → servis
+   `leonx-cad-worker` (plan: **Free**, bölge: Frankfurt).
+3. İstenen değerler (panelde girilir, depoya yazılmaz):
+   - `SUPABASE_URL`: Supabase proje adresi.
+   - `SUPABASE_JWT_SECRET`: yalnız proje eski HS256 imzayı kullanıyorsa (Supabase → Project Settings
+     → JWT Keys). Proje JWKS (asimetrik) anahtarlara geçmişse boş bırakılır.
+   - `ALLOWED_USER_IDS`: LEONX OS'ta giriş yapan hesabın Supabase kullanıcı kimliği (Supabase →
+     Authentication → Users).
+4. Derleme ~5–10 dk sürer (LibreDWG kaynaktan, imza doğrulamalı). Bittiğinde
+   `https://leonx-cad-worker-xxxx.onrender.com/saglik` → `{"durum":"hazir", …}`.
+5. Servis adresi bana iletilince uygulama tarafı (aşağıda) ayrı bir PR'da bağlanır; production'a
+   alınması yine onayınızla yapılır.
 
 ### Uygulama tarafı (yayın sırasında)
 

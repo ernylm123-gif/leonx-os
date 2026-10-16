@@ -281,7 +281,7 @@ export function useCadDocument() {
     const ac = new AbortController()
     abortRef.current = ac
     try {
-      setState({ status: 'loading', fileName: p.fileName, stage: 'DWG sunucuda DXF’e dönüştürülüyor', fraction: 0.1 })
+      setState({ status: 'loading', fileName: p.fileName, stage: 'DWG sunucuda DXF’e dönüştürülüyor (sunucu uykudaysa ilk dönüşüm ~1 dk sürebilir)', fraction: 0.1 })
       const { data } = await requireSupabase().auth.getSession()
       const token = data.session?.access_token
       if (!token) throw new DwgServiceError('Oturum bulunamadı; yeniden giriş yapın.', 'oturum')

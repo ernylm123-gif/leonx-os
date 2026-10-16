@@ -144,6 +144,45 @@ def test_yetkisiz_istekler_reddedilir(client):
     assert client.post('/v1/dwg/donustur', files=files, headers={'Authorization': f'Bearer {token(sub="baska-kullanici")}'}).status_code == 403
 
 
+def test_asimetrik_imza_jwks_ile_dogrulanir_ve_algoritma_karisikligi_reddedilir(monkeypatch):
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    from leonx_cad.app import create_app
+
+    key, other = ec.generate_private_key(ec.SECP256R1()), ec.generate_private_key(ec.SECP256R1())
+
+    class FakeJwks:
+        def get_signing_key_from_jwt(self, _token):
+            return type('K', (), {'key': key.public_key()})()
+
+    monkeypatch.setattr(jwt, 'PyJWKClient', lambda *a, **k: FakeJwks())
+    monkeypatch.setenv('SUPABASE_URL', 'https://ornek.supabase.co')
+    monkeypatch.delenv('SUPABASE_JWT_SECRET', raising=False)
+    monkeypatch.setenv('ALLOWED_USER_IDS', OWNER)
+    c = TestClient(create_app())
+    claims = {'sub': OWNER, 'aud': 'authenticated', 'exp': int(time.time()) + 600}
+    files = {'dosya': ('a.dwg', b'%PDF-1.4' + b'x' * 300)}
+
+    def post(tok):
+        return c.post('/v1/dwg/donustur', files=files, headers={'Authorization': f'Bearer {tok}'}).status_code
+
+    assert post(jwt.encode(claims, key, algorithm='ES256')) == 422  # kimlik geçti, dosya DWG değil
+    assert post(jwt.encode(claims, other, algorithm='ES256')) == 401  # başka anahtar
+    assert post(jwt.encode(claims, SECRET, algorithm='HS256')) == 401  # gizli anahtar yapılandırılmadı
+    assert post(jwt.encode(claims, None, algorithm='none')) == 401
+
+
+def test_bellek_siniri_ortamdan_ayarlanir():
+    import subprocess
+    import sys
+
+    code = 'from leonx_cad.convert import DEFAULT_MEMORY_MB as m; print(m)'
+    run = lambda env: subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, env=env, check=True).stdout.strip()
+    base = {k: v for k, v in os.environ.items() if k != 'CAD_WORKER_TOOL_MEMORY_MB'}
+    assert run({**base, 'CAD_WORKER_TOOL_MEMORY_MB': '384'}) == '384'
+    assert run(base) == '1024'
+
+
 def test_dwg_olmayan_dosya_422(client):
     r = client.post('/v1/dwg/donustur', files={'dosya': ('a.dwg', b'%PDF-1.4' + b'x' * 300)}, headers={'Authorization': f'Bearer {token()}'})
     assert r.status_code == 422 and r.json()['detail']['kod'] == 'gecersiz'
@@ -164,3 +203,43 @@ def test_servis_ucdan_uca_dwg_dxf_pdf(client):
 
 def test_ezdxf_surumu_sabit():
     assert ezdxf.__version__ == '1.4.4'
+
+
+# --------------------------------------------------------------------------- yalıtılmış süreç sınırları
+@needs_dwg
+def test_bellek_siniri_asilinca_sunucu_ayakta_kalir_ve_neden_bildirilir(client, monkeypatch):
+    import leonx_cad.app as app_mod
+
+    monkeypatch.setattr(app_mod, 'JOB_MEMORY_MB', 48)
+    r = client.post('/v1/dwg/donustur', files={'dosya': ('ornek.dwg', dwg('example_2018.dwg'))}, headers={'Authorization': f'Bearer {token()}'})
+    assert r.status_code == 422 and r.json()['detail']['kod'] == 'bellek'
+    monkeypatch.setattr(app_mod, 'JOB_MEMORY_MB', 2048)
+    assert client.post('/v1/dwg/donustur', files={'dosya': ('ornek.dwg', dwg('example_2018.dwg'))},
+                       headers={'Authorization': f'Bearer {token()}'}).status_code == 200
+
+
+@needs_dwg
+def test_pdf_onizleme_sinira_takilirsa_dxf_yine_teslim_edilir(client, monkeypatch):
+    import leonx_cad.app as app_mod
+
+    monkeypatch.setattr(app_mod, 'RENDER_MEMORY_MB', 48)
+    r = client.post('/v1/dwg/donustur?pdf=1', files={'dosya': ('ornek.dwg', dwg('example_2018.dwg'))}, headers={'Authorization': f'Bearer {token()}'})
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j['dxf'] and j['pdf'] is None
+    assert any('PDF önizleme üretilemedi' in n for n in j['kalite']['notes'])
+
+
+def test_gelistirme_kipi_yalniz_dogrulama_yontemi_yokken_belirteci_yok_sayar(monkeypatch):
+    from leonx_cad.app import create_app
+
+    for k in ('SUPABASE_JWT_SECRET', 'SUPABASE_URL'):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv('CAD_WORKER_INSECURE_DEV', '1')
+    files = {'dosya': ('a.dwg', b'%PDF-1.4' + b'x' * 300)}
+    c = TestClient(create_app())
+    assert c.post('/v1/dwg/donustur', files=files, headers={'Authorization': 'Bearer taklit-oturum'}).status_code == 422
+    # Gizli anahtar da ayarlıysa geliştirme kipi doğrulamayı atlatmaz
+    monkeypatch.setenv('SUPABASE_JWT_SECRET', SECRET)
+    c = TestClient(create_app())
+    assert c.post('/v1/dwg/donustur', files=files, headers={'Authorization': 'Bearer taklit-oturum'}).status_code == 401

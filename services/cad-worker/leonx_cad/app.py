@@ -6,8 +6,9 @@ LEONX CAD dönüştürme servisi (HTTP).
   GET  /saglik            → { durum: "hazir", libredwg: "<sürüm>" }
 
 Kimlik doğrulama: Supabase oturum belirteci (Authorization: Bearer …).
-  - SUPABASE_URL ayarlıysa imza Supabase JWKS anahtarlarıyla (asimetrik) doğrulanır,
-  - aksi hâlde SUPABASE_JWT_SECRET (HS256, eski yöntem) kullanılır.
+  - ES256/RS256 belirteçler SUPABASE_URL'deki JWKS anahtarlarıyla (asimetrik) doğrulanır,
+  - HS256 belirteçler SUPABASE_JWT_SECRET ile (eski yöntem); ikisi birlikte ayarlanabilir.
+  - Belirtecin algoritması için yöntem yapılandırılmamışsa istek reddedilir.
   - ALLOWED_USER_IDS (virgülle) verilirse yalnız bu kullanıcılar kullanabilir.
 Hiçbiri ayarlı değilse servis başlamaz (CAD_WORKER_INSECURE_DEV=1 yalnız yerel geliştirme içindir).
 
@@ -26,9 +27,8 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Upload
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
-from .convert import MAX_INPUT_BYTES, ConversionError, convert_dwg, libredwg_bin
-from .qc import quality_check
-from .render import render_pdf
+from .convert import MAX_INPUT_BYTES, ConversionError, detect_dwg, libredwg_bin
+from .job import JOB_MEMORY_MB, JOB_TIMEOUT_S, RENDER_MEMORY_MB, RENDER_TIMEOUT_S, run_job
 
 MAX_PARALLEL = int(os.environ.get('CAD_WORKER_PARALLEL', '2'))
 _slots = asyncio.Semaphore(MAX_PARALLEL)
@@ -45,14 +45,20 @@ class AuthConfig:
             raise RuntimeError('Kimlik doğrulama yapılandırılmadı: SUPABASE_URL veya SUPABASE_JWT_SECRET gerekli.')
 
     def verify(self, token: str) -> str:
+        if self.insecure and not (self.jwks or self.secret):
+            return 'gelistirme'  # yalnız yerel geliştirme: doğrulama yöntemi yok, belirteç ayrıştırılmaz
         try:
-            if self.jwks:
+            # Supabase projesi asimetrik imza anahtarlarına (JWKS) geçmişse ES256/RS256, eski
+            # yöntemdeyse HS256 belirteç üretir; algoritma belirtecin başlığından seçilir ve yalnız
+            # yapılandırılmış yöntem kabul edilir (HS256 belirteç JWKS anahtarıyla doğrulanmaz).
+            alg = jwt.get_unverified_header(token).get('alg')
+            if alg in ('ES256', 'RS256') and self.jwks:
                 key = self.jwks.get_signing_key_from_jwt(token).key
-                claims = jwt.decode(token, key, algorithms=['ES256', 'RS256'], audience='authenticated')
-            elif self.secret:
+                claims = jwt.decode(token, key, algorithms=[alg], audience='authenticated')
+            elif alg == 'HS256' and self.secret:
                 claims = jwt.decode(token, self.secret, algorithms=['HS256'], audience='authenticated')
             else:
-                return 'gelistirme'
+                raise HTTPException(401, 'Oturum doğrulanamadı.')
         except jwt.PyJWTError:
             raise HTTPException(401, 'Oturum doğrulanamadı.') from None
         sub = str(claims.get('sub', ''))
@@ -92,26 +98,25 @@ def create_app() -> FastAPI:
             raise HTTPException(429, 'Dönüştürücü meşgul; birazdan tekrar deneyin.')
         async with _slots:
             try:
-                conv = await run_in_threadpool(convert_dwg, data)
+                detect_dwg(data)  # imza/sürüm/boyut: alt süreç başlatmadan önce
+                conv = await run_in_threadpool(run_job, 'donustur', data, memory_mb=JOB_MEMORY_MB, timeout_s=JOB_TIMEOUT_S)
             except ConversionError as e:
                 raise HTTPException(422, {'kod': e.code, 'mesaj': e.message}) from None
-            qc = await run_in_threadpool(quality_check, data, conv.dxf)
-            pdf_res = None
-            if pdf and qc.dxf_valid:
+            res = conv.result
+            dxf = conv.files.get('cikti.dxf')
+            valid = bool(dxf) and res['kalite']['dxf_valid']
+            pdf_bytes, pdf_report = None, None
+            if pdf and valid:
                 try:
-                    pdf_res = await run_in_threadpool(render_pdf, conv.dxf)
-                except Exception as e:  # önizleme başarısızlığı dönüşümü geçersiz kılmaz
-                    qc.notes.append(f'PDF önizleme üretilemedi: {type(e).__name__}')
+                    out = await run_in_threadpool(run_job, 'pdf', dxf, memory_mb=RENDER_MEMORY_MB, timeout_s=RENDER_TIMEOUT_S)
+                    pdf_bytes, pdf_report = out.files.get('onizleme.pdf'), out.result.get('pdf_rapor')
+                except ConversionError as e:  # önizleme başarısızlığı dönüşümü geçersiz kılmaz
+                    res['kalite']['notes'].append(f'PDF önizleme üretilemedi: {e.message}')
         return {
-            'surum': conv.version,
-            'surum_adi': conv.release,
-            'sure_sn': round(conv.seconds, 3),
-            'onarilan_metin': conv.repaired_texts,
-            'uyarilar': conv.log_warnings[:50],
-            'kalite': qc.to_dict(),
-            'dxf': base64.b64encode(conv.dxf).decode('ascii') if qc.dxf_valid else None,
-            'pdf': base64.b64encode(pdf_res.pdf).decode('ascii') if pdf_res and pdf_res.pdf else None,
-            'pdf_rapor': pdf_res.report() if pdf_res else None,
+            **res,
+            'dxf': base64.b64encode(dxf).decode('ascii') if valid else None,
+            'pdf': base64.b64encode(pdf_bytes).decode('ascii') if pdf_bytes else None,
+            'pdf_rapor': pdf_report,
         }
 
     return app
