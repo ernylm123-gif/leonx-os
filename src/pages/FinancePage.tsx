@@ -1,18 +1,21 @@
-import { AlertTriangle, ArrowRightLeft, BarChart3, LayoutGrid, Table2, Tags, Wallet } from 'lucide-react'
-import { useMemo } from 'react'
+import { AlertTriangle, ArrowRightLeft, BarChart3, Gauge, Landmark, LayoutGrid, ListFilter, Plus, Repeat, Table2, Tags, Wallet } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Panel } from '@/components/ui/Panel'
 import { StageBadge } from '@/components/ui/ProjectBadges'
-import { SegmentedControl } from '@/components/ui/SegmentedControl'
 import { ErrorState } from '@/components/ui/States'
 import { useData } from '@/context/data'
 import { listAllFinance } from '@/data/financeApi'
+import { AccountsPanel, CashDashboard, CategoriesPanel, EntriesPanel, RecurringPanel } from '@/features/cash/CashPanels'
+import { EntryDialog } from '@/features/cash/EntryDialog'
+import { useCash } from '@/features/cash/useCash'
 import { CostRatesPanel, FxRatesPanel } from '@/features/finance/CatalogPanels'
 import { FinNotice, KindBadge, money, MoneyByCurrency, pctText, StatTile, useFinanceRefs } from '@/features/finance/shared'
 import { monthLabel, monthlyCashflow } from '@/finance/cashflow'
 import { RECEIVABLE_STATUS_LABEL } from '@/finance/receivables'
 import { addTo, type ProjectFinanceSummary, summarizeProject } from '@/finance/summary'
+import type { EntryKind } from '@/finance/cash'
 import type { ProjectFinanceData } from '@/finance/types'
 import { cn } from '@/lib/cn'
 import { isActiveStage } from '@/lib/domain'
@@ -23,9 +26,14 @@ import { formatMoney, toCents } from '@/quote/money'
 import { CURRENCIES, type Currency } from '@/quote/types'
 import type { Project } from '@/data/types'
 
-type Section = 'ozet' | 'birim-maliyetler' | 'kurlar'
+type Section = 'ozet' | 'panel' | 'gelir-gider' | 'kasa-banka' | 'kategoriler' | 'duzenli' | 'birim-maliyetler' | 'kurlar'
 const SECTIONS: { value: Section; label: string; icon: typeof Wallet }[] = [
-  { value: 'ozet', label: 'Özet', icon: LayoutGrid },
+  { value: 'ozet', label: 'Proje özeti', icon: LayoutGrid },
+  { value: 'panel', label: 'Kasa paneli', icon: Gauge },
+  { value: 'gelir-gider', label: 'Gelir-Gider', icon: ListFilter },
+  { value: 'kasa-banka', label: 'Kasa & Banka', icon: Landmark },
+  { value: 'kategoriler', label: 'Kategoriler', icon: Tags },
+  { value: 'duzenli', label: 'Düzenli', icon: Repeat },
   { value: 'birim-maliyetler', label: 'Birim maliyetler', icon: Tags },
   { value: 'kurlar', label: 'Kurlar', icon: ArrowRightLeft },
 ]
@@ -36,7 +44,17 @@ type Row = { project: Project; data: ProjectFinanceData; s: ProjectFinanceSummar
 export function FinancePage() {
   const [params, setParams] = useSearchParams()
   const raw = params.get('bolum')
-  const section: Section = raw === 'birim-maliyetler' || raw === 'kurlar' ? raw : 'ozet'
+  const section: Section = SECTIONS.some((x) => x.value === raw) ? (raw as Section) : 'ozet'
+  const cash = useCash()
+  const [quick, setQuick] = useState<{ open: boolean; kind: EntryKind }>({ open: false, kind: 'gider' })
+  const add = (kind: EntryKind) => setQuick({ open: true, kind })
+  // Telefonda seçili bölüm sekmesi kaydırılabilir şeritte görünür kalır
+  const tabs = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = tabs.current?.querySelector<HTMLElement>('[aria-checked="true"]')
+    const row = tabs.current
+    if (el && row && row.scrollWidth > row.clientWidth) row.scrollTo({ left: el.offsetLeft - row.clientWidth / 2 + el.clientWidth / 2 })
+  }, [section])
   return (
     <>
       <PageHeader
@@ -44,21 +62,60 @@ export function FinancePage() {
         code="M11"
         eyebrow="Ticari"
         title="Finans"
-        description="Sözleşme değeri, tahmini ve gerçekleşen maliyet, tahsilat ve kârlılık. Tutarlar KDV hariç; farklı para birimleri yalnız girdiğiniz kurla çevrilir."
+        description="Kasa ve banka hesapları, manuel gelir-gider, sözleşme değeri, maliyet, tahsilat ve kârlılık. Tutarlar KDV hariç girilir; farklı para birimleri yalnız girdiğiniz kurla çevrilir."
         status="ready"
       />
-      <div className="mb-6 max-w-xl">
-        <SegmentedControl
-          name="Finans bölümü"
-          value={section}
-          options={SECTIONS}
-          layoutId="finance-section"
-          onChange={(v) => setParams(v === 'ozet' ? {} : { bolum: v }, { replace: true })}
-        />
+      <div ref={tabs} role="radiogroup" aria-label="Finans bölümü" className="-mx-4 mb-6 flex gap-1.5 overflow-x-auto overscroll-x-contain px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" data-testid="finance-sections">
+        {SECTIONS.map((o) => {
+          const selected = o.value === section
+          return (
+            <button
+              key={o.value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => setParams(o.value === 'ozet' ? {} : { bolum: o.value }, { replace: true })}
+              className={cn(
+                'inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border px-3.5 text-sm font-medium whitespace-nowrap transition-colors',
+                selected ? 'border-line-strong bg-surface text-ink shadow-card' : 'border-transparent bg-surface-2 text-muted hover:text-ink',
+              )}
+              data-testid={`finance-tab-${o.value}`}
+            >
+              <o.icon className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+              {o.label}
+            </button>
+          )
+        })}
       </div>
       {section === 'ozet' && <FinanceOverview />}
+      {section === 'panel' && <CashDashboard cash={cash} onAdd={add} />}
+      {section === 'gelir-gider' && <EntriesPanel cash={cash} onAdd={add} />}
+      {section === 'kasa-banka' && <AccountsPanel cash={cash} />}
+      {section === 'kategoriler' && <CategoriesPanel cash={cash} />}
+      {section === 'duzenli' && <RecurringPanel cash={cash} />}
       {section === 'birim-maliyetler' && <CostRatesPanel />}
       {section === 'kurlar' && <FxRatesPanel />}
+      {/* Hızlı ekleme düğmesinin son satırı örtmemesi için boşluk */}
+      <div className="h-20" aria-hidden="true" />
+      {/* Her bölümde görünen hızlı ekleme düğmesi (telefonda alt sekme çubuğunun üstünde) */}
+      <button
+        type="button"
+        onClick={() => add('gider')}
+        className="fixed right-4 bottom-[calc(80px+env(safe-area-inset-bottom))] z-30 inline-flex h-12 items-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold md:right-8 md:bottom-8 md:h-14 md:px-5 md:text-[15px] text-primary-ink shadow-raised transition hover:bg-primary-hover active:scale-[0.98]"
+        data-testid="quick-add"
+      >
+        <Plus className="h-5 w-5" aria-hidden="true" />
+        Gelir/Gider ekle
+      </button>
+      <EntryDialog
+        open={quick.open}
+        onClose={() => setQuick((x) => ({ ...x, open: false }))}
+        accounts={cash.data.accounts}
+        categories={cash.data.categories}
+        defaultKind={quick.kind}
+        defaultAccountId={cash.data.accounts.find((a) => a.active)?.id}
+        onSaved={() => void cash.reload()}
+      />
     </>
   )
 }

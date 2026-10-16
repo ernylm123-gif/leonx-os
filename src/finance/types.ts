@@ -151,6 +151,10 @@ export interface Expense extends Versioned {
   document_no: string | null
   paid: boolean
   notes: string | null
+  /** 013: ödenen giderin çıktığı kasa/banka (boş: hesapsız, hiçbir bakiyeyi etkilemez) */
+  account_id?: string | null
+  category_id?: string | null
+  payment_method?: PaymentMethod | null
 }
 export type ExpenseInput = Omit<Expense, keyof Versioned>
 
@@ -175,6 +179,9 @@ export interface Collection extends Versioned {
   schedule_id: string | null
   reference: string | null
   note: string | null
+  /** 013: tahsilatın girdiği kasa/banka (boş: hesapsız) */
+  account_id?: string | null
+  category_id?: string | null
 }
 export type CollectionInput = Omit<Collection, keyof Versioned>
 

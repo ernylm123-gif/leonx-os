@@ -1557,6 +1557,230 @@ await test('Faz 8: kuru girilmemiş para birimi uyarısı, kur girilince birleş
   expect(await d.getByTestId('ti-submit').isDisabled(), 'aynı metraj tekrar aktarılabilir')
 }, { viewport: { width: 1366, height: 900 } })
 
+// ================================================================== 0.10: kasa, banka, manuel gelir-gider
+const accountCard = (page, name) => page.locator(`[data-testid="account-card"][data-name="${name}"]`)
+const balanceOf = (page, name) => accountCard(page, name).getByTestId('account-balance')
+/** Sahte arka uçtaki görünüm (finance_account_balances) — ekranla aynı olmalı */
+const serverBalance = (mock, name) => mock.accountBalances().find((b) => b.name === name)?.balance
+const seedAccount = (mock, o) => mock.externalInsert('finance_accounts', { kind: 'kasa', currency: 'TRY', opening_balance: 0, ...o })
+const categoryId = (mock, kind, key) => mock.db.finance_categories.find((c) => c.kind === kind && c.key === key).id
+
+async function quickAdd(page, { kind, amount, vat, account, category, description, project, status }) {
+  await page.getByTestId('quick-add').click()
+  const d = page.getByRole('dialog', { name: 'Gelir / gider ekle' })
+  await d.getByTestId(`qa-kind-${kind}`).click()
+  await d.getByTestId('qa-amount').fill(amount)
+  if (project) await d.getByTestId('qa-project').selectOption(project)
+  if (status) await d.getByTestId(`qa-status-${status}`).click()
+  if (account) await d.getByTestId('qa-account').selectOption(account)
+  if (category) await d.getByTestId('qa-category').selectOption({ label: category })
+  if (vat) await d.getByRole('button', { name: vat }).click()
+  await d.getByTestId('qa-description').fill(description)
+  await d.getByTestId('entry-form-submit').click()
+  await d.waitFor({ state: 'hidden' })
+}
+
+await test('Kasa/banka: hesaplar, genel gelir/gider, projeye bağlı gider, virman, iptal ve geçmiş; bakiyeler sunucu görünümüyle aynı', async ({ page, mock, consoleErrors }) => {
+  const c = mock.externalInsert('companies', { name: 'Kasa Müşterisi' })
+  const p = mock.externalInsert('projects', { code: 'LX-2026-901', name: 'Kasa projesi', category: 'aluminyum_dograma', company_id: c.id, stage: 'uretimde' })
+  await login(page, OWNER, '/finans?bolum=kasa-banka')
+  await page.getByTestId('finance-tab-kasa-banka').waitFor()
+
+  // Hesaplar: kasa (açılış 1.000 ₺) ve banka (IBAN boşluklu girilir, boşluksuz saklanır)
+  await page.getByTestId('account-add').click()
+  let ad = page.getByRole('dialog', { name: 'Yeni hesap' })
+  await ad.getByTestId('acc-name').fill('Merkez kasa')
+  await ad.getByTestId('acc-opening').fill('1.000')
+  await ad.getByTestId('account-form-submit').click()
+  await balanceOf(page, 'Merkez kasa').getByText(/1\.000,00/).waitFor()
+  await page.getByTestId('account-add').click()
+  ad = page.getByRole('dialog', { name: 'Yeni hesap' })
+  await ad.getByTestId('acc-name').fill('Ziraat TL')
+  await ad.getByTestId('acc-kind').selectOption('banka')
+  await ad.getByTestId('acc-iban').fill('TR33 0006 1005 1978 6457 8413 26')
+  await ad.getByTestId('account-form-submit').click()
+  await balanceOf(page, 'Ziraat TL').getByText(/0,00/).waitFor()
+  const kasa = mock.db.finance_accounts.find((a) => a.name === 'Merkez kasa')
+  const banka = mock.db.finance_accounts.find((a) => a.name === 'Ziraat TL')
+  expect(banka.iban === 'TR330006100519786457841326' && banka.kind === 'banka', 'IBAN/tür kaydedilmedi')
+
+  // Genel gelir 500 + %20 KDV → kasa 1.600; genel gider 200 → kasa 1.400
+  await quickAdd(page, { kind: 'gelir', amount: '500', vat: '%20', account: kasa.id, category: 'Hizmet', description: 'Servis bedeli' })
+  await balanceOf(page, 'Merkez kasa').getByText(/1\.600,00/).waitFor()
+  const inc = mock.db.finance_entries[0]
+  expect(inc && inc.amount === 500 && inc.vat_amount === 100 && inc.kind === 'gelir' && inc.status === 'gerceklesti' && inc.category_id === categoryId(mock, 'gelir', 'hizmet'), 'genel gelir hatalı kaydedildi')
+  await quickAdd(page, { kind: 'gider', amount: '200', account: kasa.id, category: 'Kira', description: 'Atölye kirası' })
+  await balanceOf(page, 'Merkez kasa').getByText(/1\.400,00/).waitFor()
+
+  // Projeye bağlı gider → project_expenses (genel kayıt oluşmaz: çift sayım yok)
+  await quickAdd(page, { kind: 'gider', amount: '300', project: p.id, account: kasa.id, description: 'Montaj malzemesi' })
+  await balanceOf(page, 'Merkez kasa').getByText(/1\.100,00/).waitFor()
+  expect(mock.db.finance_entries.length === 2, 'projeye bağlı gider genel kayıt olarak da yazıldı')
+  const pe = mock.db.project_expenses[0]
+  expect(pe && pe.project_id === p.id && pe.paid === true && pe.account_id === kasa.id && pe.amount === 300, 'proje gideri yanlış kaydedildi')
+
+  // Virman kasa → banka 400: bakiyeler değişir, gelir/gider değişmez
+  await page.getByTestId('transfer-add').click()
+  const td = page.getByRole('dialog', { name: 'Hesaplar arası virman' })
+  await td.getByTestId('tr-from').selectOption(kasa.id)
+  await td.getByTestId('tr-to').selectOption(banka.id)
+  await td.getByTestId('tr-amount').fill('400')
+  await td.getByTestId('transfer-form-submit').click()
+  await balanceOf(page, 'Merkez kasa').getByText(/700,00/).waitFor()
+  await balanceOf(page, 'Ziraat TL').getByText(/400,00/).waitFor()
+  expect(serverBalance(mock, 'Merkez kasa') === 700 && serverBalance(mock, 'Ziraat TL') === 400, 'ekran bakiyesi sunucu görünümüyle uyuşmuyor')
+  // Hesap hareketleri: yürüyen bakiye
+  await accountCard(page, 'Merkez kasa').getByTestId('account-movements-toggle').click()
+  expect((await accountCard(page, 'Merkez kasa').getByTestId('account-movement').count()) === 4, 'hesap hareketleri eksik')
+
+  // Panel: gelir 600, gider 200 + 300 = 500 (virman hariç), toplam bakiye 1.100
+  await page.getByTestId('finance-tab-panel').click()
+  await page.getByTestId('kpi-month-income').getByText(/600,00/).first().waitFor()
+  expect(/500,00/.test(await page.getByTestId('kpi-month-expense').locator('[data-value]').textContent()), 'aylık gider hatalı (virman sayılmış olabilir)')
+  expect(/600,00/.test(await page.getByTestId('kpi-today-income').textContent()), 'bugünkü gelir hatalı')
+  await page.getByTestId('kpi-total-balance').getByText(/1\.100,00/).waitFor()
+  expect(/proje.*300,00.*genel.*200,00/s.test(await page.getByTestId('kpi-month-expense').textContent()), 'proje/genel gider ayrımı yok')
+  await page.getByTestId('cash-chart').first().waitFor()
+
+  // İptal (silme yok): gider iptal edilir, bakiye geri gelir, kayıt ve geçmiş saklanır
+  await page.getByTestId('finance-tab-gelir-gider').click()
+  const row = page.locator('[data-testid="ledger-row"]').filter({ hasText: 'Atölye kirası' })
+  await row.getByTestId('record-void').click()
+  const vd = page.getByRole('dialog', { name: 'Kaydı iptal et' })
+  await vd.getByTestId('void-confirm').click()
+  await vd.getByText('İptal sebebini yazın.').waitFor()
+  await vd.getByTestId('void-reason').fill('Yanlış girildi')
+  await vd.getByTestId('void-confirm').click()
+  await page.locator('[data-testid="ledger-row"][data-status="iptal"]').filter({ hasText: 'Atölye kirası' }).waitFor()
+  const voided = mock.db.finance_entries.find((e) => e.description === 'Atölye kirası')
+  expect(voided.voided_at && voided.voided_reason === 'Yanlış girildi' && voided.voided_by === OWNER.id, 'iptal bilgisi sunucuda yazılmadı')
+  expect(serverBalance(mock, 'Merkez kasa') === 900, `iptal sonrası bakiye ${serverBalance(mock, 'Merkez kasa')}`)
+  await page.getByTestId('lt-expense').getByText(/300,00/).waitFor()
+  await page.locator('[data-testid="ledger-row"]').filter({ hasText: 'Atölye kirası' }).getByTestId('record-history').click()
+  const hd = page.getByRole('dialog', { name: /Geçmiş/ })
+  await hd.locator('[data-testid="history-row"][data-action="void"]').getByText('Sebep: Yanlış girildi').waitFor()
+  expect((await hd.locator('[data-testid="history-row"][data-action="insert"]').count()) === 1, 'oluşturma geçmişi yok')
+  await page.keyboard.press('Escape')
+  // Silme denemesi sunucuda reddedilir (iptal kullanılır)
+  const del = mock.deleteRow('finance_entries', voided.id)
+  expect(del?.error?.message === 'Kayıt silinemez; iptal edin', 'genel kayıt silinebildi')
+
+  // Proje finansında görünür (aynı satır, ikinci kayıt yok)
+  await page.goto(`${BASE}/projeler/${p.id}?sekme=finans`)
+  await page.getByTestId('fin-actual').getByText(/300,00/).waitFor()
+  // Dashboard kartı sunucu görünümünden: 900 + 400
+  await page.goto(`${BASE}/`)
+  await page.getByTestId('dash-cash-total').getByText(/1\.300,00/).waitFor()
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+}, { viewport: { width: 1440, height: 900 } })
+
+await test('Kasa/banka telefonda: hızlı gelir/gider ekleme, büyük dokunma alanları, taşma yok; bekleyen gider bakiyeyi etkilemez', async ({ page, mock, consoleErrors }) => {
+  const acc = seedAccount(mock, { name: 'Cep kasası', opening_balance: 250 })
+  await login(page, OWNER, '/finans?bolum=kasa-banka')
+  await balanceOf(page, 'Cep kasası').getByText(/250,00/).waitFor()
+  const vw = page.viewportSize().width
+  const fab = await page.getByTestId('quick-add').boundingBox()
+  expect(fab && fab.height >= 48 && fab.x + fab.width <= vw && fab.y + fab.height <= page.viewportSize().height, 'hızlı ekleme düğmesi görünür değil veya küçük')
+  await page.getByTestId('quick-add').click()
+  const d = page.getByRole('dialog', { name: 'Gelir / gider ekle' })
+  await d.waitFor()
+  for (const id of ['qa-kind-gelir', 'qa-kind-gider', 'qa-amount', 'qa-account', 'qa-category']) {
+    const b = await d.getByTestId(id).boundingBox()
+    expect(b && b.height >= 44, `${id} dokunma alanı küçük (${b?.height})`)
+  }
+  const fs = await d.getByTestId('qa-amount').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+  expect(fs >= 16, `iOS yakınlaşmasını önlemek için yazı ≥16px olmalı (${fs})`)
+  // Hesap varsayılan olarak seçili; zorunlu alan eksikse açıklayıcı hata
+  expect((await d.getByTestId('qa-account').inputValue()) === acc.id, 'tek hesap varsayılan seçilmedi')
+  await d.getByTestId('qa-amount').fill('75,5')
+  await d.getByTestId('entry-form-submit').click()
+  await d.getByText('Kategori seçin.').waitFor()
+  await d.getByText('Açıklama zorunludur.').waitFor()
+  await d.getByTestId('qa-category').selectOption({ label: 'Yakıt' })
+  await d.getByTestId('qa-description').fill('Servis aracı yakıt')
+  expect(!(await page.evaluate((w) => document.documentElement.scrollWidth > w + 1, vw)), 'form açıkken taşma')
+  await d.getByTestId('entry-form-submit').click()
+  await d.waitFor({ state: 'hidden' })
+  await balanceOf(page, 'Cep kasası').getByText(/174,50/).waitFor()
+  // Bekleyen (ödenecek) gider: hesabı seçili olsa bile bakiye değişmez, panelde "ödenecek borç"
+  await quickAdd(page, { kind: 'gider', amount: '1000', status: 'bekliyor', category: 'Vergi', description: 'KDV ödemesi' })
+  await eventually(() => mock.db.finance_entries.some((e) => e.description === 'KDV ödemesi' && e.status === 'bekliyor' && e.account_id === acc.id), 'bekleyen gider kaydedilmedi')
+  expect(serverBalance(mock, 'Cep kasası') === 174.5, 'bekleyen gider bakiyeyi etkiledi')
+  await page.getByTestId('finance-tab-panel').click()
+  await page.getByTestId('kpi-payable').getByText(/1\.000,00/).first().waitFor()
+  expect(!(await page.evaluate((w) => document.documentElement.scrollWidth > w + 1, vw)), 'panel yatay taşıyor')
+  await page.getByTestId('finance-tab-gelir-gider').click()
+  await page.locator('[data-testid="ledger-row"][data-status="bekliyor"]').filter({ hasText: 'KDV ödemesi' }).waitFor()
+  expect(!(await page.evaluate((w) => document.documentElement.scrollWidth > w + 1, vw)), 'liste yatay taşıyor')
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+}, (() => {
+  const { defaultBrowserType: _ignored, ...opts } = devices['iPhone 15']
+  return opts
+})())
+
+await test('Kasa/banka çoklu cihaz: iPad’de eklenen gelir ve virman masaüstünde yenilemeden görünür; düzenli kayıt bir kez üretilir', async ({ page: win, mock }) => {
+  const kasa = seedAccount(mock, { name: 'Ortak kasa', opening_balance: 100 })
+  const banka = seedAccount(mock, { name: 'Ortak banka', kind: 'banka' })
+  const start = new Date(Date.now() - 40 * 86400000).toISOString().slice(0, 10)
+  mock.externalInsert('finance_recurring', { kind: 'gider', description: 'Aylık internet', amount: 50, vat_amount: 10, currency: 'TRY', category_id: categoryId(mock, 'gider', 'diger'), account_id: kasa.id, frequency: 'aylik', start_date: start })
+  const ipad = await openDevice(mock, devices['iPad Pro 11'])
+  try {
+    await Promise.all([login(win, OWNER, '/finans?bolum=kasa-banka'), login(ipad.page, OWNER, '/finans?bolum=duzenli')])
+    await balanceOf(win, 'Ortak kasa').getByText(/100,00/).waitFor()
+    // İki cihaz da açılışta üretimi çağırır; tarih başına tek kayıt
+    await ipad.page.getByTestId('recurring-open').waitFor()
+    const generated = () => mock.db.finance_entries.filter((e) => e.recurring_id)
+    await eventually(() => generated().length >= 1, 'düzenli kayıt üretilmedi')
+    const n = generated().length
+    await ipad.page.getByTestId('recurring-generate').click()
+    await ipad.page.getByText('Vadesi gelmiş yeni kayıt yok.').waitFor()
+    expect(generated().length === n && new Set(generated().map((e) => e.occurrence_date)).size === n, 'düzenli kayıt çift üretildi')
+    expect(generated().every((e) => e.status === 'bekliyor') && serverBalance(mock, 'Ortak kasa') === 100, 'üretilen kayıt bakiyeyi etkiledi')
+
+    // iPad: gelir ekler → masaüstü görür
+    await quickAdd(ipad.page, { kind: 'gelir', amount: '1200', account: kasa.id, category: 'Satış', description: 'Peşin satış' })
+    await balanceOf(win, 'Ortak kasa').getByText(/1\.300,00/).waitFor({ timeout: 5000 })
+    // Başka cihazdan virman → iki bakiye canlı güncellenir
+    mock.externalInsert('finance_transfers', { transfer_date: new Date().toISOString().slice(0, 10), from_account_id: kasa.id, to_account_id: banka.id, from_amount: 300, to_amount: 300 })
+    await balanceOf(win, 'Ortak banka').getByText(/300,00/).waitFor({ timeout: 5000 })
+    await balanceOf(win, 'Ortak kasa').getByText(/1\.000,00/).waitFor({ timeout: 5000 })
+    // Bekleyen düzenli kaydı "Ödendi" işaretle → bakiyeye o zaman girer
+    await ipad.page.getByTestId('recurring-open').getByRole('button', { name: 'Ödendi' }).first().click()
+    const rd = ipad.page.getByRole('dialog', { name: 'Kaydı düzenle' })
+    expect((await rd.getByTestId('qa-account').inputValue()) === kasa.id, 'şablon hesabı seçili gelmedi')
+    await rd.getByTestId('entry-form-submit').click()
+    await rd.waitFor({ state: 'hidden' })
+    await balanceOf(win, 'Ortak kasa').getByText(/940,00/).waitFor({ timeout: 5000 })
+  } finally {
+    await ipad.ctx.close()
+  }
+}, { viewport: { width: 1366, height: 900 } })
+
+await test('Kasa/banka: Excel ve PDF dışa aktarım süzgeçle; para birimi uyuşmazlığı ve kategori türü sunucuda reddedilir', async ({ page, mock }) => {
+  const kasa = seedAccount(mock, { name: 'Rapor kasası', opening_balance: 0 })
+  seedAccount(mock, { name: 'Euro hesap', kind: 'banka', currency: 'EUR' })
+  mock.externalInsert('finance_entries', { kind: 'gelir', entry_date: new Date().toISOString().slice(0, 10), amount: 1000, currency: 'TRY', category_id: categoryId(mock, 'gelir', 'satis'), account_id: kasa.id, description: 'Rapor geliri' })
+  const bad = mock.insertRow('finance_entries', { kind: 'gelir', entry_date: '2026-10-01', amount: 1, currency: 'EUR', category_id: categoryId(mock, 'gelir', 'satis'), account_id: kasa.id, description: 'x' })
+  expect(bad.error?.code === '23514' && /para birimi/.test(bad.error.message), 'para birimi uyuşmazlığı kabul edildi')
+  const bad2 = mock.insertRow('finance_entries', { kind: 'gelir', entry_date: '2026-10-01', amount: 1, currency: 'TRY', category_id: categoryId(mock, 'gider', 'kira'), account_id: kasa.id, description: 'x' })
+  expect(bad2.error?.code === '23514' && /Kategori türü/.test(bad2.error.message), 'kategori türü uyuşmazlığı kabul edildi')
+  await login(page, OWNER, '/finans?bolum=gelir-gider')
+  await page.locator('[data-testid="ledger-row"]').filter({ hasText: 'Rapor geliri' }).waitFor()
+  const [xl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('ledger-xlsx').click()])
+  expect(/LEONX-gelir-gider-.*\.xlsx$/.test(xl.suggestedFilename()), 'Excel dosya adı')
+  const [pdf] = await Promise.all([page.waitForEvent('download'), page.getByTestId('ledger-pdf').click()])
+  const buf = await (await import('node:fs/promises')).readFile(await pdf.path())
+  expect(buf.subarray(0, 5).toString() === '%PDF-' && buf.length > 2000, 'PDF üretilmedi')
+  // Arayüzde EUR hesabına TRY kayıt seçilemez: hesap seçilince para birimi hesaba kilitlenir
+  await page.getByTestId('quick-add').click()
+  const d = page.getByRole('dialog', { name: 'Gelir / gider ekle' })
+  const eur = mock.db.finance_accounts.find((a) => a.currency === 'EUR')
+  await d.getByTestId('qa-account').selectOption(eur.id)
+  expect((await d.getByTestId('qa-currency').inputValue()) === 'EUR' && (await d.getByTestId('qa-currency').isDisabled()), 'para birimi hesaba kilitlenmedi')
+}, { viewport: { width: 1366, height: 900 } })
+
 // ================================================================== Duyarlı ekranlar ve temalar
 const SCREENS = {
   'iphone-se': devices['iPhone SE'],
