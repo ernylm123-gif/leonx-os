@@ -69,3 +69,68 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Uçtan uca testler (sahte Supabase arka ucu)
         run: npm run test:e2e
+
+  cad_servis:
+    name: CAD dönüştürme servisi (DWG → DXF → PDF)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LIBREDWG_VERSION: 0.13.3
+      LIBREDWG_SHA256: 83f1f6e78a744777a481ff4520e4cef3f8ac4b2c1c25671077ca12fe81e8816e
+    defaults:
+      run:
+        working-directory: services/cad-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: services/cad-worker/requirements-dev.txt
+      - name: LibreDWG önbelleği
+        id: libredwg
+        uses: actions/cache@v4
+        with:
+          path: ~/libredwg
+          key: libredwg-${{ env.LIBREDWG_VERSION }}-${{ env.LIBREDWG_SHA256 }}-ubuntu
+      - name: LibreDWG indir, SHA-256 + GNU imza doğrula, derle
+        if: steps.libredwg.outputs.cache-hit != 'true'
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          curl -fsSLO https://github.com/LibreDWG/libredwg/releases/download/$LIBREDWG_VERSION/libredwg-$LIBREDWG_VERSION.tar.xz
+          curl -fsSLO https://github.com/LibreDWG/libredwg/releases/download/$LIBREDWG_VERSION/libredwg-$LIBREDWG_VERSION.tar.xz.sig
+          echo "$LIBREDWG_SHA256  libredwg-$LIBREDWG_VERSION.tar.xz" | sha256sum -c -
+          curl -fsSLO https://ftp.gnu.org/gnu/gnu-keyring.gpg
+          gpgv --keyring ./gnu-keyring.gpg libredwg-$LIBREDWG_VERSION.tar.xz.sig libredwg-$LIBREDWG_VERSION.tar.xz
+          tar xJf libredwg-$LIBREDWG_VERSION.tar.xz
+          cd libredwg-$LIBREDWG_VERSION
+          ./configure --prefix=$HOME/libredwg/opt --disable-bindings --disable-python --enable-release --disable-static
+          make -j"$(nproc)" && make install
+          cp -r test/test-data $HOME/libredwg/test-data
+      - run: pip install -r requirements-dev.txt
+      - name: Python bağımlılık güvenlik denetimi
+        run: pip-audit -r requirements.txt
+      - name: Servis testleri (gerçek AutoCAD DWG örnekleri)
+        env:
+          LIBREDWG_BIN: /home/runner/libredwg/opt/bin
+          LD_LIBRARY_PATH: /home/runner/libredwg/opt/lib
+          LIBREDWG_TESTDATA: /home/runner/libredwg/test-data
+        run: python -m pytest -q -rs
+
+  cad_servis_imaj:
+    name: CAD dönüştürme servisi imajı
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker imajı (LibreDWG imza doğrulamalı derleme)
+        run: docker build -t leonx-cad-worker services/cad-worker
+      - name: İmaj sağlık denetimi (kimlik yapılandırması olmadan başlamamalı; yapılandırmayla hazır)
+        run: |
+          set -euo pipefail
+          if docker run --rm leonx-cad-worker python -c "from leonx_cad.app import create_app; create_app()"; then echo "kimliksiz başladı!"; exit 1; fi
+          docker run -d --name cad -e SUPABASE_JWT_SECRET=ci-yalniz-test-anahtari-en-az-32-bayt-uzunlukta --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges -p 8080:8080 leonx-cad-worker
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/saglik && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8080/saglik | grep -q hazir
+          docker exec cad id -u | grep -q 10001

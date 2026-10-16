@@ -1,0 +1,12 @@
+# LEONX CAD dönüştürme servisi — sabit sürümler (lisanslar: LISANSLAR.md)
+# Güvenlik taraması: pip-audit (CI'da her çalıştırmada)
+fastapi==0.143.2
+starlette==1.8.0
+uvicorn==0.54.0
+python-multipart==0.0.32
+pyjwt[crypto]==2.15.1
+cryptography==50.0.2
+ezdxf==1.4.4
+matplotlib==3.11.2
+numpy==2.5.4
+pillow==12.3.0
