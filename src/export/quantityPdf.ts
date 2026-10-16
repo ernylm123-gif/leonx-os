@@ -15,16 +15,16 @@ export interface PdfAssets {
   logo: Uint8Array | null
 }
 
-const PAGE: [number, number] = [841.89, 595.28] // A4 yatay
-const M = 34
-const INK = rgb(0.13, 0.15, 0.17)
-const MUTED = rgb(0.41, 0.44, 0.49)
-const LINE = rgb(0.82, 0.84, 0.86)
-const HEAD = rgb(0.145, 0.165, 0.192)
-const WARN_BG = rgb(1, 0.957, 0.84)
-const WARN = rgb(0.56, 0.36, 0.06)
-const DANGER = rgb(0.7, 0.22, 0.18)
-const SOFT = rgb(0.94, 0.95, 0.96)
+export const PAGE: [number, number] = [841.89, 595.28] // A4 yatay
+export const M = 34
+export const INK = rgb(0.13, 0.15, 0.17)
+export const MUTED = rgb(0.41, 0.44, 0.49)
+export const LINE = rgb(0.82, 0.84, 0.86)
+export const HEAD = rgb(0.145, 0.165, 0.192)
+export const WARN_BG = rgb(1, 0.957, 0.84)
+export const WARN = rgb(0.56, 0.36, 0.06)
+export const DANGER = rgb(0.7, 0.22, 0.18)
+export const SOFT = rgb(0.94, 0.95, 0.96)
 
 const dtf = new Intl.DateTimeFormat('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
@@ -62,13 +62,13 @@ export function wrapText(text: string, font: PDFFont, size: number, width: numbe
   return out.length ? out : ['']
 }
 
-interface Col {
+export interface Col {
   title: string
   width: number
   align?: 'left' | 'right'
 }
 
-class Writer {
+export class Writer {
   page!: PDFPage
   y = 0
   pages: PDFPage[] = []
