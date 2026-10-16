@@ -3,10 +3,10 @@
  * Web Worker içinde çalışır (src/cad/worker/cad.worker.ts); testlerde doğrudan çağrılır.
  */
 import { DxfSyntaxError, decodeDxf } from './dxf/tokenizer'
-import { parseDxf } from './dxf/parser'
+import { type DxfDocument, type DxfEntity, parseDxf } from './dxf/parser'
 import { acadRelease, detectCadFile } from './fileType'
 import { buildScene, DEFAULT_SCENE_LIMITS, type SceneLimits } from './scene'
-import { supportOf, type CadReport, type DxfAnalysis, type ReportWarning, type TypeCount } from './types'
+import { supportOf, type CadReport, type DxfAnalysis, type ReportWarning, type Scene, type TypeCount } from './types'
 import { describeUnitCode, unitByCode } from './units'
 
 export class CadAnalysisError extends Error {
@@ -114,5 +114,35 @@ export function analyzeDxfBytes(bytes: Uint8Array, options: AnalyzeOptions = {})
       inserts: built.scene.inserts.length,
     },
   }
-  return { scene: built.scene, report }
+  return { scene: built.scene, report, paper: buildPaperScenes(doc, limits) }
+}
+
+const MAX_LAYOUTS = 20
+
+/**
+ * Kâğıt uzayı nesnelerinden layout başına ayrı sahne. Etkin layout'un nesneleri ENTITIES bölümünde
+ * (67=1, layout adı 410), diğer layout'lar *Paper_SpaceN blok tanımlarındadır. Görünüm pencereleri
+ * (VIEWPORT) çizilmez; model uzayı görünüm penceresinden ikinci kez okunmaz.
+ */
+export function buildPaperScenes(doc: DxfDocument, limits: SceneLimits = DEFAULT_SCENE_LIMITS): { name: string; scene: Scene }[] {
+  const groups = new Map<string, DxfEntity[]>()
+  for (const e of doc.entities) {
+    if (!e.paperSpace || e.type === 'VIEWPORT') continue
+    const name = e.tags.find((t) => t[0] === 410)?.[1]?.trim() || 'Layout'
+    const arr = groups.get(name)
+    if (arr) arr.push({ ...e, paperSpace: false })
+    else groups.set(name, [{ ...e, paperSpace: false }])
+  }
+  for (const b of doc.blocks.values()) {
+    if (!/^\*paper_space\d+$/i.test(b.name)) continue
+    const ents = b.entities.filter((e) => e.type !== 'VIEWPORT').map((e) => ({ ...e, paperSpace: false }))
+    if (ents.length) groups.set(`Layout ${groups.size + 1}`, ents)
+  }
+  const out: { name: string; scene: Scene }[] = []
+  for (const [name, entities] of groups) {
+    if (out.length >= MAX_LAYOUTS) break
+    const built = buildScene({ ...doc, entities }, { ...limits, maxEntities: Math.min(limits.maxEntities, 100_000) })
+    if (built.scene.entities.length) out.push({ name, scene: built.scene })
+  }
+  return out
 }

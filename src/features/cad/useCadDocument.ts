@@ -5,7 +5,9 @@ import type { OpenedPdf, PdfPageEntry } from '@/cad/pdf/pdfLoader'
 import type { PdfPageInfo } from '@/cad/pdf/pdfScene'
 import { PT_TO_MM } from '@/cad/pdf/pdfScene'
 import type { CadReport, Scene } from '@/cad/types'
+import { convertDwgRemote, type DwgConversionResult, DwgServiceError, dwgServiceUrl } from '@/cad/dwgService'
 import { AnalysisCancelled, analyzeInWorker, STAGE_LABEL } from '@/cad/worker/client'
+import { requireSupabase } from '@/lib/supabase'
 import type { UnitState } from './format'
 
 export interface CadSource {
@@ -25,6 +27,10 @@ export interface LoadedCad {
   bytes: ArrayBuffer
   scene: Scene
   report: CadReport | null
+  /** DXF kâğıt uzayı (layout) sahneleri — antet ve çizelgeler; poz analizinde ayrı pafta olarak okunur */
+  paper?: { name: string; scene: Scene }[]
+  /** DWG'den sunucuda dönüştürüldüyse: özgün dosya ve dönüşüm kalite raporu */
+  conversion?: { originalName: string; original: ArrayBuffer } & Omit<DwgConversionResult, 'dxf'>
   /** Görüntülenen PDF sayfası */
   pdf: (PdfPageInfo & { background: HTMLCanvasElement | null }) | null
   /** Çok sayfalı PDF: açık belge ve tüm sayfaların özeti/analizi */
@@ -71,6 +77,8 @@ export function useCadDocument() {
   const abortRef = useRef<AbortController | null>(null)
   const docRef = useRef<LoadedCad | null>(null)
   const [pageBusy, setPageBusy] = useState<number | null>(null)
+  /** Okunamayan DWG: kullanıcı onay verirse sunucuda dönüştürülmek üzere bellekte tutulur (gönderilmez) */
+  const pendingDwg = useRef<{ fileName: string; bytes: ArrayBuffer; source: CadSource } | null>(null)
 
   const cancel = useCallback(() => {
     abortRef.current?.abort()
@@ -160,6 +168,7 @@ export function useCadDocument() {
           setState({ status: 'ready', doc })
           return doc
         }
+        pendingDwg.current = kind.kind === 'dwg' ? { fileName, bytes: keep, source } : null
         if (kind.kind === 'dwg' || kind.kind === 'dxf-binary' || kind.kind === 'unknown') {
           // Bu türler worker'a gönderilmeden, analiz çekirdeğinin açıklamalı hatasıyla reddedilir
           analyzeDxfBytes(new Uint8Array(bytes, 0, Math.min(bytes.byteLength, 4096)))
@@ -178,6 +187,7 @@ export function useCadDocument() {
           bytes: keep,
           scene: result.scene,
           report: result.report,
+          paper: result.paper,
           pdf: null,
           pdfDoc: null,
           loadedAt: new Date(),
@@ -260,5 +270,62 @@ export function useCadDocument() {
 
   const pending = useCallback((fileName: string, stage: string) => setState({ status: 'loading', fileName, stage, fraction: 0.02 }), [])
 
-  return { state, load, cancel, reset, fail, pending, selectPage, setPageAnalysis, pageBusy }
+  /**
+   * Bekleyen DWG'yi yapılandırılmış dönüştürme servisinde DXF'e çevirir ve mevcut DXF analiz
+   * akışına (Web Worker) verir. Yalnız kullanıcı onayıyla çağrılır.
+   */
+  const convertDwg = useCallback(async (): Promise<LoadedCad | null> => {
+    const p = pendingDwg.current
+    if (!p) return null
+    cancel()
+    const ac = new AbortController()
+    abortRef.current = ac
+    try {
+      setState({ status: 'loading', fileName: p.fileName, stage: 'DWG sunucuda DXF’e dönüştürülüyor', fraction: 0.1 })
+      const { data } = await requireSupabase().auth.getSession()
+      const token = data.session?.access_token
+      if (!token) throw new DwgServiceError('Oturum bulunamadı; yeniden giriş yapın.', 'oturum')
+      const conv = await convertDwgRemote(p.bytes.slice(0), p.fileName, token, { pdf: true, signal: ac.signal })
+      if (ac.signal.aborted) throw new AnalysisCancelled()
+      const dxfName = p.fileName.replace(/\.dwg$/i, '') + '.dxf'
+      const dxfBytes = conv.dxf.buffer.slice(conv.dxf.byteOffset, conv.dxf.byteOffset + conv.dxf.byteLength) as ArrayBuffer
+      setState({ status: 'loading', fileName: dxfName, stage: STAGE_LABEL.okuma, fraction: 0.5 })
+      const result = await analyzeInWorker(dxfBytes.slice(0), {
+        signal: ac.signal,
+        onProgress: (stage, fraction) => setState({ status: 'loading', fileName: dxfName, stage: STAGE_LABEL[stage] ?? stage, fraction: 0.5 + fraction / 2 }),
+      })
+      const { dxf: _dxf, ...rest } = conv
+      const doc: LoadedCad = {
+        docId: newDocId(),
+        kind: 'dxf',
+        fileName: dxfName,
+        size: dxfBytes.byteLength,
+        source: p.source,
+        bytes: dxfBytes,
+        scene: result.scene,
+        report: result.report,
+        paper: result.paper,
+        conversion: { originalName: p.fileName, original: p.bytes, ...rest },
+        pdf: null,
+        pdfDoc: null,
+        loadedAt: new Date(),
+      }
+      pendingDwg.current = null
+      docRef.current = doc
+      setState({ status: 'ready', doc })
+      return doc
+    } catch (e) {
+      if (e instanceof AnalysisCancelled || ac.signal.aborted) {
+        setState({ status: 'error', fileName: p.fileName, code: 'dwg', message: 'Dönüştürme iptal edildi.' })
+        return null
+      }
+      const message = e instanceof DwgServiceError || e instanceof CadAnalysisError ? e.message : 'DWG dönüştürülemedi.'
+      setState({ status: 'error', fileName: p.fileName, code: 'dwg', message, detail: undefined })
+      return null
+    } finally {
+      if (abortRef.current === ac) abortRef.current = null
+    }
+  }, [cancel])
+
+  return { state, load, cancel, reset, fail, pending, selectPage, setPageAnalysis, pageBusy, convertDwg, dwgService: dwgServiceUrl() }
 }

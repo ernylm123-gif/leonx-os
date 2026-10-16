@@ -1,0 +1,32 @@
+{
+  "pozlar": {
+    "P1": {
+      "adet": 2,
+      "w": 1200,
+      "h": 1500,
+      "kategori": "pvc_pencere",
+      "malzeme": "PVC",
+      "sistem": "70 SERİ"
+    },
+    "P2": {
+      "adet": 1,
+      "w": 800,
+      "h": 1200,
+      "kategori": "pvc_pencere",
+      "malzeme": "PVC"
+    },
+    "K1": {
+      "adet": 1,
+      "w": 900,
+      "h": 2100,
+      "kategori": "al_kapi",
+      "malzeme": "ALÜMİNYUM"
+    },
+    "P5": {
+      "adet": 1,
+      "w": 1000,
+      "h": 1000,
+      "celiski": "olcu"
+    }
+  }
+}

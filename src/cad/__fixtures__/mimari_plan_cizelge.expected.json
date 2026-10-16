@@ -1,0 +1,39 @@
+{
+  "units_mm_per_unit": 1,
+  "floor_multiplier": 3,
+  "pozlar": {
+    "P1": {
+      "adet": 6,
+      "w": 1200,
+      "h": 1500,
+      "malzeme": "pvc",
+      "plan": 2,
+      "cizelge": 6
+    },
+    "P2": {
+      "adet": 3,
+      "w": 800,
+      "h": 1200,
+      "malzeme": "pvc",
+      "plan": 1,
+      "cizelge": 3
+    },
+    "K1": {
+      "adet": null,
+      "w": 900,
+      "h": 2100,
+      "malzeme": "aluminyum",
+      "plan": 1,
+      "cizelge": 4,
+      "celiski": "adet"
+    },
+    "S1": {
+      "adet": 2,
+      "w": 3000,
+      "h": 2400,
+      "malzeme": "aluminyum",
+      "plan": 0,
+      "cizelge": 2
+    }
+  }
+}

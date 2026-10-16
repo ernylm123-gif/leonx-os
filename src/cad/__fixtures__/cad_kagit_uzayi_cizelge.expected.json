@@ -1,0 +1,13 @@
+{
+  "layout_sayisi": 1,
+  "pozlar": {
+    "P1": {
+      "adet": 2,
+      "w": 1200,
+      "h": 1500,
+      "kategori": "pvc_pencere",
+      "malzeme": "PVC",
+      "cizelge": 2
+    }
+  }
+}

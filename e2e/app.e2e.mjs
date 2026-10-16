@@ -8,6 +8,7 @@
  * Çalıştırma: npm run test:e2e
  */
 import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, devices } from 'playwright'
@@ -23,11 +24,13 @@ const SHOTS = process.env.E2E_SCREENSHOTS
 
 // ------------------------------------------------------------------ derleme
 if (!process.env.E2E_SKIP_BUILD) {
-  const env = { ...process.env, VITE_SUPABASE_URL: SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_e2e_test_key' }
+  // DWG dönüştürme servisi aynı kökenden (/cad-worker) sunulur; testte page.route ile taklit edilir
+  const env = { ...process.env, VITE_SUPABASE_URL: SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_e2e_test_key', VITE_CAD_WORKER_URL: '/cad-worker' }
   execSync('npx vite build --outDir dist-e2e --emptyOutDir --logLevel error', { cwd: ROOT, env, stdio: 'inherit' })
   const bare = { ...process.env }
   delete bare.VITE_SUPABASE_URL
   delete bare.VITE_SUPABASE_PUBLISHABLE_KEY
+  delete bare.VITE_CAD_WORKER_URL
   execSync('npx vite build --outDir dist-e2e-unconfigured --emptyOutDir --logLevel error', { cwd: ROOT, env: bare, stdio: 'inherit' })
 }
 const servers = [
@@ -61,6 +64,7 @@ async function test(name, fn, contextOptions = { viewport: { width: 1366, height
   } catch (e) {
     results.push({ name, ok: false, error: e })
     console.log(`  ✗ ${name}\n      ${String(e.message || e).split('\n').slice(0, 6).join('\n      ')}`)
+    if (process.env.E2E_STACK) console.log(e.stack)
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `FAIL-${name.replace(/[^a-z0-9]+/gi, '_')}.png`) }).catch(() => {})
   } finally {
     await ctx.close()
@@ -1010,6 +1014,172 @@ await test('PDF tanılama: yazısız planda neden ve elle ölçüm seçeneği; b
   const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime|Invalid PDF|PDF header|XRef|Warning/i.test(e))
   expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
 }, { viewport: { width: 1180, height: 820 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 })
+
+// ================================================================== Faz 13: DXF mimari analiz ve revizyon karşılaştırma
+await test('Faz 13: DXF model uzayında plan + çizelge — kat tekrarı, çizelge eşleşmesi, adet çelişkisi; duvar poz sayılmaz', async ({ page, consoleErrors }) => {
+  await login(page, OWNER, '/cad-analiz')
+  await page.getByTestId('cad-workspace').waitFor()
+  await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(ROOT, 'src/cad/__fixtures__/mimari_plan_cizelge.dxf'))
+  await page.getByTestId('cad-canvas').waitFor()
+  await page.getByRole('tab', { name: /Pozlar/ }).click()
+  await page.getByTestId('poz-detect').click()
+  await page.getByTestId('poz-candidate').first().waitFor()
+  await page.getByRole('tab', { name: /Tespit sonuçları/ }).click()
+  const rows = page.getByTestId('result-row')
+  await rows.first().waitFor()
+  const codes = (await rows.evaluateAll((els) => els.map((e) => e.getAttribute('data-poz')))).sort()
+  expect(JSON.stringify(codes) === JSON.stringify(['K1', 'P1', 'P2', 'S1']), `pozlar: ${codes}`)
+  // K1: çizelge 4, plan 1 × 3 kat = 3 → kullanıcıya çelişki olarak sunulur
+  await page.locator('[data-testid="result-row"][data-poz="K1"]').getByTestId('result-conflict-badge').waitFor()
+  expect((await page.getByTestId('result-conflict-badge').count()) === 1, 'beklenmeyen çelişki')
+  const p1 = page.locator('[data-testid="result-row"][data-poz="P1"]')
+  const p1v = [await p1.getByTestId('result-width').inputValue(), await p1.getByTestId('result-height').inputValue(), await p1.getByTestId('result-count').inputValue()]
+  expect(JSON.stringify(p1v) === JSON.stringify(['1200', '1500', '6']), `P1 en/boy/adet: ${p1v}`)
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+})
+
+await test('CAD motoru: kâğıt uzayındaki çizelge ve blok öznitelikleri tarayıcıda (Web Worker üzerinden) okunur', async ({ page, consoleErrors }) => {
+  await login(page, OWNER, '/cad-analiz')
+  await page.getByTestId('cad-workspace').waitFor()
+  // 1) Kâğıt uzayı: çizelge layout'ta, plan model uzayında
+  await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(ROOT, 'src/cad/__fixtures__/cad_kagit_uzayi_cizelge.dxf'))
+  await page.getByTestId('cad-canvas').waitFor()
+  await page.getByRole('tab', { name: /Pozlar/ }).click()
+  await page.getByTestId('poz-detect').click()
+  await page.getByTestId('poz-candidate').first().waitFor()
+  await page.getByRole('tab', { name: /Tespit sonuçları/ }).click()
+  const p1 = page.locator('[data-testid="result-row"][data-poz="P1"]')
+  await p1.waitFor()
+  expect((await p1.getByTestId('result-count').inputValue()) === '2', 'çizelge adedi okunmadı')
+  expect((await p1.getByTestId('result-category').inputValue()) === 'pvc_pencere', `iş grubu: ${await p1.getByTestId('result-category').inputValue()}`)
+  // 2) Öznitelikli bloklar: K1 "PENCERE_GENEL" bloğu ama TIP=KAPI → alüminyum kapı; P5 öznitelik/geometri çelişkisi
+  await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(ROOT, 'src/cad/__fixtures__/cad_oznitelik_bloklar.dxf'))
+  await page.getByRole('tab', { name: /Pozlar/ }).click()
+  await page.getByTestId('poz-detect').click()
+  await page.getByRole('tab', { name: /Tespit sonuçları/ }).click()
+  const k1 = page.locator('[data-testid="result-row"][data-poz="K1"]')
+  await k1.waitFor()
+  expect((await k1.getByTestId('result-category').inputValue()) === 'al_kapi', `K1 iş grubu: ${await k1.getByTestId('result-category').inputValue()}`)
+  await page.locator('[data-testid="result-row"][data-poz="P5"]').getByTestId('result-conflict-badge').waitFor()
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+})
+
+await test('DWG → DXF: onaylı sunucu dönüştürmesi, oturum belirteci, kalite raporu, analiz ve indirme; hata açıkça gösterilir', async ({ page, consoleErrors }) => {
+  const dxf = readFileSync(path.join(ROOT, 'src/cad/__fixtures__/mimari_plan_cizelge.dxf'))
+  const calls = []
+  let fail = true
+  await page.route('**/cad-worker/v1/dwg/donustur**', async (route) => {
+    const req = route.request()
+    calls.push({ auth: req.headers()['authorization'] ?? '', url: req.url(), size: (req.postDataBuffer() ?? Buffer.alloc(0)).length })
+    if (fail) return route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ detail: { kod: 'surum_desteklenmiyor', mesaj: 'DWG sürümü AC1009 desteklenmiyor (R13–AutoCAD 2018 arası desteklenir).' } }) })
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        surum: 'AC1032',
+        surum_adi: 'AutoCAD 2018',
+        sure_sn: 0.08,
+        onarilan_metin: 0,
+        uyarilar: [],
+        kalite: { status: 'eksik', dxf_valid: true, audit_errors: 0, units: 'mm', counts_dwg: { INSERT: 5 }, counts_dxf: { INSERT: 4 }, lost: { INSERT: 1 }, layers: { dwg: 6, dxf: 6 }, blocks: { dwg: 3, dxf: 3 }, layouts: ['Layout1', 'Model'], xrefs: [], proxy_entities: 0, notes: [] },
+        dxf: dxf.toString('base64'),
+        pdf: Buffer.from('%PDF-1.4\n%%EOF').toString('base64'),
+        pdf_rapor: { pages: [{ name: 'Model', width_mm: 420, height_mm: 297, entities: 60, scale_note: 'sayfaya sığdırıldı (ölçeksiz önizleme)' }], skipped: [] },
+      }),
+    })
+  })
+  await login(page, OWNER, '/cad-analiz')
+  await page.getByTestId('cad-workspace').waitFor()
+  await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(ROOT, 'src/cad/__fixtures__/fake.dwg'))
+  await page.getByTestId('dwg-convert-box').getByText(/localhost/).waitFor()
+  expect(calls.length === 0, 'kullanıcı onayı olmadan dosya gönderildi')
+  // 1) Servis hata döndürür: neden gösterilir, analiz yapılmaz
+  await page.getByTestId('dwg-convert').click()
+  await page.getByTestId('dwg-convert-error').getByText(/AC1009 desteklenmiyor/).waitFor()
+  expect(calls.length === 1 && /^Bearer \S+/.test(calls[0].auth) && calls[0].size > 0, `istek: ${JSON.stringify(calls[0])}`)
+  // 2) Başarılı dönüşüm: DXF mevcut analiz motoruna gider; kayıp raporlanır
+  fail = false
+  await page.getByTestId('dwg-convert').click()
+  await page.getByTestId('cad-canvas').waitFor()
+  const report = page.getByTestId('dwg-report')
+  await report.waitFor()
+  expect((await report.getAttribute('data-status')) === 'eksik', 'kalite durumu gösterilmedi')
+  await report.getByRole('button', { name: 'Rapor' }).click()
+  await page.getByTestId('dwg-report-detail').getByText(/Dönüşümde kaybolan: 1 INSERT/).waitFor()
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('dwg-dl-dxf').click()])
+  expect(dl.suggestedFilename() === 'fake.dxf', `indirilen: ${dl.suggestedFilename()}`)
+  await page.getByRole('tab', { name: /Pozlar/ }).click()
+  await page.getByTestId('poz-detect').click()
+  await page.getByRole('tab', { name: /Tespit sonuçları/ }).click()
+  await page.locator('[data-testid="result-row"][data-poz="K1"]').getByTestId('result-conflict-badge').waitFor()
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime|422/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+})
+
+// Gerçek servisle (taklit yok): CAD_WORKER_REAL_URL ve LIBREDWG_TESTDATA verilirse çalışır
+if (process.env.CAD_WORKER_REAL_URL && process.env.LIBREDWG_TESTDATA) {
+  await test('DWG → DXF (gerçek servis): AutoCAD 2018 DWG LibreDWG ile dönüştürülür, kalite raporu ve tarayıcıda analiz', async ({ page }) => {
+    await page.route('**/cad-worker/**', async (route) => {
+      const u = new URL(route.request().url())
+      const res = await route.fetch({ url: process.env.CAD_WORKER_REAL_URL + u.pathname.replace('/cad-worker', '') + u.search })
+      await route.fulfill({ response: res })
+    })
+    await login(page, OWNER, '/cad-analiz')
+    await page.getByTestId('cad-workspace').waitFor()
+    await page.getByTestId('cad-toolbar-file-input').setInputFiles(path.join(process.env.LIBREDWG_TESTDATA, 'example_2018.dwg'))
+    await page.getByTestId('dwg-convert').click()
+    await page.getByTestId('cad-canvas').waitFor({ timeout: 60000 })
+    const report = page.getByTestId('dwg-report')
+    await report.waitFor()
+    await report.getByRole('button', { name: 'Rapor' }).click()
+    console.log('      gerçek rapor:', (await page.getByTestId('dwg-report-detail').innerText()).replace(/\s+/g, ' ').slice(0, 300), '| durum:', await report.getAttribute('data-status'))
+    expect((await report.getAttribute('data-status')) !== 'basarisiz', 'gerçek dönüşüm başarısız')
+    await page.getByRole('tab', { name: /Rapor|Analiz/ }).first().click().catch(() => {})
+  })
+}
+
+await test('Faz 13: metraj revizyon karşılaştırması — eklenen/silinen/değişen poz, metraj farkı, katalog maliyeti ve teklif etkisi; fiyatsız poz uydurulmaz', async ({ page, mock }) => {
+  const project = mock.externalInsert('projects', { code: 'LX-2026-813', name: 'Revizyonlu blok', category: 'pvc_dograma' })
+  const base = { shape: 'dikdortgen', unit: 'm2', measure_basis: 'dograma', glass_mode: 'yok', floor: null, space: null, description: null, verification: 'onaylandi' }
+  const r1 = mock.externalInsert('quantity_takeoffs', { project_id: project.id, name: 'Uygulama', revision: 1 })
+  for (const it of [
+    { poz_code: 'P-01', category: 'pvc_pencere', width_mm: 1200, height_mm: 1500, quantity: 6 },
+    { poz_code: 'K1', category: 'al_kapi', width_mm: 900, height_mm: 2100, quantity: 4 },
+    { poz_code: 'P2', category: 'pvc_pencere', width_mm: 800, height_mm: 1200, quantity: 3 },
+  ])
+    mock.externalInsert('quantity_items', { ...base, ...it, takeoff_id: r1.id, project_id: project.id })
+  mock.externalUpdate('quantity_takeoffs', r1.id, { status: 'onaylandi' })
+  const r2 = mock.externalInsert('quantity_takeoffs', { project_id: project.id, name: 'Uygulama', revision: 2, based_on: r1.id })
+  for (const it of [
+    { poz_code: 'P1', category: 'pvc_pencere', width_mm: 1300, height_mm: 1500, quantity: 6 },
+    { poz_code: 'P2', category: 'pvc_pencere', width_mm: 800, height_mm: 1200, quantity: 3 },
+    { poz_code: 'P3', category: 'pvc_pencere', width_mm: 1000, height_mm: 1000, quantity: 3 },
+  ])
+    mock.externalInsert('quantity_items', { ...base, ...it, takeoff_id: r2.id, project_id: project.id })
+  mock.externalInsert('cost_rates', { code: 'PVC-M2', name: 'PVC pencere', cost_group: 'malzeme', unit: 'm2', currency: 'TRY', unit_cost: 2500, quantity_category: 'pvc_pencere', valid_from: '2026-01-01' })
+  seedQuote(mock, { projectId: project.id, items: [{ poz_code: 'P01', description: 'PVC pencere', unit: 'm2', width_mm: 1200, height_mm: 1500, quantity: 6, unit_price: 4000 }] })
+
+  await login(page, OWNER, `/metraj?proje=${project.id}&surum=${r2.id}`)
+  await page.getByTestId('qp-compare').click()
+  const panel = page.getByTestId('rev-compare')
+  await panel.getByTestId('rev-compare-table').waitFor()
+  expect((await panel.getByTestId('rev-compare-base').inputValue()) === r1.id, 'eski sürüm "based_on" olarak seçilmedi')
+  await panel.getByTestId('rev-count-degisen').getByText('1 değişen').waitFor()
+  await panel.getByTestId('rev-count-eklenen').getByText('1 eklenen').waitFor()
+  await panel.getByTestId('rev-count-silinen').getByText('1 silinen').waitFor()
+  const p1 = await panel.locator('[data-testid="rev-row"][data-poz="P1"]').innerText()
+  expect(/En 1200 mm → 1300 mm/.test(p1) && /\+0,90/.test(p1), `P1 satırı: ${p1}`)
+  // Maliyet: P1 +0,90 m² × 2.500 + P3 +3,00 m² × 2.500 = 9.750 TL; K1 (al_kapi) katalogda yok → toplama girmez
+  await panel.getByTestId('rev-cost-total').getByText(/\+?₺?9\.750,00/).waitFor()
+  await panel.locator('[data-testid="rev-row"][data-poz="K1"]').getByText('fiyat tanımlı değil').waitFor()
+  // Teklif: P01 = P1 → +0,90 × 4.000 = 3.600 TL; P3 teklifte yok
+  await panel.getByTestId('rev-quote-total').getByText(/3\.600,00/).waitFor()
+  await panel.locator('[data-testid="rev-row"][data-poz="P3"]').getByText('teklifte yok').waitFor()
+  // Malzeme bazlı özet (yalnız onaylı pozlar)
+  await page.getByTestId('material-summary').getByText('PVC').first().waitFor()
+})
 
 // ================================================================== Teklifler (Faz 6)
 const YEAR = new Date().getFullYear()

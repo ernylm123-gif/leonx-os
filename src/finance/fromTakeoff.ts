@@ -142,7 +142,7 @@ export function fromApprovedTakeoff(
 type ItemCalc = ReturnType<typeof computeItem>
 
 /** Katalog biriminin metraj karşılığı (toplam, 2 ondalık); uygulanamıyorsa null */
-function measureFor(unit: FinUnit, group: CostGroup, r: ItemCalc, pieces: number): { qty: number; basis: MeasureBasis } | null {
+export function measureFor(unit: FinUnit, group: CostGroup, r: ItemCalc, pieces: number): { qty: number; basis: MeasureBasis } | null {
   const t = r.total
   switch (unit) {
     case 'm2':
