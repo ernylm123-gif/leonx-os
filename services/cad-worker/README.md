@@ -27,11 +27,19 @@ DXF, uygulamadaki mevcut analiz motoruna (tarayıcıda) verilir. Servis dosya sa
 
 | Değişken | Anlamı |
 | --- | --- |
-| `SUPABASE_URL` | JWKS ile imza doğrulama (önerilen). |
+| `SUPABASE_URL` | ES256/RS256 belirteçler için JWKS ile imza doğrulama (önerilen). |
 | `SUPABASE_JWT_SECRET` | Eski HS256 doğrulama. Gizli anahtardır; depoya yazılmaz. |
 | `ALLOWED_USER_IDS` | Servisi kullanabilecek kullanıcı kimlikleri (virgülle). |
 | `ALLOWED_ORIGINS` | CORS izinli kökenler. Varsayılan: `https://leonx-os.vercel.app`. |
 | `CAD_WORKER_PARALLEL` | Aynı anda çalışabilecek dönüştürme sayısı. Varsayılan: 2. |
+| `CAD_WORKER_JOB_MEMORY_MB` | Dönüştürme + kalite denetimi alt sürecinin bellek sınırı (MB). Varsayılan: 2048. |
+| `CAD_WORKER_TOOL_MEMORY_MB` | `dwg2dxf` / `dwgread` süreçlerinin bellek sınırı (MB). Varsayılan: 1024. |
+| `CAD_WORKER_RENDER_MEMORY_MB` | PDF önizleme alt sürecinin bellek sınırı (MB). Varsayılan: 1536. |
+| `CAD_WORKER_RENDER_TIMEOUT_S` | PDF önizleme süre sınırı (sn). Varsayılan: 120. |
+
+Ağır adımlar (dönüştürme, kalite denetimi, PDF) HTTP sunucusundan ayrı süreçlerde, yukarıdaki sınırlarla
+çalışır (`leonx_cad/job.py`). Sınır aşılırsa yalnız o süreç biter; sunucu ayakta kalır, kullanıcıya
+"bellek/süre sınırı" nedeni bildirilir. PDF önizleme başarısız olsa bile DXF ve rapor teslim edilir.
 
 `SUPABASE_URL` veya `SUPABASE_JWT_SECRET` tanımlı değilse servis başlamaz.
 

@@ -9,6 +9,7 @@ import collections
 import io
 import json
 import os
+import re
 import tempfile
 from dataclasses import asdict, dataclass, field
 
@@ -49,6 +50,65 @@ class QcReport:
         return asdict(self)
 
 
+_FIELD = re.compile(r'^ {6}"(object|entity|name|xref_pname)": (.*?),?$')
+
+
+def _count_objects(path: str) -> tuple[dict, int, int, list[str]]:
+    """
+    dwgread JSON çıktısındaki OBJECTS dizisini satır satır sayar (tamamı belleğe alınmaz; büyük
+    çizimlerde JSON yüzlerce MB olabilir). LibreDWG çıktısı sabit girintilidir: her nesne 4 boşlukla
+    açılır/kapanır, üst düzey alanları 6 boşlukla başlar.
+    """
+    ents: collections.Counter = collections.Counter()
+    layers = blocks = 0
+    xrefs: list[str] = []
+    cur: dict[str, str] = {}
+    in_objects = False
+
+    def close():
+        nonlocal layers, blocks
+        e = cur.get('entity')
+        if e:
+            if e.startswith(DIM_PREFIX):
+                ents['DIMENSION'] += 1
+            elif e in KEY_TYPES:
+                ents[KEY_TYPES[e]] += 1
+            elif e in ('PROXY_ENTITY', 'UNKNOWN_ENT'):
+                ents['PROXY'] += 1
+        elif cur.get('object') == 'LAYER':
+            layers += 1
+        elif cur.get('object') == 'BLOCK_HEADER':
+            name = cur.get('name', '')
+            if not name.startswith('*'):
+                blocks += 1
+            if cur.get('xref_pname'):
+                xrefs.append(f"{name} → {cur['xref_pname']}")
+
+    with open(path, 'rb') as f:
+        for raw in f:
+            line = raw.decode('utf-8', 'replace').rstrip('\r\n')
+            if not in_objects:
+                in_objects = line.startswith('  "OBJECTS": [')
+                continue
+            if line.startswith('  ]'):
+                break
+            if line == '    {':
+                cur = {}
+            elif line.startswith('    }'):
+                close()
+                cur = {}
+            else:
+                m = _FIELD.match(line)
+                if m:
+                    try:
+                        v = json.loads(m.group(2))
+                    except ValueError:
+                        continue
+                    if isinstance(v, (str, int, float)) and v != '':
+                        cur[m.group(1)] = str(v)
+    return dict(ents), layers, blocks, xrefs
+
+
 def dwg_inventory(dwg: bytes, timeout_s: int = 90) -> dict:
     """LibreDWG ile DWG nesne sayıları (dönüştürmeden bağımsız okuma)."""
     tool = libredwg_bin('dwgread')
@@ -60,30 +120,7 @@ def dwg_inventory(dwg: bytes, timeout_s: int = 90) -> dict:
         r = run_tool([tool, '-O', 'JSON', '-o', out, src], tmp, timeout_s)
         if r.timed_out or not os.path.exists(out):
             return {'ok': False}
-        with open(out, 'rb') as f:
-            data = json.loads(f.read().decode('utf-8', 'replace'))
-    ents: collections.Counter = collections.Counter()
-    layers = blocks = 0
-    xrefs: list[str] = []
-    for o in data.get('OBJECTS', []):
-        e = o.get('entity')
-        if e:
-            if e.startswith(DIM_PREFIX):
-                ents['DIMENSION'] += 1
-            elif e in KEY_TYPES:
-                ents[KEY_TYPES[e]] += 1
-            elif e in ('PROXY_ENTITY', 'UNKNOWN_ENT'):
-                ents['PROXY'] += 1
-        else:
-            kind = o.get('object')
-            if kind == 'LAYER':
-                layers += 1
-            elif kind == 'BLOCK_HEADER':
-                name = str(o.get('name', ''))
-                if not name.startswith('*'):
-                    blocks += 1
-                if o.get('xref_pname'):
-                    xrefs.append(f"{name} → {o.get('xref_pname')}")
+        ents, layers, blocks, xrefs = _count_objects(out)
     return {'ok': True, 'entities': dict(ents), 'layers': layers, 'blocks': blocks, 'xrefs': xrefs}
 
 
