@@ -49,7 +49,16 @@ const TABLES = [
   'project_expenses',
   'project_payment_schedule',
   'project_collections',
+  'finance_accounts',
+  'finance_categories',
+  'finance_recurring',
+  'finance_entries',
+  'finance_transfers',
+  'finance_documents',
+  'finance_audit_log',
 ]
+// 013 görünümleri: GET isteğinde finance_ledger / finance_account_balances tanımıyla hesaplanır
+const VIEWS = ['finance_ledger', 'finance_account_balances']
 // Faz 7: aşama → eski durum ve asgari ilerleme (supabase/migrations/20261014000700_leonx_workflow.sql ile aynı)
 const STAGE_STATUS = { yeni_firsat: 'kesif', teklif_hazirlaniyor: 'teklif', teklif_gonderildi: 'teklif', gorusme: 'teklif', onaylandi: 'teklif', olcu_kesif: 'olcu', uretime_hazirlik: 'tasarim', uretimde: 'uretim', montajda: 'montaj', tamamlandi: 'tamamlandi', teslim_edildi: 'tamamlandi', iptal: 'iptal' }
 const STATUS_STAGE = { kesif: 'olcu_kesif', olcu: 'olcu_kesif', tasarim: 'uretime_hazirlik', teklif: 'teklif_hazirlaniyor', uretim: 'uretimde', montaj: 'montajda', tamamlandi: 'tamamlandi', iptal: 'iptal', beklemede: 'gorusme' }
@@ -82,10 +91,28 @@ const FIN_DEFAULTS = {
   fx_rates: { project_id: null },
   project_budgets: { currency: 'TRY', sale_net_amount: null, vat_pct: 20, source_quote_id: null, quote_snapshot_net: null, quote_snapshot_currency: null, quote_snapshot_vat_pct: null, quote_snapshot_label: null, quote_snapshot_at: null, waste_pct: 0, overhead_pct: 0, notes: null },
   project_cost_lines: { sort_order: 0, unit_cost: null, currency: 'TRY', source: 'elle', source_takeoff_id: null, source_item_id: null, cost_rate_id: null, measure_basis: null, notes: null },
-  project_expenses: { supplier: null, vat_amount: 0, currency: 'TRY', fx_rate_to_base: null, fx_to_currency: null, document_no: null, paid: false, notes: null },
+  project_expenses: { supplier: null, vat_amount: 0, currency: 'TRY', fx_rate_to_base: null, fx_to_currency: null, document_no: null, paid: false, notes: null, account_id: null, category_id: null, payment_method: null },
   project_payment_schedule: { kind: 'taksit', label: null, currency: 'TRY', sort_order: 0, notes: null },
-  project_collections: { currency: 'TRY', method: 'havale', schedule_id: null, reference: null, note: null },
+  project_collections: { currency: 'TRY', method: 'havale', schedule_id: null, reference: null, note: null, account_id: null, category_id: null },
 }
+// 013 varsayılanları (supabase/migrations/20261016001300_leonx_cash.sql ile aynı)
+const CASH_DEFAULTS = {
+  finance_accounts: { kind: 'kasa', currency: 'TRY', opening_balance: 0, bank_name: null, iban: null, notes: null, active: true, sort_order: 0 },
+  finance_categories: { key: null, is_system: false, active: true, sort_order: 0 },
+  finance_recurring: { vat_amount: 0, currency: 'TRY', account_id: null, payment_method: null, company_id: null, end_date: null, next_date: null, active: true, notes: null },
+  finance_entries: { vat_amount: 0, currency: 'TRY', account_id: null, status: 'gerceklesti', due_date: null, payment_method: null, company_id: null, document_no: null, notes: null, recurring_id: null, occurrence_date: null, voided_at: null, voided_reason: null, voided_by: null },
+  finance_transfers: { description: null, voided_at: null, voided_reason: null, voided_by: null },
+}
+const SYSTEM_CATEGORIES = [
+  ['gider', 'malzeme', 'Malzeme', 10], ['gider', 'personel', 'Personel', 20], ['gider', 'kira', 'Kira', 30], ['gider', 'elektrik', 'Elektrik', 40],
+  ['gider', 'yakit', 'Yakıt', 50], ['gider', 'nakliye', 'Nakliye', 60], ['gider', 'yemek', 'Yemek', 70], ['gider', 'bakim', 'Bakım', 80],
+  ['gider', 'vergi', 'Vergi', 90], ['gider', 'diger', 'Diğer gider', 100], ['gelir', 'satis', 'Satış', 10], ['gelir', 'hizmet', 'Hizmet', 20],
+  ['gelir', 'faiz', 'Faiz', 30], ['gelir', 'iade', 'İade', 40], ['gelir', 'diger', 'Diğer gelir', 50],
+]
+const AUDITED = ['finance_accounts', 'finance_categories', 'finance_recurring', 'finance_entries', 'finance_transfers', 'project_expenses', 'project_collections']
+const DOC_MIME = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']
+const PAY_METHODS = ['nakit', 'havale', 'cek', 'senet', 'kredi_karti', 'diger']
+const num2 = (c) => Math.round(c) / 100
 const MATERIAL_GROUPS = ['profil', 'pvc_sistem', 'cam', 'aksesuar']
 const cents = (x) => Math.round(Number(x) * 100)
 const fmt2 = (c) => (c / 100).toFixed(2)
@@ -102,9 +129,188 @@ export class MockSupabase {
     this.quoteCounter = {}
     this.copyNote = null
     this.eventSeq = 1
+    this.auditSeq = 1
     /** Testte push sunucusunun açık anahtarı (null: sunucu henüz hazır değil) */
     this.vapidPublic = null
+    // 013: sistem kategorileri migration ile gelir
+    const t0 = '2026-01-01T00:00:00.000Z'
+    for (const [kind, key, name, sort] of SYSTEM_CATEGORIES) {
+      this.db.finance_categories.push({ id: randomUUID(), kind, key, name, is_system: true, active: true, sort_order: sort, created_by: null, created_at: t0, updated_at: t0, version: 1 })
+    }
   }
+
+  // ---------------------------------------------------------------- 013 tetikleyici ve görünüm karşılıkları
+  /** finance_ledger görünümü (tek nakit hareketi tanımı; src/finance/ledger.ts ile aynı kurallar) */
+  ledger() {
+    const out = []
+    const cur = new Map(this.db.finance_accounts.map((a) => [a.id, a.currency]))
+    const companyOf = new Map(this.db.projects.map((p) => [p.id, p.company_id ?? null]))
+    for (const e of this.db.finance_entries) {
+      if (e.status !== 'gerceklesti' || e.voided_at) continue
+      out.push({ source: 'genel', source_id: e.id, movement_date: e.entry_date, account_id: e.account_id, currency: e.currency, direction: e.kind === 'gelir' ? 'giris' : 'cikis', amount: num2(cents(e.amount) + cents(e.vat_amount)), net_amount: Number(e.amount), vat_amount: Number(e.vat_amount), category_id: e.category_id, project_id: null, company_id: e.company_id, kind: e.kind, status: e.status, description: e.description, payment_method: e.payment_method, document_no: e.document_no, created_at: e.created_at })
+    }
+    for (const c of this.db.project_collections) {
+      out.push({ source: 'proje_tahsilat', source_id: c.id, movement_date: c.received_date, account_id: c.account_id ?? null, currency: c.currency, direction: 'giris', amount: Number(c.amount), net_amount: Number(c.amount), vat_amount: 0, category_id: c.category_id ?? null, project_id: c.project_id, company_id: companyOf.get(c.project_id) ?? null, kind: 'gelir', status: 'gerceklesti', description: c.note?.trim() || 'Tahsilat', payment_method: c.method, document_no: c.reference, created_at: c.created_at })
+    }
+    for (const x of this.db.project_expenses) {
+      if (!x.paid) continue
+      out.push({ source: 'proje_gider', source_id: x.id, movement_date: x.expense_date, account_id: x.account_id ?? null, currency: x.currency, direction: 'cikis', amount: num2(cents(x.amount) + cents(x.vat_amount)), net_amount: Number(x.amount), vat_amount: Number(x.vat_amount), category_id: x.category_id ?? null, project_id: x.project_id, company_id: companyOf.get(x.project_id) ?? null, kind: 'gider', status: 'gerceklesti', description: x.description, payment_method: x.payment_method ?? null, document_no: x.document_no, created_at: x.created_at })
+    }
+    for (const t of this.db.finance_transfers) {
+      if (t.voided_at || !cur.has(t.from_account_id) || !cur.has(t.to_account_id)) continue
+      const base = { source_id: t.id, movement_date: t.transfer_date, vat_amount: 0, category_id: null, project_id: null, company_id: null, kind: 'transfer', status: 'gerceklesti', description: t.description?.trim() || 'Virman', payment_method: null, document_no: null, created_at: t.created_at }
+      out.push({ ...base, source: 'transfer_cikis', account_id: t.from_account_id, currency: cur.get(t.from_account_id), direction: 'cikis', amount: Number(t.from_amount), net_amount: Number(t.from_amount) })
+      out.push({ ...base, source: 'transfer_giris', account_id: t.to_account_id, currency: cur.get(t.to_account_id), direction: 'giris', amount: Number(t.to_amount), net_amount: Number(t.to_amount) })
+    }
+    return out
+  }
+
+  /** finance_account_balances görünümü: açılış + Σ giriş − Σ çıkış (finance_ledger'dan) */
+  accountBalances() {
+    const ledger = this.ledger()
+    return this.db.finance_accounts.map((a) => {
+      const own = ledger.filter((l) => l.account_id === a.id)
+      const inC = own.filter((l) => l.direction === 'giris').reduce((s, l) => s + cents(l.amount), 0)
+      const outC = own.filter((l) => l.direction === 'cikis').reduce((s, l) => s + cents(l.amount), 0)
+      return { account_id: a.id, name: a.name, kind: a.kind, currency: a.currency, active: a.active, opening_balance: Number(a.opening_balance), total_in: num2(inC), total_out: num2(outC), balance: num2(cents(a.opening_balance) + inC - outC), movement_count: own.length, last_movement_date: own.map((l) => l.movement_date).sort().at(-1) ?? null }
+    })
+  }
+
+  viewRows(view) {
+    return view === 'finance_ledger' ? this.ledger() : this.accountBalances()
+  }
+
+  /** tg_fin_audit karşılığı */
+  audit(table, old, next, actor) {
+    if (!AUDITED.includes(table)) return
+    const action = !old ? 'insert' : !next ? 'delete' : next.voided_at && !old.voided_at ? 'void' : 'update'
+    const row = { id: this.auditSeq++, table_name: table, row_id: (next ?? old).id, action, changed_by: actor, changed_at: this.now(), old_row: old ? { ...old } : null, new_row: next ? { ...next } : null }
+    this.db.finance_audit_log.push(row)
+    this.broadcast('finance_audit_log', 'INSERT', row, null)
+  }
+
+  /** 013 bütünlük kuralları (tetikleyici / kısıt karşılıkları); hata yoksa null. row yerinde normalize edilebilir. */
+  cashGuard(table, row, old) {
+    const account = (id) => this.db.finance_accounts.find((a) => a.id === id)
+    const category = (id) => this.db.finance_categories.find((c) => c.id === id)
+    const checkAccount = (id, currency, realized, changed) => {
+      if (!id) return null
+      const a = account(id)
+      if (!a) return { error: { status: 409, code: '23503', message: 'violates foreign key constraint "account_id_fkey"' } }
+      if (a.currency !== currency) return guardError(`Hesabın para birimi (${a.currency}) kayıtla aynı olmalıdır (${currency})`)
+      if (realized && changed && !a.active) return guardError('Pasif hesaba yeni hareket yazılamaz')
+      return null
+    }
+    const checkCategory = (id, kind) => {
+      if (!id) return null
+      const c = category(id)
+      if (!c) return { error: { status: 409, code: '23503', message: 'violates foreign key constraint "category_id_fkey"' } }
+      if (c.kind !== kind) return guardError(`Kategori türü kayıt türüyle uyuşmuyor (${kind} kaydına ${c.kind} kategorisi seçilemez)`)
+      return null
+    }
+    const pos = (v) => Number(v) > 0
+    const same = (a, b) => String(a ?? '').trim().toLocaleLowerCase('tr') === String(b ?? '').trim().toLocaleLowerCase('tr')
+    if (table === 'finance_accounts') {
+      if (!String(row.name ?? '').trim()) return guardError('finance_accounts_name_check')
+      if (row.iban) row.iban = String(row.iban).replace(/ /g, '').toUpperCase()
+      if (row.iban && !/^[A-Z]{2}[0-9]{2}[A-Z0-9]{10,30}$/.test(row.iban)) return guardError('finance_accounts_iban_check')
+      if (this.db.finance_accounts.some((a) => a.id !== row.id && same(a.name, row.name))) return uniqueError('finance_accounts_name_unique')
+      if (old && row.currency !== old.currency && this.ledger().some((l) => l.account_id === old.id)) return guardError('Hareketi olan hesabın para birimi değiştirilemez')
+    }
+    if (table === 'finance_categories') {
+      if (!old) {
+        row.is_system = false
+        row.key = null
+      } else {
+        if (old.is_system && (row.kind !== old.kind || row.key !== old.key || !row.is_system)) return guardError('Sistem kategorisinin türü ve anahtarı değiştirilemez')
+        if (!old.is_system && (row.is_system || row.key)) return guardError('Kullanıcı kategorisi sistem kategorisine dönüştürülemez')
+      }
+      if (this.db.finance_categories.some((c) => c.id !== row.id && c.kind === row.kind && same(c.name, row.name))) return uniqueError('finance_categories_name_unique')
+    }
+    if (table === 'finance_entries') {
+      if (old?.voided_at) return guardError('İptal edilmiş kayıt değiştirilemez')
+      if (old && row.voided_at) {
+        const strip = (r) => JSON.stringify({ ...r, voided_at: null, voided_reason: null, voided_by: null, updated_at: null, version: null })
+        if (strip(row) !== strip(old)) return guardError('Kayıt iptal edilirken içeriği değiştirilemez')
+        if (!String(row.voided_reason ?? '').trim()) return guardError('finance_entries_void_reason')
+        return null
+      }
+      if (!old && row.voided_at) return guardError('Kayıt iptal edilmiş olarak oluşturulamaz')
+      if (old) {
+        row.recurring_id = old.recurring_id
+        row.occurrence_date = old.occurrence_date
+      }
+      if (!pos(row.amount)) return guardError('finance_entries_amount_check')
+      if (Number(row.vat_amount) < 0) return guardError('finance_entries_vat_amount_check')
+      if (!String(row.description ?? '').trim()) return guardError('finance_entries_description_check')
+      if (row.status === 'gerceklesti' && !row.account_id) return guardError('violates check constraint "finance_entries_account_required"')
+      if (row.payment_method && !PAY_METHODS.includes(row.payment_method)) return guardError('finance_entries_payment_method_check')
+      if (!row.category_id) return { error: { status: 400, code: '23502', message: 'null value in column "category_id"' } }
+      return checkCategory(row.category_id, row.kind) ?? checkAccount(row.account_id, row.currency, row.status === 'gerceklesti', !old || row.account_id !== old.account_id || row.status !== old.status)
+    }
+    if (table === 'finance_transfers') {
+      if (old?.voided_at) return guardError('İptal edilmiş virman değiştirilemez')
+      if (old && row.voided_at) {
+        if (!String(row.voided_reason ?? '').trim()) return guardError('finance_transfers_void_reason')
+        return null
+      }
+      if (!old && row.voided_at) return guardError('Virman iptal edilmiş olarak oluşturulamaz')
+      if (row.from_account_id === row.to_account_id) return guardError('violates check constraint "finance_transfers_distinct"')
+      if (!pos(row.from_amount) || !pos(row.to_amount)) return guardError('finance_transfers_amount_check')
+      const f = account(row.from_account_id)
+      const t = account(row.to_account_id)
+      if (!f || !t) return { error: { status: 409, code: '23503', message: 'violates foreign key constraint' } }
+      if (f.currency === t.currency && cents(row.from_amount) !== cents(row.to_amount)) return guardError('Aynı para birimindeki hesaplar arasında çıkan ve giren tutar eşit olmalıdır')
+      if (!f.active || !t.active) return guardError('Pasif hesaba yeni hareket yazılamaz')
+    }
+    if (table === 'finance_recurring') {
+      if (!row.next_date) row.next_date = row.start_date
+      if (old && row.start_date !== old.start_date && row.next_date === old.next_date) row.next_date = row.start_date
+      if (!pos(row.amount)) return guardError('finance_recurring_amount_check')
+      if (row.end_date && row.end_date < row.start_date) return guardError('finance_recurring_dates')
+      return checkCategory(row.category_id, row.kind) ?? checkAccount(row.account_id, row.currency, false, false)
+    }
+    if (table === 'project_expenses') {
+      if (row.account_id && !row.paid) return guardError('violates check constraint "project_expenses_account_paid_check"')
+      return checkCategory(row.category_id, 'gider') ?? checkAccount(row.account_id, row.currency, !!row.paid, !old || row.account_id !== old.account_id)
+    }
+    if (table === 'project_collections') return checkCategory(row.category_id, 'gelir') ?? checkAccount(row.account_id, row.currency, true, !old || row.account_id !== old.account_id)
+    if (table === 'finance_documents') {
+      if (!DOC_MIME.includes(row.mime_type)) return guardError('finance_documents_mime_type_check')
+      if (!(row.size_bytes > 0 && row.size_bytes <= 15728640)) return guardError('finance_documents_size_bytes_check')
+      if (!this.db[row.entry_table]?.some((r) => r.id === row.entry_id)) return guardError('Belgenin bağlanacağı kayıt bulunamadı')
+      if (!String(row.storage_path).startsWith(`${row.entry_table}/${row.entry_id}/`)) return guardError('finance_documents_path_check')
+    }
+    return null
+  }
+
+  /** public.leonx_finance_generate_recurring karşılığı: tarih başına tek kayıt (idempotent), sıradaki tarih ilerler */
+  generateRecurring(untilArg) {
+    const until = untilArg ?? this.now().slice(0, 10)
+    let created = 0
+    const addMonths = (iso, n) => {
+      const [y, m, d] = iso.split('-').map(Number)
+      const last = new Date(Date.UTC(y, m - 1 + n + 1, 0)).getUTCDate()
+      return new Date(Date.UTC(y, m - 1 + n, Math.min(d, last))).toISOString().slice(0, 10)
+    }
+    for (const r of this.db.finance_recurring.filter((x) => x.active && x.next_date <= until && (!x.end_date || x.next_date <= x.end_date))) {
+      const acc = this.db.finance_accounts.find((a) => a.id === r.account_id && a.active)?.id ?? null
+      let k = 0
+      let occ
+      for (;;) {
+        occ = r.frequency === 'haftalik' ? new Date(Date.parse(r.start_date) + k * 7 * 86400000).toISOString().slice(0, 10) : addMonths(r.start_date, k * (r.frequency === 'aylik' ? 1 : r.frequency === 'uc_aylik' ? 3 : 12))
+        if (occ > until || (r.end_date && occ > r.end_date) || k > 10000) break
+        if (occ >= r.next_date && !this.db.finance_entries.some((e) => e.recurring_id === r.id && e.occurrence_date === occ)) {
+          const res = this.insertRow('finance_entries', { kind: r.kind, entry_date: occ, amount: r.amount, vat_amount: r.vat_amount, currency: r.currency, category_id: r.category_id, account_id: acc, status: 'bekliyor', due_date: occ, payment_method: r.payment_method, company_id: r.company_id, description: r.description, recurring_id: r.id, occurrence_date: occ })
+          if (res.row) created++
+        }
+        k++
+      }
+      if (occ !== r.next_date) this.updateRow('finance_recurring', r.id, { next_date: occ }, OWNER.id, true)
+    }
+    return created
+  }
+
 
   // ---------------------------------------------------------------- Faz 7 tetikleyici karşılıkları
   syncStage(row, old) {
@@ -476,9 +682,22 @@ export class MockSupabase {
       const g = this.financeGuard(table, row, null)
       if (g) return g
     }
-    if (table === 'notifications' || table === 'project_events') return { error: { status: 403, code: '42501', message: 'permission denied' } }
+    if (CASH_DEFAULTS[table]) {
+      row = { ...CASH_DEFAULTS[table], ...row }
+      if (table === 'finance_accounts') row.opening_date = row.opening_date ?? now.slice(0, 10)
+    }
+    if (table === 'finance_documents') {
+      const { version: _v, updated_at: _u, ...rest } = row
+      row = rest
+    }
+    if (CASH_DEFAULTS[table] || table === 'finance_documents' || table === 'project_expenses' || table === 'project_collections') {
+      const g = this.cashGuard(table, row, null)
+      if (g) return g
+    }
+    if (table === 'notifications' || table === 'project_events' || table === 'finance_audit_log') return { error: { status: 403, code: '42501', message: 'permission denied' } }
     this.db[table].push(row)
     this.broadcast(table, 'INSERT', row, null)
+    this.audit(table, null, row, actor)
     this.afterInsert(table, row, actor)
     if (table === 'quantity_items') this.insertRow('quantity_item_history', { item_id: row.id, takeoff_id: row.takeoff_id, project_id: row.project_id, poz_code: row.poz_code, action: 'ekle', changes: {} }, actor)
     if (table === 'projects') this.insertRow('project_status_history', { project_id: row.id, from_status: null, to_status: row.status }, actor)
@@ -542,6 +761,17 @@ export class MockSupabase {
       const g = this.financeGuard(table, next, old)
       if (g) return g
     }
+    if (table === 'finance_audit_log' || table === 'finance_documents') return { error: { status: 403, code: '42501', message: 'permission denied' } }
+    if ((table === 'finance_entries' || table === 'finance_transfers') && next.voided_at && !old.voided_at) {
+      next.voided_at = this.now()
+      next.voided_by = actor
+    } else if (table === 'finance_entries' || table === 'finance_transfers') {
+      next.voided_by = old.voided_by ?? null
+    }
+    if ((CASH_DEFAULTS[table] || table === 'project_expenses' || table === 'project_collections') && !system) {
+      const g = this.cashGuard(table, next, old)
+      if (g) return g
+    }
     if (table === 'projects') {
       if (next.progress > 100 || next.progress < 0) return guardError('projects_progress_check')
       next = this.syncStage(next, old)
@@ -549,6 +779,7 @@ export class MockSupabase {
     if (table === 'project_tasks') next.done_at = next.done ? (old.done ? old.done_at : this.now()) : null
     this.db[table][i] = next
     this.broadcast(table, 'UPDATE', next, { id: old.id })
+    this.audit(table, old, next, actor)
     this.afterUpdate(table, old, next, actor)
     if (table === 'quantity_items') {
       const changes = {}
@@ -581,6 +812,16 @@ export class MockSupabase {
       const q = this.db.quotes.find((x) => x.id === this.db[table][i].quote_id)
       if (q && (q.superseded || q.status !== 'taslak')) return guardError('Gönderilmiş veya eski revizyon teklifin kalemleri değiştirilemez; revizyon oluşturun')
     }
+    if (!cascade && (table === 'finance_entries' || table === 'finance_transfers')) return guardError('Kayıt silinemez; iptal edin')
+    if (table === 'finance_audit_log') return { error: { status: 403, code: '42501', message: 'permission denied' } }
+    const fk = { status: 409, code: '23503', message: 'update or delete violates foreign key constraint' }
+    if (table === 'finance_accounts' && (this.db.finance_entries.some((e) => e.account_id === id) || this.db.finance_transfers.some((t) => t.from_account_id === id || t.to_account_id === id) || this.db.project_expenses.some((e) => e.account_id === id) || this.db.project_collections.some((c) => c.account_id === id) || this.db.finance_recurring.some((r) => r.account_id === id))) {
+      return { error: fk }
+    }
+    if (table === 'finance_categories') {
+      if (this.db[table][i].is_system) return guardError('Sistem kategorisi silinemez; pasifleştirebilirsiniz')
+      if (['finance_entries', 'finance_recurring', 'project_expenses', 'project_collections'].some((t) => this.db[t].some((r) => r.category_id === id))) return { error: fk }
+    }
     if (table === 'companies' && this.db.quotes.some((q) => q.company_id === id)) {
       return { error: { status: 409, code: '23503', message: 'update or delete on table "companies" violates foreign key constraint "quotes_company_id_fkey"' } }
     }
@@ -589,8 +830,11 @@ export class MockSupabase {
     }
     const [row] = this.db[table].splice(i, 1)
     this.broadcast(table, 'DELETE', null, { id: row.id })
+    this.audit(table, row, null, OWNER.id)
     // ON DELETE CASCADE karşılıkları
     if (table === 'companies') for (const c of this.db.contacts.filter((x) => x.company_id === id)) this.deleteRow('contacts', c.id)
+    if (table === 'companies') for (const t of ['finance_entries', 'finance_recurring']) for (const r of this.db[t].filter((x) => x.company_id === id)) this.updateRow(t, r.id, { company_id: null }, OWNER.id, true)
+    if (table === 'finance_recurring') for (const r of this.db.finance_entries.filter((x) => x.recurring_id === id)) this.updateRow('finance_entries', r.id, { recurring_id: null }, OWNER.id, true)
     if (table === 'projects') {
       for (const t of ['project_notes', 'project_files', 'project_status_history', 'project_collections', 'project_payment_schedule', 'project_expenses', 'project_cost_lines', 'project_budgets', 'fx_rates', 'quantity_items', 'quantity_takeoffs', 'cad_analyses', 'quantity_item_history', 'project_tasks', 'project_events']) {
         for (const r of this.db[t].filter((x) => x.project_id === id)) this.deleteRow(t, r.id, true)
@@ -755,6 +999,11 @@ export class MockSupabase {
       return json(200, row.id)
     }
 
+    if (p === '/rest/v1/rpc/leonx_finance_generate_recurring') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      const b = req.postDataJSON() ?? {}
+      return json(200, this.generateRecurring(b.p_until ?? null))
+    }
     if (p === '/rest/v1/rpc/check_reminders') {
       if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
       return json(200, this.runReminders())
@@ -819,6 +1068,21 @@ export class MockSupabase {
         if (!this.storage.has(objectPath)) return json(404, { statusCode: '404', error: 'not_found', message: 'Object not found' })
         return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: 'LEONX test dosyası', headers: { 'access-control-allow-origin': '*' } })
       }
+      if (req.method() === 'POST' && rest.startsWith('finance-documents/')) {
+        const objectPath = rest.slice('finance-documents/'.length)
+        if (!['finance_entries', 'project_expenses', 'project_collections'].includes(objectPath.split('/')[0])) return json(403, { statusCode: '403', error: 'Unauthorized', message: 'new row violates row-level security policy' })
+        this.storage.set(`finance-documents/${objectPath}`, req.postDataBuffer() ?? Buffer.from(''))
+        return json(200, { Key: `finance-documents/${objectPath}`, Id: randomUUID() })
+      }
+      if (req.method() === 'GET' && rest.startsWith('finance-documents/')) {
+        if (!this.storage.has(rest)) return json(404, { statusCode: '404', error: 'not_found', message: 'Object not found' })
+        return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: 'LEONX belge', headers: { 'access-control-allow-origin': '*' } })
+      }
+      if (req.method() === 'DELETE' && rest === 'finance-documents') {
+        const { prefixes } = req.postDataJSON()
+        for (const x of prefixes) this.storage.delete(`finance-documents/${x}`)
+        return json(200, prefixes.map((name) => ({ name, bucket_id: 'finance-documents' })))
+      }
       if (req.method() === 'DELETE' && rest === 'project-files') {
         const { prefixes } = req.postDataJSON()
         for (const x of prefixes) this.storage.delete(x)
@@ -829,7 +1093,7 @@ export class MockSupabase {
 
     // ---------------- PostgREST
     const m = p.match(/^\/rest\/v1\/([a-z_]+)$/)
-    if (m && TABLES.includes(m[1])) return this.handleTable(route, req, url, m[1], user, json)
+    if (m && (TABLES.includes(m[1]) || VIEWS.includes(m[1]))) return this.handleTable(route, req, url, m[1], user, json)
 
     return json(404, { message: `mock: bilinmeyen uç nokta ${p}` })
   }
@@ -861,7 +1125,8 @@ export class MockSupabase {
 
     if (method === 'GET') {
       if (!user) return json(401, { code: '42501', message: 'permission denied' })
-      let rows = owner ? this.db[table].filter(match) : [] // RLS: sahip değilse satır yok
+      // RLS: sahip değilse satır yok (görünümler security_invoker: aynı kural)
+      let rows = owner ? (VIEWS.includes(table) ? this.viewRows(table) : this.db[table]).filter(match) : []
       const order = url.searchParams.get('order')
       if (order) {
         const keys = order.split(',').map((o) => o.split('.'))
@@ -881,6 +1146,7 @@ export class MockSupabase {
       return reply(rows.slice(offset, offset + limit))
     }
     if (!owner) return json(403, { code: '42501', message: 'new row violates row-level security policy' })
+    if (VIEWS.includes(table)) return json(405, { code: '42501', message: 'cannot modify a view' })
 
     if (method === 'POST') {
       const body = req.postDataJSON()
