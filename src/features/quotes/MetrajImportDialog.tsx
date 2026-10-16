@@ -10,6 +10,7 @@ import { listItems, listTakeoffs } from '@/data/quantityApi'
 import type { QuantityTakeoff } from '@/data/types'
 import { dataErrorMessage } from '@/lib/errors'
 import { requireSupabase } from '@/lib/supabase'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import { computeItem } from '@/quantity/engine'
 import { formatCenti } from '@/quantity/precision'
 import { CATEGORY_INFO, type QuantityItem } from '@/quantity/types'
@@ -34,12 +35,15 @@ export function MetrajImportDialog({ open, onClose, quote, existing, onImported 
 
   const imported = useMemo(() => new Set(existing.map((i) => i.source_item_id).filter(Boolean) as string[]), [existing])
 
-  useEffect(() => {
-    if (open) {
+  // Açılışta render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları ezebilir)
+  useResetOnOpen(
+    open,
+    () => {
       setProjectId(quote.project_id ?? '')
       setError(null)
-    }
-  }, [open, quote.project_id])
+    },
+    [quote.project_id],
+  )
 
   useEffect(() => {
     if (!open || !projectId) {

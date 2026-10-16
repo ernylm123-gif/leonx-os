@@ -1,5 +1,5 @@
 import { AlarmClock, CalendarClock, Check, ListTodo, Pencil, Plus, Trash2 } from 'lucide-react'
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { FormAlert, SelectField, TextAreaField, TextField } from '@/components/ui/Field'
@@ -18,6 +18,7 @@ import { daysUntil, formatDate, formatDateTime, localISODate } from '@/lib/stats
 import { requireSupabase } from '@/lib/supabase'
 import { useFormDirty } from '@/lib/unsaved'
 import { useLiveList } from '@/lib/useLiveList'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 
 /** Sık kullanılan iş adımları — tek dokunuşla görev başlığı olarak eklenir */
 export const TASK_TEMPLATES = [
@@ -75,16 +76,20 @@ export function TaskForm({ open, onClose, projectId, task, onSaved }: { open: bo
   const [busy, setBusy] = useState(false)
   const { markDirty } = useFormDirty(open, 'Görev formu')
 
-  useEffect(() => {
-    if (!open) return
-    setErrors({})
-    setFormError(null)
-    setD(
-      task
-        ? { title: task.title, description: task.description ?? '', priority: task.priority, start_date: task.start_date ?? '', due_date: task.due_date ?? '', remind_at: toLocalInput(task.remind_at), notes: task.notes ?? '' }
-        : EMPTY,
-    )
-  }, [open, task])
+  // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları/hataları ezebilir)
+  useResetOnOpen(
+    open,
+    () => {
+      setErrors({})
+      setFormError(null)
+      setD(
+        task
+          ? { title: task.title, description: task.description ?? '', priority: task.priority, start_date: task.start_date ?? '', due_date: task.due_date ?? '', remind_at: toLocalInput(task.remind_at), notes: task.notes ?? '' }
+          : EMPTY,
+      )
+    },
+    [task],
+  )
 
   const set = (k: keyof Draft) => (e: { target: { value: string } }) => setD((x) => ({ ...x, [k]: e.target.value }))
 

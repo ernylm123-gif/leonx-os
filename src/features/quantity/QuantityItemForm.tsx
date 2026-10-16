@@ -1,10 +1,11 @@
 import { AlertTriangle, CheckCircle2 } from 'lucide-react'
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { SelectField, TextAreaField, TextField } from '@/components/ui/Field'
 import type { ComponentProps } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { useFormDirty } from '@/lib/unsaved'
+import { useResetOnOpen } from '@/lib/useResetOnOpen'
 import { computeItem, unitForCategory } from '@/quantity/engine'
 import { formatCenti, formatMilli, parseDecimalInput } from '@/quantity/precision'
 import {
@@ -94,14 +95,18 @@ export function QuantityItemForm({
   const [touched, setTouched] = useState(false)
   const { markDirty } = useFormDirty(open, 'Poz formu')
 
-  useEffect(() => {
-    if (!open) return
-    setV(initial)
-    setRaw(Object.fromEntries(NUM_FIELDS.map((f) => [f, fmt(initial[f])])) as Record<NumField, string>)
-    setQtyRaw(String(initial.quantity))
-    setVertText(verticesToText(initial.vertices))
-    setTouched(false)
-  }, [open, initial])
+  // Açılışta formu render sırasında sıfırla (effect ile sıfırlamak, açılır açılmaz yazılanları ezebilir)
+  useResetOnOpen(
+    open,
+    () => {
+      setV(initial)
+      setRaw(Object.fromEntries(NUM_FIELDS.map((f) => [f, fmt(initial[f])])) as Record<NumField, string>)
+      setQtyRaw(String(initial.quantity))
+      setVertText(verticesToText(initial.vertices))
+      setTouched(false)
+    },
+    [initial],
+  )
 
   const parsed = useMemo(() => {
     const next: QuantityItemInput = { ...v }

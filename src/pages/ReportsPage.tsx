@@ -50,7 +50,7 @@ export function ReportsPage() {
         code="M07"
         eyebrow="Ticari"
         title="Raporlar"
-        description="Kayıtlı projelerden temel özetler. Teklif ve metraj raporları, ilgili modüller geliştirildiğinde eklenecek."
+        description="Kayıtlı projelerden temel özetler (R01, R02). Teklif dönüşüm (R03) ve malzeme ihtiyaç (R04) raporları henüz rapor olarak hazırlanmadı."
         status="ready"
       />
 
@@ -87,14 +87,14 @@ export function ReportsPage() {
                 <span className="text-sm font-semibold text-ink">{title}</span>
                 <span className="font-mono text-[10px] text-subtle">{code}</span>
               </div>
-              <div className="text-xs text-muted">Kaynak modül: {source} (henüz geliştirilmedi)</div>
+              <div className="text-xs text-muted">Kaynak modül: {source} · rapor henüz hazırlanmadı</div>
             </div>
-            <StatusPill tone="offline">Veri yok</StatusPill>
+            <StatusPill tone="offline">Planlandı</StatusPill>
           </li>
         ))}
         <li className="card flex items-center gap-4 p-5 md:col-span-2">
           <FileBarChart className="h-5 w-5 shrink-0 text-titanium" aria-hidden="true" />
-          <p className="text-xs leading-relaxed text-muted">Finansal rapor üretilmez: teklif ve fiyatlandırma motoru olmadan tutar hesaplanmaz.</p>
+          <p className="text-xs leading-relaxed text-muted">Kârlılık, gider ve tahsilat özetleri Finans modülündedir; bu sayfada ayrı bir finansal rapor henüz yok.</p>
         </li>
       </ul>
     </>
