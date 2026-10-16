@@ -227,19 +227,23 @@ alter table public.project_expenses add column if not exists payment_method text
 alter table public.project_collections add column if not exists account_id uuid;
 alter table public.project_collections add column if not exists category_id uuid;
 
-select pg_temp.leonx_constraint('project_expenses', 'project_expenses_account_id_fkey',
-  'foreign key (account_id) references public.finance_accounts (id) on delete restrict');
-select pg_temp.leonx_constraint('project_expenses', 'project_expenses_category_id_fkey',
-  'foreign key (category_id) references public.finance_categories (id) on delete restrict');
-select pg_temp.leonx_constraint('project_expenses', 'project_expenses_payment_method_check',
-  $$check (payment_method is null or payment_method in ('nakit', 'havale', 'cek', 'senet', 'kredi_karti', 'diger'))$$);
--- Hesaba yalnız ödenmiş gider yazılır (ödenmemiş gider hiçbir bakiyeyi etkilemez)
-select pg_temp.leonx_constraint('project_expenses', 'project_expenses_account_paid_check',
-  'check (account_id is null or paid)');
-select pg_temp.leonx_constraint('project_collections', 'project_collections_account_id_fkey',
-  'foreign key (account_id) references public.finance_accounts (id) on delete restrict');
-select pg_temp.leonx_constraint('project_collections', 'project_collections_category_id_fkey',
-  'foreign key (category_id) references public.finance_categories (id) on delete restrict');
+do $do$
+begin
+  perform pg_temp.leonx_constraint('project_expenses', 'project_expenses_account_id_fkey',
+    'foreign key (account_id) references public.finance_accounts (id) on delete restrict');
+  perform pg_temp.leonx_constraint('project_expenses', 'project_expenses_category_id_fkey',
+    'foreign key (category_id) references public.finance_categories (id) on delete restrict');
+  perform pg_temp.leonx_constraint('project_expenses', 'project_expenses_payment_method_check',
+    $$check (payment_method is null or payment_method in ('nakit', 'havale', 'cek', 'senet', 'kredi_karti', 'diger'))$$);
+  -- Hesaba yalnız ödenmiş gider yazılır (ödenmemiş gider hiçbir bakiyeyi etkilemez)
+  perform pg_temp.leonx_constraint('project_expenses', 'project_expenses_account_paid_check',
+    'check (account_id is null or paid)');
+  perform pg_temp.leonx_constraint('project_collections', 'project_collections_account_id_fkey',
+    'foreign key (account_id) references public.finance_accounts (id) on delete restrict');
+  perform pg_temp.leonx_constraint('project_collections', 'project_collections_category_id_fkey',
+    'foreign key (category_id) references public.finance_categories (id) on delete restrict');
+end;
+$do$;
 create index if not exists project_expenses_account_idx on public.project_expenses (account_id) where account_id is not null;
 create index if not exists project_collections_account_idx on public.project_collections (account_id) where account_id is not null;
 
@@ -803,15 +807,19 @@ end;
 $$;
 
 -- Depo: yalnız sahip; yol ilk klasörü izinli tablo adı olmalı
-select pg_temp.leonx_policy('storage', 'objects', 'leonx_finance_documents_select', 'select',
+do $do$
+begin
+  perform pg_temp.leonx_policy('storage', 'objects', 'leonx_finance_documents_select', 'select',
   $$bucket_id = 'finance-documents' and (select public.is_owner())$$, null);
-select pg_temp.leonx_policy('storage', 'objects', 'leonx_finance_documents_insert', 'insert', null,
+  perform pg_temp.leonx_policy('storage', 'objects', 'leonx_finance_documents_insert', 'insert', null,
   $$bucket_id = 'finance-documents' and (select public.is_owner()) and split_part(name, '/', 1) in ('finance_entries', 'project_expenses', 'project_collections')$$);
-select pg_temp.leonx_policy('storage', 'objects', 'leonx_finance_documents_update', 'update',
+  perform pg_temp.leonx_policy('storage', 'objects', 'leonx_finance_documents_update', 'update',
   $$bucket_id = 'finance-documents' and (select public.is_owner())$$,
   $$bucket_id = 'finance-documents' and (select public.is_owner())$$);
-select pg_temp.leonx_policy('storage', 'objects', 'leonx_finance_documents_delete', 'delete',
+  perform pg_temp.leonx_policy('storage', 'objects', 'leonx_finance_documents_delete', 'delete',
   $$bucket_id = 'finance-documents' and (select public.is_owner())$$, null);
+end;
+$do$;
 
 -- =====================================================================
 -- N) REALTIME
