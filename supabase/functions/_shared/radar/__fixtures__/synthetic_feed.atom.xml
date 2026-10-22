@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SENTETİK TEST VERİSİ — gerçek kurum, ilan veya proje DEĞİLDİR. -->
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title type="text">Sentetik Atom Akışı</title>
+  <entry>
+    <title type="html">Çankaya&#39;da ofis binası giydirme cephe yenileme</title>
+    <link rel="alternate" type="text/html" href="https://akis.ornek.test/atom/1#yorumlar"/>
+    <link rel="edit" href="https://akis.ornek.test/edit/1"/>
+    <id>tag:akis.ornek.test,2026:1</id>
+    <published>2026-10-01T10:00:00Z</published>
+    <summary type="html">&lt;p&gt;Cephe yenileme &lt;b&gt;çalışmaları&lt;/b&gt; planlanıyor.&lt;/p&gt;</summary>
+  </entry>
+  <entry>
+    <title>İkinci kayıt</title>
+    <link href="https://akis.ornek.test/atom/2"/>
+    <updated>2026-09-01T10:00:00+03:00</updated>
+    <content type="text">Düz içerik</content>
+  </entry>
+</feed>
