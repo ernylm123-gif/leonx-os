@@ -93,6 +93,13 @@ declare
 begin
   perform public.radar_notify_updates();
   perform public.radar_notify_updates();
+  if extract(hour from (now() at time zone 'Europe/Istanbul')) < 8 then
+    if exists (select 1 from public.notifications where kind = 'radar_son_tarih') then
+      raise exception 'TEST BAŞARISIZ: 08:00 öncesi son tarih hatırlatması gönderildi';
+    end if;
+    raise notice 'PASS C: 08:00 öncesi hatırlatma gönderilmez (eşik kontrolleri saat 08:00 sonrası çalıştırmada)';
+    return;
+  end if;
   if (select count(*) from public.notifications where entity_id = v_a and dedupe_key = 'radar:son:' || v_a || ':3') <> 1 then
     raise exception 'TEST BAŞARISIZ: doğrulanmış fırsat için 3 gün hatırlatması yok/tekrarlı';
   end if;

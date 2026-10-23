@@ -199,7 +199,8 @@ begin
          else v_hour >= s.quiet_start or v_hour < s.quiet_end end);
 
   -- Son tarih (dedupe: radar:son:<id>:<gün>; aynı eşik ikinci kez bildirilmez)
-  if not v_quiet or s.critical_enabled then
+  -- Gece yarısı itmesi olmasın: hatırlatmalar 08:00'den sonra (eşik günü içinde tekilleştirilir)
+  if v_hour >= 8 and (not v_quiet or s.critical_enabled) then
     for r in
       select o.id, o.title, o.city, o.deadline, o.score from public.radar_opportunities o
        where o.deadline is not null and o.deadline - v_today in (7, 3, 1, 0)
@@ -383,6 +384,13 @@ begin
 end;
 $$;
 revoke all on function leonx_private.check_release() from public;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    execute 'revoke all on function leonx_private.check_release() from anon, authenticated';
+  end if;
+end;
+$$;
 
 -- =====================================================================
 -- F) FIRSATTAN GÖREV
