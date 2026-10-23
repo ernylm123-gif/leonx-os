@@ -15,6 +15,8 @@ import { GROUP_LABEL } from '@radar/taxonomy.ts'
 import { Notice } from './shared'
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
+const SETTINGS_KEYS = ['weights', 'home_city', 'min_score', 'high_priority_score', 'notify_categories', 'notify_cities', 'digest_hour', 'quiet_start', 'quiet_end',
+  'critical_enabled', 'capability_text', 'search_api_enabled', 'search_monthly_limit', 'search_daily_limit', 'search_queries_per_run'] as const satisfies readonly (keyof RadarSettingsInput)[]
 
 export function SettingsPanel({ data }: { data: RadarData }) {
   const s = data.settings
@@ -25,7 +27,8 @@ export function SettingsPanel({ data }: { data: RadarData }) {
   const [err, setErr] = useState<string | null>(null)
   useEffect(() => {
     if (!s) return
-    const { id: _i, singleton: _s, updated_at: _u, version: _v, ...rest } = s
+    // Yalnız istemcinin güncelleyebildiği sütunlar (sütun düzeyi yetki: 015)
+    const rest = Object.fromEntries(SETTINGS_KEYS.map((k) => [k, s[k]])) as unknown as RadarSettingsInput
     setForm(rest)
     setCities(s.notify_cities.join(', '))
   }, [s])
@@ -45,7 +48,8 @@ export function SettingsPanel({ data }: { data: RadarData }) {
     setBusy(true)
     setErr(null)
     try {
-      await saveRadarSettings(requireSupabase(), s, { ...form, notify_cities: cities.split(',').map((c) => c.trim()).filter(Boolean).slice(0, 120) })
+      const patch = Object.fromEntries(SETTINGS_KEYS.map((k) => [k, form[k]])) as Partial<RadarSettingsInput>
+      await saveRadarSettings(requireSupabase(), s, { ...patch, notify_cities: cities.split(',').map((c) => c.trim()).filter(Boolean).slice(0, 120) })
       notify('Radar ayarları kaydedildi.', 'success')
     } catch (e) {
       setErr(dataErrorMessage(e, 'Ayarlar'))

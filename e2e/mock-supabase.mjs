@@ -76,6 +76,14 @@ const RADAR_DEFAULTS = {
   radar_categories: { active: true, extra_keywords: [] },
   radar_items: { pending: false, opportunity_id: null, published_at: null },
 }
+const RADAR_UPDATABLE = {
+  radar_settings: ['weights', 'home_city', 'min_score', 'high_priority_score', 'notify_categories', 'notify_cities', 'digest_hour', 'quiet_start', 'quiet_end', 'critical_enabled', 'capability_text', 'search_api_enabled', 'search_monthly_limit', 'search_daily_limit', 'search_queries_per_run'],
+  radar_categories: ['active', 'extra_keywords'],
+  radar_sources: ['name', 'kind', 'url', 'allowed_hosts', 'sector_hint', 'region_hint', 'permission_status', 'permission_note', 'permission_checked_at', 'interval_minutes', 'max_items', 'active'],
+  radar_opportunities: ['status', 'status_note', 'next_action', 'notes'],
+  radar_companies: ['website', 'website_verified', 'website_source', 'notes'],
+  radar_opportunity_companies: ['role', 'verified'],
+}
 const RADAR_SETTINGS_DEFAULT = {
   singleton: true, weights: { kategori: 25, dogrulama: 25, asama: 15, yakinlik: 15, iletisim: 10, ticari: 10 }, home_city: 'Ankara', min_score: 60, high_priority_score: 75,
   notify_categories: [], notify_cities: [], digest_hour: null, quiet_start: null, quiet_end: null, critical_enabled: true, capability_text: null,
@@ -599,9 +607,9 @@ export class MockSupabase {
       next = this.syncStage(next, old)
     }
     if (table === 'project_tasks') next.done_at = next.done ? (old.done ? old.done_at : this.now()) : null
-    if (table === 'radar_opportunities' && !system) {
-      // Sütun düzeyi yetki: istemci yalnız iş akışı alanlarını değiştirebilir
-      const bad = Object.keys(patch).filter((k) => !['status', 'status_note', 'next_action', 'notes'].includes(k))
+    if (RADAR_UPDATABLE[table] && !system) {
+      // Sütun düzeyi yetki (015 GRANT UPDATE (...) ile aynı)
+      const bad = Object.keys(patch).filter((k) => !RADAR_UPDATABLE[table].includes(k))
       if (bad.length) return { error: { status: 403, code: '42501', message: `permission denied for column ${bad[0]}` } }
     }
     this.db[table][i] = next
