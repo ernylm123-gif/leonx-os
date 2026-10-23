@@ -26,6 +26,8 @@ export interface RadarReport {
   generatedAt: Date
   sections: ReportSection[]
   sources: { claim: string; url: string; published: string; accessed: string }[]
+  /** Zamanlanmış özet raporlarında kaynak bölümü yoktur (kaynaklar fırsat raporlarındadır) */
+  noSourceSection?: boolean
 }
 
 export function buildRadarReport(v: OppView, evidence: RadarEvidence[], actions: RadarAction[], now = new Date()): RadarReport {

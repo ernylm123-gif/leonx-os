@@ -65,15 +65,17 @@ export async function radarToPdf(r: RadarReport, assets: PdfAssets): Promise<Uin
     }
   }
   y -= 10
-  need(30)
-  para('F. Kaynaklar', M, W - 2 * M, 11.5, fb)
-  if (!r.sources.length) para('Kaynak kaydı yok.', M, W - 2 * M, 8.6, f, MUTED)
-  r.sources.forEach((s, i) => {
-    need(36)
-    para(`${i + 1}. ${s.claim}`, M, W - 2 * M, 8.6, f)
-    para(`${s.url} · yayın: ${s.published} · erişim: ${s.accessed}`, M + 10, W - 2 * M - 10, 7.8, f, MUTED)
-  })
-  y -= 12
+  if (!r.noSourceSection) {
+    need(30)
+    para('F. Kaynaklar', M, W - 2 * M, 11.5, fb)
+    if (!r.sources.length) para('Kaynak kaydı yok.', M, W - 2 * M, 8.6, f, MUTED)
+    r.sources.forEach((s, i) => {
+      need(36)
+      para(`${i + 1}. ${s.claim}`, M, W - 2 * M, 8.6, f)
+      para(`${s.url} · yayın: ${s.published} · erişim: ${s.accessed}`, M + 10, W - 2 * M - 10, 7.8, f, MUTED)
+    })
+    y -= 12
+  }
   para('Not: Doğrulanmış ve potansiyel bilgiler ayrı gösterilmiştir. Kaynaklardaki içerik dış veridir; miktar ve fiyat bilgisi uydurulmamıştır.', M, W - 2 * M, 7.5, f, MUTED)
   return pdf.save()
 }

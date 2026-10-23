@@ -1696,6 +1696,64 @@ await test('LEONX AI Radar: rapor A–F, kaynaklar, durum geçmişi, CRM aktarı
   expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
 }, { viewport: { width: 1440, height: 900 }, acceptDownloads: true })
 
+await test('LEONX AI Radar 016: zamanlanmış raporlar (günlük/haftalık, PDF/Excel), sağlık özeti; fırsattan görev ve teklif taslağı; kaynaktaki değişiklikler', async ({ page, mock, consoleErrors }) => {
+  const { a, src } = seedRadar(mock)
+  const today = new Date().toISOString().slice(0, 10)
+  mock.serverInsert('radar_reports', { kind: 'gunluk', period_start: today, period_end: today, created_at: new Date().toISOString(), payload: {
+    generated_at: new Date().toISOString(), new_count: 2, updated_count: 1, verified_count: 1,
+    top: [{ id: a.id, title: a.title, city: 'Ankara', district: 'Etimesgut', score: 88, label: 'dogrulanmis_firsat', stage: 'ihale', status: 'yeni', deadline: a.deadline, is_new: true }],
+    deadlines: [{ id: a.id, title: a.title, city: 'Ankara', score: 88, label: 'dogrulanmis_firsat', status: 'yeni', deadline: a.deadline }],
+    sources: { active: 1, failing: 0, runs_24h: 24, errors_24h: 0 } } })
+  mock.serverInsert('radar_reports', { kind: 'haftalik', period_start: '2026-10-17', period_end: '2026-10-23', created_at: new Date().toISOString(), payload: { new_count: 3, won: 0, lost: 0, pipeline: { yeni: 3 }, follow_ups: [], deadlines: [] } })
+  mock.serverInsert('radar_changes', { opportunity_id: a.id, field: 'deadline', old_value: '01.11.2026', new_value: '05.11.2026', created_at: new Date().toISOString(), notified_at: null })
+  mock.updateRow('radar_sources', src.id, { consecutive_failures: 4 }, null, true)
+
+  await login(page, OWNER, '/leonx-ai?bolum=raporlar')
+  await page.getByTestId('radar-health').waitFor()
+  await page.getByTestId('radar-health-failing').getByText(/Sentetik kamu akışı: 4 ardışık hata/).waitFor()
+  const view = page.getByTestId('report-view')
+  await view.getByText(/Günlük öncelikli rapor/).first().waitFor()
+  await view.getByRole('link', { name: `[Yeni] ${a.title}` }).waitFor()
+  await view.getByText(/DEĞİLDİR/).waitFor()
+  await page.getByTestId('reports-list').getByText('Haftalık hat ve takip özeti').click()
+  await view.getByText('7 gündür hareketsiz takipler').waitFor()
+  await view.getByText('Bekleyen takip yok.').waitFor()
+  const fs = await import('node:fs/promises')
+  const [pdf] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), page.getByTestId('report-pdf').click()])
+  expect(/^LEONX-Radar-Haftalik.*\.pdf$/.test(pdf.suggestedFilename()), `PDF adı: ${pdf.suggestedFilename()}`)
+  expect((await fs.readFile(await pdf.path())).subarray(0, 4).toString() === '%PDF', 'PDF geçersiz')
+  const [xlsx] = await Promise.all([page.waitForEvent('download'), page.getByTestId('report-xlsx').click()])
+  expect((await fs.readFile(await xlsx.path())).subarray(0, 2).toString() === 'PK', 'Excel geçersiz')
+
+  // Fırsat: kaynaktaki değişiklik, görev, teklif taslağı
+  await page.goto(`${BASE}/leonx-ai/firsat/${a.id}`)
+  await page.getByTestId('opp-changes').getByText('Son tarih: 01.11.2026 → 05.11.2026').waitFor()
+  expect(await page.getByTestId('opp-quote').isDisabled(), 'CRM firması yokken teklif taslağı etkin')
+  await page.getByTestId('opp-task').click()
+  await page.getByTestId('task-title').fill('Teknik şartnameyi iste')
+  await page.getByTestId('task-confirm').click()
+  await page.waitForURL(/\/projeler\//)
+  expect(mock.db.project_tasks.length === 1 && mock.db.project_tasks[0].priority === 'acil' && mock.db.project_tasks[0].due_date === a.deadline, 'görev yanlış oluştu')
+  expect(mock.db.projects.length === 1, 'proje adayı oluşmadı')
+  await page.goto(`${BASE}/leonx-ai/firsat/${a.id}`)
+  await page.getByTestId('opp-crm').click()
+  await page.getByTestId('crm-confirm').click()
+  await page.getByTestId('opp-crm-link').waitFor()
+  await page.getByTestId('opp-quote').click()
+  await page.waitForURL(/\/teklifler\//)
+  const qt = mock.db.quotes
+  expect(qt.length === 1 && qt[0].status === 'taslak' && qt[0].project_id === mock.db.projects[0].id, 'teklif taslağı oluşmadı')
+  expect(/Kaynakla doğrulanmış kapsam: Yangın kapısı/.test(qt[0].scope ?? ''), `kapsam: ${qt[0].scope}`)
+  expect(!mock.db.quote_items?.length, 'teklif kalemi/fiyat uyduruldu')
+  // tekrar: ikinci taslak oluşmaz, mevcut açılır
+  await page.goto(`${BASE}/leonx-ai/firsat/${a.id}`)
+  await page.getByTestId('opp-quote').click()
+  await page.waitForURL(/\/teklifler\//)
+  expect(mock.db.quotes.length === 1, 'teklif taslağı çiftlendi')
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime|404/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+}, { viewport: { width: 1440, height: 900 }, acceptDownloads: true })
+
 await test('LEONX AI Radar: iletişim araştırması (işlev dağıtılmış) kaynaklı kanal ekler; Kaynaklar: ekleme, EKAP reddi, Kaynağı test et, elle bağlantı', async ({ page, mock }) => {
   const { a } = seedRadar(mock)
   mock.radarFunctionsDeployed = true
@@ -1780,7 +1838,7 @@ for (const [name, dev] of [['iphone-se', devices['iPhone SE']], ['ipad', devices
     await page.waitForTimeout(150)
     expect(!(await overflow()), 'rapor yatay taşıyor')
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `radar-${name}-detail.png`), fullPage: true })
-    for (const b of ['kaynaklar', 'asistan', 'ayarlar']) {
+    for (const b of ['raporlar', 'kaynaklar', 'asistan', 'ayarlar']) {
       await page.goto(`${BASE}/leonx-ai?bolum=${b}`)
       await page.waitForTimeout(250)
       expect(!(await overflow()), `${b} yatay taşıyor`)

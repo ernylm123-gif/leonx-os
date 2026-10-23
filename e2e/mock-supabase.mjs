@@ -64,6 +64,9 @@ const TABLES = [
   'radar_actions',
   'radar_outreach_drafts',
   'radar_search_usage',
+  // 016
+  'radar_reports',
+  'radar_changes',
 ]
 // 015 varsayılanları (supabase/migrations/20261022001500_leonx_radar.sql ile aynı)
 const RADAR_DEFAULTS = {
@@ -900,6 +903,42 @@ export class MockSupabase {
       const text = clean(p_text)
       const row = this.insertRow('radar_items', { source_id: src.id, canonical_url: canon, url_hash: canon, title: clean(p_title) || text.slice(0, 200), summary: text.slice(0, 4000), raw_text: text, content_hash: 'x', pending: true, first_seen_at: this.now(), last_seen_at: this.now() }, user.id, true).row
       return json(200, row.id)
+    }
+    // 016: sağlık özeti ve fırsattan görev (supabase/migrations/20261023001600_leonx_radar_intel.sql ile aynı kurallar)
+    if (p === '/rest/v1/rpc/radar_health') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      const day = Date.now() - 86400000
+      const runs = this.db.radar_source_runs.filter((r) => Date.parse(r.started_at) > day)
+      return json(200, {
+        checked_at: this.now(), scan_configured: !!this.radarScanConfigured,
+        active_sources: this.db.radar_sources.filter((s) => s.active && s.permission_status === 'izinli').length,
+        failing_sources: this.db.radar_sources.filter((s) => s.active && s.consecutive_failures >= 3).map((s) => ({ id: s.id, name: s.name, failures: s.consecutive_failures, last_status: s.last_status })),
+        last_run_at: this.db.radar_source_runs.map((r) => r.started_at).sort().at(-1) ?? null,
+        runs_24h: runs.length, errors_24h: runs.filter((r) => r.status === 'hata').length,
+        pending_notifications: this.db.radar_opportunities.filter((o) => !o.notified_at).length,
+      })
+    }
+    if (p === '/rest/v1/rpc/radar_create_task') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      const { p_opportunity, p_title, p_due } = req.postDataJSON()
+      const title = String(p_title ?? '').trim()
+      if (title.length < 1 || title.length > 200) return json(400, { code: '22023', message: 'Görev başlığı 1–200 karakter olmalı' })
+      const opp = this.db.radar_opportunities.find((x) => x.id === p_opportunity)
+      if (!opp) return json(400, { code: 'P0002', message: 'Fırsat bulunamadı' })
+      let projectId = opp.project_id && this.db.projects.some((x) => x.id === opp.project_id) ? opp.project_id : null
+      if (!projectId) {
+        const year = new Date().getFullYear()
+        const nums = this.db.projects.map((x) => x.code.match(new RegExp(`^LX-${year}-(\\d+)$`))?.[1]).filter(Boolean).map(Number)
+        const code = `LX-${year}-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0')}`
+        projectId = this.insertRow('projects', { code, name: opp.title.slice(0, 200), category: 'diger', company_id: opp.crm_company_id, stage: 'yeni_firsat', location: [opp.district, opp.city].filter(Boolean).join(' / ') || null, description: 'LEONX Radar proje adayı' }, user.id).row.id
+        this.updateRow('radar_opportunities', opp.id, { project_id: projectId }, user.id, true)
+      }
+      const today = new Date().toISOString().slice(0, 10)
+      const soon = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+      const priority = opp.deadline && opp.deadline <= soon ? 'acil' : opp.verified_need ? 'yuksek' : 'normal'
+      const due = p_due ?? (opp.deadline && opp.deadline >= today ? opp.deadline : null)
+      const task = this.insertRow('project_tasks', { project_id: projectId, title, description: `LEONX Radar fırsatı: ${opp.title}`, priority, due_date: due }, user.id).row
+      return json(200, { project_id: projectId, task_id: task.id })
     }
     if (p === '/rest/v1/rpc/radar_import_to_crm') {
       if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
