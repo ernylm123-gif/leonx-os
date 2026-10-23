@@ -1,0 +1,75 @@
+# Production erişim tanısı (salt okunur): DNS, TLS, yönlendirme, WebKit (iPhone emülasyonu) ve
+# Türkiye'deki operatör ağlarından ölçüm (Globalping, ücretsiz/anahtarsız). Production'a yazmaz.
+name: Erişim tanısı
+
+on:
+  push:
+    branches: [diag/mobil-erisim]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  HOST: leonx-os.vercel.app
+
+jobs:
+  sunucu:
+    name: DNS · TLS · yönlendirme
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: DNS (A / AAAA / CNAME) — Google ve Cloudflare çözücüleri
+        run: |
+          sudo apt-get -qq update >/dev/null && sudo apt-get -qq install -y dnsutils >/dev/null
+          for r in 8.8.8.8 1.1.1.1; do
+            echo "== çözücü $r"
+            for t in A AAAA CNAME; do echo "-- $t"; dig +short "$HOST" $t @$r; done
+          done
+      - name: TLS 1.2 ve 1.3, sertifika zinciri
+        run: |
+          for v in -tls1_2 -tls1_3; do
+            echo "== openssl $v"
+            echo | timeout 15 openssl s_client -connect "$HOST:443" -servername "$HOST" $v 2>&1 \
+              | grep -E "Protocol|Cipher is|Verify return code|^depth|subject=|issuer=" | head -20 || true
+          done
+          echo "== sertifika (yaprak)"
+          echo | openssl s_client -connect "$HOST:443" -servername "$HOST" 2>/dev/null \
+            | openssl x509 -noout -subject -issuer -dates -ext subjectAltName
+          echo "== tam zincir"
+          echo | openssl s_client -connect "$HOST:443" -servername "$HOST" -showcerts 2>/dev/null \
+            | grep -E "^ ?[0-9] s:| i:|NotAfter" || true
+      - name: IPv4 / IPv6 bağlantısı
+        run: |
+          echo "== IPv4"; curl -4 -sS -o /dev/null -w "%{http_code} %{remote_ip} tls=%{ssl_verify_result} %{time_total}s\n" "https://$HOST/version.json" || true
+          echo "== IPv6"; curl -6 -sS -o /dev/null -w "%{http_code} %{remote_ip} %{time_total}s\n" "https://$HOST/version.json" || echo "IPv6 yok / runner IPv6 desteklemiyor"
+      - name: HTTP → HTTPS yönlendirmesi ve HSTS
+        run: |
+          curl -sS -I "http://$HOST/" | grep -iE "^HTTP|^location|^strict-transport" || true
+          curl -sS -I "https://$HOST/" | grep -iE "^HTTP|^strict-transport|^content-security" || true
+          curl -sS "https://$HOST/version.json"; echo
+
+  webkit:
+    name: WebKit (iPhone emülasyonu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps webkit
+      - run: node scripts/erisim/webkit-acilis.mjs
+
+  turkiye:
+    name: Türkiye operatör ağlarından ölçüm (Globalping)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/erisim/globalping.mjs
