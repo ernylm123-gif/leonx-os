@@ -37,6 +37,20 @@ export const REALTIME_TABLES = [
   'project_expenses',
   'project_payment_schedule',
   'project_collections',
+  // 015: LEONX AI Radar (radar_items hariç: hacimli, yalnız sunucu yazar)
+  'radar_settings',
+  'radar_categories',
+  'radar_sources',
+  'radar_source_runs',
+  'radar_opportunities',
+  'radar_opportunity_categories',
+  'radar_evidence',
+  'radar_companies',
+  'radar_opportunity_companies',
+  'radar_contacts',
+  'radar_actions',
+  'radar_outreach_drafts',
+  'radar_search_usage',
 ] as const
 
 export type DetailTable = Exclude<(typeof REALTIME_TABLES)[number], 'companies' | 'projects'>

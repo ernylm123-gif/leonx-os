@@ -4,6 +4,17 @@ export const COMPANY = {
   websiteLabel: 'leonxmetal.com',
   /** Faaliyet alanları — metraj ve proje kategorileri için temel sınıflandırma */
   disciplines: ['Alüminyum', 'PVC', 'Kapı', 'Korkuluk', 'Cephe', 'Metal İmalat'] as const,
+  /**
+   * Tanıtım e-postası taslaklarında kullanılan GENEL yetkinlik ifadeleri (LEONX AI Radar). Referans,
+   * sertifika veya tamamlanmış proje iddiası İÇERMEZ; radar ayarlarından değiştirilebilir.
+   */
+  capabilities: [
+    'Çelik kapı, yangın kapısı, oda ve bina giriş kapıları',
+    'Alüminyum ve PVC doğrama, sürme sistemleri',
+    'Giydirme cephe, cam cephe ve kompozit cephe uygulamaları',
+    'Alüminyum ve metal korkuluk, küpeşte',
+    'Metal imalat: lazer kesim, CNC abkant, özel imalat',
+  ] as const,
 } as const
 
 export const APP = {
