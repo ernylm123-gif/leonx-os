@@ -1557,6 +1557,239 @@ await test('Faz 8: kuru girilmemiş para birimi uyarısı, kur girilince birleş
   expect(await d.getByTestId('ti-submit').isDisabled(), 'aynı metraj tekrar aktarılabilir')
 }, { viewport: { width: 1366, height: 900 } })
 
+// ================================================================== 015: LEONX AI Radar
+// Tüm radar verileri SENTETİKTİR (alan adları .test); gerçek ilan/firma değildir.
+function seedRadar(mock) {
+  const day = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10)
+  const src = mock.externalInsert('radar_sources', { name: 'Sentetik kamu akışı', kind: 'rss', url: 'https://akis.ornek.test/rss', permission_status: 'izinli', active: true, sector_hint: 'kamu' })
+  const breakdown = [
+    { key: 'kategori', label: 'Kategori uygunluğu', weight: 25, factor: 1, points: 25, reason: 'İlan LEONX ürününü açıkça adlandırıyor (yangin_kapisi)' },
+    { key: 'dogrulama', label: 'İhtiyacın kaynakla doğrulanması', weight: 25, factor: 1, points: 25, reason: 'İhtiyaç satın alma/ihale ilanıyla doğrulandı' },
+    { key: 'yakinlik', label: 'Ankara yakınlığı', weight: 15, factor: 1, points: 15, reason: 'Ankara / Etimesgut' },
+  ]
+  const a = mock.serverInsert('radar_opportunities', { title: 'Sentetik Etimesgut hizmet binası yangın kapısı alımı', city: 'Ankara', district: 'Etimesgut', is_ankara: true, sector: 'kamu', project_type: 'kamu_binasi', stage: 'ihale', tender: { ikn: '2026/123456' }, deadline: day(5), score: 88, score_breakdown: breakdown, reliability: 75, reliability_base: 75, reliability_breakdown: [], verified_need: true, label: 'dogrulanmis_firsat', risks: [], cluster_key: 'ankara:sentetik-a' })
+  const b = mock.serverInsert('radar_opportunities', { title: 'Sentetik İzmir otel inşaatı', city: 'İzmir', is_ankara: false, sector: 'ozel', project_type: 'otel', stage: 'yapim', score: 95, score_breakdown: [], reliability: 40, verified_need: false, label: 'potansiyel_ihtiyac', risks: ['kapsam_belirsiz'], cluster_key: 'izmir:sentetik-b' })
+  const c = mock.serverInsert('radar_opportunities', { title: 'Sentetik Çankaya konut projesi', city: 'Ankara', district: 'Çankaya', is_ankara: true, sector: 'ozel', project_type: 'konut', stage: 'planlama', score: 50, verified_need: false, label: 'potansiyel_ihtiyac', cluster_key: 'ankara:sentetik-c' })
+  const item = mock.serverInsert('radar_items', { source_id: src.id, canonical_url: 'https://akis.ornek.test/ilan/1', url_hash: 'h1', title: a.title, content_hash: 'c1', opportunity_id: a.id, published_at: new Date(Date.now() - 2 * 86400000).toISOString(), first_seen_at: new Date().toISOString(), last_seen_at: new Date().toISOString() })
+  mock.serverInsert('radar_items', { source_id: src.id, canonical_url: 'https://akis.ornek.test/haber/2', url_hash: 'h2', title: b.title, content_hash: 'c2', opportunity_id: b.id, first_seen_at: new Date().toISOString(), last_seen_at: new Date().toISOString() })
+  mock.serverInsert('radar_opportunity_categories', { opportunity_id: a.id, category_key: 'yangin_kapisi', need_status: 'dogrulanmis', matched_terms: ['yangin kapisi'], evidence_item_id: item.id })
+  mock.serverInsert('radar_opportunity_categories', { opportunity_id: a.id, category_key: 'aluminyum_dograma', need_status: 'potansiyel', matched_terms: ['proje türü: Kamu / hizmet binası'] })
+  mock.serverInsert('radar_opportunity_categories', { opportunity_id: b.id, category_key: 'cam_cephe', need_status: 'potansiyel', matched_terms: ['proje türü: Otel'] })
+  mock.serverInsert('radar_opportunity_categories', { opportunity_id: c.id, category_key: 'pvc_dograma', need_status: 'potansiyel', matched_terms: ['proje türü: Konut'] })
+  mock.serverInsert('radar_evidence', { opportunity_id: a.id, item_id: item.id, field: 'ihtiyac', claim: 'Satın alma/ihale ilanında "Yangın kapısı" geçiyor (yangin kapisi)', excerpt: '40 adet EI60 yangın kapısı temini ve montajı işi', url: 'https://akis.ornek.test/ilan/1', published_at: item.published_at, accessed_at: new Date().toISOString() })
+  const co = mock.serverInsert('radar_companies', { name: 'Sentetik Yapı A.Ş.', normalized_name: 'sentetik yapi a s', website: 'https://sentetikyapi.test', website_source: 'sahip' })
+  mock.serverInsert('radar_opportunity_companies', { opportunity_id: a.id, company_id: co.id, role: 'ana_yuklenici', verified: false })
+  return { src, a, b, c, co }
+}
+
+await test('LEONX AI Radar: boş durum gerçek — örnek/sahte fırsat yok, taramanın neden başlamadığı açıklanır', async ({ page, mock, consoleErrors }) => {
+  await login(page, OWNER, '/leonx-ai')
+  await page.getByTestId('radar-empty').waitFor()
+  await page.getByTestId('radar-scan-empty').getByText(/İzinli/).waitFor()
+  expect((await page.getByTestId('radar-card').count()) === 0, 'boş durumda kart var')
+  expect(mock.db.radar_opportunities.length === 0, 'sahte fırsat oluştu')
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+})
+
+await test('LEONX AI Radar: Ankara önce sıralama, süzgeçler, doğrulanmış / potansiyel rozetleri, puan ve güvenilirlik ayrı', async ({ page, mock }) => {
+  const { a } = seedRadar(mock)
+  await login(page, OWNER, '/leonx-ai')
+  await page.getByTestId('radar-card').first().waitFor()
+  const titles = await page.getByTestId('radar-card-title').allInnerTexts()
+  expect(titles[0] === a.title, `Ankara önce değil: ${titles.join(' | ')}`)
+  expect(titles.indexOf('Sentetik İzmir otel inşaatı') === 2, 'İzmir (daha yüksek puanlı) Ankara fırsatlarından sonra gelmeli')
+  const first = page.getByTestId('radar-card').first()
+  await first.locator('[data-need="dogrulanmis"]').getByText('Yangın kapısı').waitFor()
+  await first.locator('[data-need="potansiyel"]').getByText('Potansiyel — doğrulanmadı').waitFor()
+  expect((await first.getByTestId('radar-card-score').locator('[data-value]').innerText()) === '88', 'puan')
+  expect((await first.getByTestId('radar-card-reliability').locator('[data-value]').innerText()) === '75', 'güvenilirlik')
+  expect((await page.getByTestId('radar-card-label').nth(2).innerText()).includes('Potansiyel'), 'potansiyel fırsat doğrulanmış gibi etiketlendi')
+  expect((await page.getByTestId('kpi-ankara').locator('[data-value]').innerText()) === '2', 'Ankara göstergesi')
+  expect((await page.getByTestId('kpi-high').locator('[data-value]').innerText()) === '1', 'yüksek öncelik göstergesi')
+  expect((await page.getByTestId('kpi-deadline').locator('[data-value]').innerText()) === '1', 'son tarih göstergesi')
+  const filters = page.getByTestId('radar-filters')
+  await filters.getByLabel('Şehir').selectOption('İzmir')
+  await eventually(async () => (await page.getByTestId('radar-card').count()) === 1, 'şehir süzgeci')
+  await filters.getByLabel('Şehir').selectOption('')
+  await filters.getByLabel('Doğrulama durumu').selectOption('dogrulanmis')
+  await eventually(async () => (await page.getByTestId('radar-card').count()) === 1, 'doğrulama süzgeci')
+  await filters.getByLabel('Doğrulama durumu').selectOption('')
+  await filters.getByLabel('Kategori').selectOption('pvc_dograma')
+  await eventually(async () => (await page.getByTestId('radar-card-title').allInnerTexts()).join() === 'Sentetik Çankaya konut projesi', 'kategori süzgeci')
+  await page.getByRole('button', { name: 'Filtreleri temizle' }).click()
+  await filters.getByLabel('En düşük puan').selectOption('90')
+  await eventually(async () => (await page.getByTestId('radar-card').count()) === 1, 'puan süzgeci')
+  // Canlı güncelleme: sunucu yeni fırsat yazınca liste yenilenir
+  await page.getByRole('button', { name: 'Filtreleri temizle' }).click()
+  mock.serverInsert('radar_opportunities', { title: 'Sentetik Sincan okul projesi', city: 'Ankara', district: 'Sincan', is_ankara: true, score: 30, cluster_key: 'ankara:sentetik-d' })
+  await page.getByText('Sentetik Sincan okul projesi').waitFor()
+})
+
+await test('LEONX AI Radar: rapor A–F, kaynaklar, durum geçmişi, CRM aktarımı (onaylı, tekrarsız), e-posta taslağı (gönderim yok), iletişim araştır açıklaması, PDF ve Excel', async ({ page, mock, consoleErrors }) => {
+  const { a, co } = seedRadar(mock)
+  await login(page, OWNER, `/leonx-ai/firsat/${a.id}`)
+  await page.getByRole('heading', { name: a.title }).waitFor()
+  await page.getByTestId('opp-verified').locator('[data-need="dogrulanmis"]').getByText('Yangın kapısı').waitFor()
+  await page.getByTestId('opp-potential').locator('[data-need="potansiyel"]').getByText('Alüminyum doğrama').waitFor()
+  await page.getByTestId('opp-sources').getByText('https://akis.ornek.test/ilan/1').waitFor()
+  await page.getByTestId('opp-sources').getByText(/erişim/).waitFor()
+  await page.getByTestId('opp-strategy').getByText('Sentetik Yapı A.Ş. — Ana yüklenici (rol doğrulanmadı)').waitFor()
+  await page.getByTestId('opp-breakdown').getByText('Kategori uygunluğu').waitFor()
+  await page.getByTestId('opp-risks').getByText(/Doğrulanmış iletişim kanalı yok/).waitFor()
+
+  // Durum iş akışı ve geçmiş
+  await page.getByTestId('opp-status').selectOption('inceleniyor')
+  await page.getByTestId('opp-status-note').fill('Şartname istendi')
+  await page.getByTestId('opp-status-save').click()
+  await page.getByTestId('opp-history').getByText('Yeni → İnceleniyor').waitFor()
+  await page.getByTestId('opp-history').getByText(/Şartname istendi/).waitFor()
+  expect(mock.db.radar_actions.length === 1, 'durum geçmişi yazılmadı')
+
+  // CRM aktarımı: onay penceresi, tekrar çağrıda çift kayıt yok
+  await page.getByTestId('opp-crm').click()
+  await page.getByRole('dialog', { name: "Firmayı CRM'e aktar" }).waitFor()
+  await page.getByTestId('crm-confirm').click()
+  await page.getByTestId('opp-crm-link').waitFor()
+  await page.getByTestId('opp-crm').click()
+  await page.getByTestId('crm-confirm').click()
+  await eventually(async () => (await page.getByRole('dialog').count()) === 0, 'pencere kapanmadı')
+  expect(mock.db.companies.filter((x) => x.name === 'Sentetik Yapı A.Ş.').length === 1, 'firma çift aktarıldı')
+  await page.getByTestId('opp-project').click()
+  await page.getByTestId('crm-confirm').click()
+  await page.getByTestId('opp-project-link').waitFor()
+  expect(mock.db.projects.length === 1 && mock.db.projects[0].stage === 'yeni_firsat', 'proje adayı oluşmadı')
+
+  // E-posta taslağı: düzenlenebilir, kaydedilir, gönderilmez
+  await page.getByTestId('opp-mail').click()
+  const dlg = page.getByTestId('mail-dialog')
+  await dlg.waitFor()
+  const body = await page.getByTestId('mail-body').inputValue()
+  expect(body.includes('Çelik kapı, yangın kapısı') && body.includes('Teknik şartname'), 'taslak yetkinlik/belge içermiyor')
+  expect(!/referans|sertifika|tamamladığımız/i.test(body), 'taslak uydurma iddia içeriyor')
+  await dlg.getByText('Doğrulanmış kurumsal e-posta yok').waitFor()
+  await page.getByTestId('mail-subject').fill('Sentetik konu')
+  await page.getByTestId('mail-save').click()
+  await page.getByTestId('opp-drafts').getByText('Sentetik konu').waitFor()
+  expect(mock.db.radar_outreach_drafts.length === 1 && mock.db.radar_outreach_drafts[0].status === 'taslak', 'taslak kaydedilmedi')
+  expect(mock.functionCalls.length === 0, 'taslak için sunucu işlevi çağrıldı')
+
+  // İletişim araştır: işlev dağıtılmamışsa açıklama ve devre dışı
+  await page.getByTestId('opp-research').click()
+  await page.getByTestId('opp-research-why').getByText(/dağıtılmadı/).waitFor()
+  expect(await page.getByTestId('opp-research').isDisabled(), 'dağıtılmamış işlev düğmesi etkin kaldı')
+
+  // PDF ve Excel
+  const fs = await import('node:fs/promises')
+  const [pdf] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), page.getByTestId('opp-pdf').click()])
+  expect(/^LEONX-Radar-.*\.pdf$/.test(pdf.suggestedFilename()), `PDF adı: ${pdf.suggestedFilename()}`)
+  const pbytes = await fs.readFile(await pdf.path())
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  const doc = await getDocument({ data: new Uint8Array(pbytes) }).promise
+  let text = ''
+  for (let i = 1; i <= doc.numPages; i++) text += (await (await doc.getPage(i)).getTextContent()).items.map((x) => x.str).join(' ')
+  expect(text.includes('F. Kaynaklar') && text.includes('https://akis.ornek.test/ilan/1') && text.includes('Potansiyel'), 'PDF içeriği eksik')
+  const [xlsx] = await Promise.all([page.waitForEvent('download'), page.getByTestId('opp-xlsx').click()])
+  expect((await fs.readFile(await xlsx.path())).subarray(0, 2).toString() === 'PK', 'Excel geçersiz')
+  void co
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime|404/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+}, { viewport: { width: 1440, height: 900 }, acceptDownloads: true })
+
+await test('LEONX AI Radar: iletişim araştırması (işlev dağıtılmış) kaynaklı kanal ekler; Kaynaklar: ekleme, EKAP reddi, Kaynağı test et, elle bağlantı', async ({ page, mock }) => {
+  const { a } = seedRadar(mock)
+  mock.radarFunctionsDeployed = true
+  await login(page, OWNER, `/leonx-ai/firsat/${a.id}`)
+  await page.getByTestId('opp-research').click()
+  await page.getByTestId('opp-companies').getByText('satinalma@sentetikyapi.test').waitFor()
+  await page.getByTestId('opp-companies').getByText(/kaynak/).first().waitFor()
+  expect(mock.functionCalls.some((c) => c.fn === 'radar-contacts' && c.user === OWNER.email), 'radar-contacts sahip oturumuyla çağrılmadı')
+
+  await page.goto(`${BASE}/leonx-ai?bolum=kaynaklar`)
+  await page.getByTestId('source-row').first().waitFor()
+  await page.getByTestId('source-add').click()
+  const d = page.getByRole('dialog', { name: 'Kaynak ekle' })
+  await d.getByTestId('source-name').fill('EKAP denemesi')
+  await d.getByTestId('source-url').fill('https://ekap.kik.gov.tr/EKAP/rss')
+  await d.getByTestId('source-save').click()
+  await d.getByText(/resmî otomatik erişim izni/).waitFor()
+  await d.getByTestId('source-name').fill('Sentetik belediye duyuruları')
+  await d.getByTestId('source-url').fill('https://belediye.ornek.test/duyurular.rss')
+  await d.getByTestId('source-save').click()
+  await page.getByText('Sentetik belediye duyuruları').waitFor()
+  const added = mock.db.radar_sources.find((s) => s.name === 'Sentetik belediye duyuruları')
+  expect(added && added.permission_status === 'inceleniyor' && !added.active, 'yeni kaynak varsayılan olarak izinli/etkin olmamalı')
+  // Kaynağı test et: yazmadan sonuç gösterir
+  const before = mock.db.radar_items.length
+  await page.getByTestId('source-row').filter({ hasText: 'Sentetik belediye duyuruları' }).getByTestId('source-test').click()
+  await page.getByTestId('source-test-count').getByText('2').waitFor()
+  await page.getByTestId('source-test-result').getByText('Sentetik ilan 1').waitFor()
+  expect(mock.db.radar_items.length === before, 'test kayıt yazdı')
+  expect(mock.functionCalls.some((c) => c.fn === 'radar-scan' && c.body?.test_source_id === added.id), 'test isteği gitmedi')
+  await page.keyboard.press('Escape')
+  // Elle bağlantı
+  await page.getByTestId('manual-url').fill('https://ilan.ornek.test/elle/1')
+  await page.getByTestId('manual-title').fill('Sentetik Pursaklar okul yangın kapısı ihalesi')
+  await page.getByTestId('manual-text').fill('<p>Metin</p><script>alert(1)</script>')
+  await page.getByTestId('manual-save').click()
+  await eventually(() => mock.db.radar_items.some((i) => i.pending && i.raw_text === 'Metin'), 'elle öğe sunucuda temizlenip kaydedilmedi')
+})
+
+await test('LEONX AI Radar: Kaynağı test et — işlev dağıtılmamışsa açıkça söylenir; ayarlar ve bildirim tercihi', async ({ page, mock }) => {
+  seedRadar(mock)
+  await login(page, OWNER, '/leonx-ai?bolum=kaynaklar')
+  await page.getByTestId('source-test').first().click()
+  await page.getByTestId('source-test-result').getByText(/henüz dağıtılmadı/).waitFor()
+  await page.keyboard.press('Escape')
+  await page.goto(`${BASE}/leonx-ai?bolum=ayarlar`)
+  await page.getByTestId('weight-preview').getByText(/Önizleme/).waitFor()
+  await page.getByTestId('weight-kategori').fill('50')
+  await page.getByTestId('set-min-score').fill('70')
+  await page.getByTestId('radar-settings-save').click()
+  await eventually(() => mock.db.radar_settings[0].min_score === 70 && mock.db.radar_settings[0].weights.kategori === 50, 'ayarlar kaydedilmedi')
+  expect(mock.db.radar_settings[0].search_api_enabled === false, 'arama API varsayılanı kapalı olmalı')
+  await page.goto(`${BASE}/ayarlar`)
+  await page.getByText('İş fırsatı bildirimleri (LEONX AI Radar)').waitFor()
+})
+
+await test('LEONX AI Radar: asistan yalnız kayıtlardan yanıt verir, dayandığı kayıtları gösterir; eşleşme yoksa "Doğrulanmış sonuç bulunamadı."', async ({ page, mock }) => {
+  const { a } = seedRadar(mock)
+  await login(page, OWNER, '/leonx-ai?bolum=asistan')
+  await page.getByTestId('assistant-input').fill("Etimesgut'taki yangın kapısı işleri")
+  await page.getByTestId('assistant-send').click()
+  await page.getByTestId('assistant-answer').first().getByText(/1 kayıt bulundu/).waitFor()
+  await page.getByTestId('assistant-records').first().getByRole('link', { name: a.title }).waitFor()
+  await page.getByTestId('assistant-input').fill('Trabzon fırsatları')
+  await page.getByTestId('assistant-send').click()
+  await eventually(async () => (await page.getByTestId('assistant-answer').first().innerText()) === 'Doğrulanmış sonuç bulunamadı.', 'eşleşmeyen soruya uydurma yanıt')
+  expect(mock.functionCalls.length === 0, 'asistan dış işlev çağırdı')
+})
+
+for (const [name, dev] of [['iphone-se', devices['iPhone SE']], ['ipad', devices['iPad Pro 11']]]) {
+  const { defaultBrowserType: _ignored, ...opts } = dev
+  await test(`LEONX AI Radar ekran ${name}: panel, rapor, kaynaklar, asistan — taşma yok`, async ({ page, mock, consoleErrors }) => {
+    const { a } = seedRadar(mock)
+    const vw = opts.viewport.width
+    const overflow = () => page.evaluate((w) => document.documentElement.scrollWidth > w + 1, vw)
+    await login(page, OWNER, '/leonx-ai')
+    await page.getByTestId('radar-card').first().waitFor()
+    expect(!(await overflow()), 'panel yatay taşıyor')
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `radar-${name}-panel.png`), fullPage: true })
+    await page.goto(`${BASE}/leonx-ai/firsat/${a.id}`)
+    await page.getByRole('heading', { name: a.title }).waitFor()
+    await page.waitForTimeout(150)
+    expect(!(await overflow()), 'rapor yatay taşıyor')
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `radar-${name}-detail.png`), fullPage: true })
+    for (const b of ['kaynaklar', 'asistan', 'ayarlar']) {
+      await page.goto(`${BASE}/leonx-ai?bolum=${b}`)
+      await page.waitForTimeout(250)
+      expect(!(await overflow()), `${b} yatay taşıyor`)
+    }
+    const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+    expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+  }, opts)
+}
+
 // ================================================================== Duyarlı ekranlar ve temalar
 const SCREENS = {
   'iphone-se': devices['iPhone SE'],

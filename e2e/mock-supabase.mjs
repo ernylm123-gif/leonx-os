@@ -49,13 +49,50 @@ const TABLES = [
   'project_expenses',
   'project_payment_schedule',
   'project_collections',
+  // 015: LEONX AI Radar
+  'radar_settings',
+  'radar_categories',
+  'radar_sources',
+  'radar_source_runs',
+  'radar_items',
+  'radar_opportunities',
+  'radar_opportunity_categories',
+  'radar_evidence',
+  'radar_companies',
+  'radar_opportunity_companies',
+  'radar_contacts',
+  'radar_actions',
+  'radar_outreach_drafts',
+  'radar_search_usage',
+]
+// 015 varsayılanları (supabase/migrations/20261022001500_leonx_radar.sql ile aynı)
+const RADAR_DEFAULTS = {
+  radar_sources: { url: null, allowed_hosts: [], sector_hint: null, region_hint: null, permission_status: 'inceleniyor', permission_note: null, permission_checked_at: null, interval_minutes: 60, max_items: 50, active: false, last_run_at: null, last_status: null, last_error: null, consecutive_failures: 0, next_run_at: null, last_test_at: null },
+  radar_opportunities: { city: null, district: null, is_ankara: false, sector: 'bilinmiyor', project_type: null, stage: 'bilinmiyor', tender: {}, deadline: null, score: 0, score_breakdown: [], reliability: 0, reliability_base: 0, reliability_breakdown: [], verified_need: false, label: 'belirsiz', risks: [], status: 'yeni', status_note: null, next_action: null, cluster_tokens: [], notified_at: null, crm_company_id: null, project_id: null, notes: null },
+  radar_companies: { website: null, website_verified: false, website_source: null, crm_company_id: null, notes: null },
+  radar_opportunity_companies: { role: 'bilinmiyor', verified: false, evidence_item_id: null },
+  radar_opportunity_categories: { matched_terms: [], evidence_item_id: null },
+  radar_outreach_drafts: { company_id: null, contact_id: null, status: 'taslak' },
+  radar_categories: { active: true, extra_keywords: [] },
+  radar_items: { pending: false, opportunity_id: null, published_at: null },
+}
+const RADAR_SETTINGS_DEFAULT = {
+  singleton: true, weights: { kategori: 25, dogrulama: 25, asama: 15, yakinlik: 15, iletisim: 10, ticari: 10 }, home_city: 'Ankara', min_score: 60, high_priority_score: 75,
+  notify_categories: [], notify_cities: [], digest_hour: null, quiet_start: null, quiet_end: null, critical_enabled: true, capability_text: null,
+  search_api_enabled: false, search_monthly_limit: 900, search_daily_limit: 30, search_queries_per_run: 2,
+}
+const RADAR_CATEGORIES = [
+  ['celik_kapi', 'Çelik kapı', 'kapi'], ['yangin_kapisi', 'Yangın kapısı', 'kapi'], ['oda_kapisi', 'Oda kapısı', 'kapi'], ['teknik_kapi', 'Teknik kapı', 'kapi'],
+  ['kurumsal_bina_kapi', 'Otel / hastane / okul / ticari bina kapı işleri', 'kapi'], ['aluminyum_dograma', 'Alüminyum doğrama', 'aluminyum_pvc'],
+  ['pvc_dograma', 'PVC doğrama', 'aluminyum_pvc'], ['giydirme_cephe', 'Giydirme cephe', 'aluminyum_pvc'], ['cam_cephe', 'Cam cephe', 'aluminyum_pvc'],
+  ['metal_korkuluk', 'Metal korkuluk', 'metal'], ['ozel_metal_imalat', 'Özel metal imalat', 'metal'],
 ]
 // Faz 7: aşama → eski durum ve asgari ilerleme (supabase/migrations/20261014000700_leonx_workflow.sql ile aynı)
 const STAGE_STATUS = { yeni_firsat: 'kesif', teklif_hazirlaniyor: 'teklif', teklif_gonderildi: 'teklif', gorusme: 'teklif', onaylandi: 'teklif', olcu_kesif: 'olcu', uretime_hazirlik: 'tasarim', uretimde: 'uretim', montajda: 'montaj', tamamlandi: 'tamamlandi', teslim_edildi: 'tamamlandi', iptal: 'iptal' }
 const STATUS_STAGE = { kesif: 'olcu_kesif', olcu: 'olcu_kesif', tasarim: 'uretime_hazirlik', teklif: 'teklif_hazirlaniyor', uretim: 'uretimde', montaj: 'montajda', tamamlandi: 'tamamlandi', iptal: 'iptal', beklemede: 'gorusme' }
 const STAGE_PROGRESS = { yeni_firsat: 0, teklif_hazirlaniyor: 5, teklif_gonderildi: 10, gorusme: 15, onaylandi: 25, olcu_kesif: 30, uretime_hazirlik: 40, uretimde: 55, montajda: 80, tamamlandi: 100, teslim_edildi: 100, iptal: 0 }
 const STAGE_LABEL = { yeni_firsat: 'Yeni fırsat', teklif_hazirlaniyor: 'Teklif hazırlanıyor', teklif_gonderildi: 'Teklif gönderildi', gorusme: 'Görüşme aşamasında', onaylandi: 'Onaylandı', olcu_kesif: 'Ölçü / keşif', uretime_hazirlik: 'Üretime hazırlık', uretimde: 'Üretimde', montajda: 'Montajda', tamamlandi: 'Tamamlandı', teslim_edildi: 'Teslim edildi', iptal: 'İptal edildi' }
-const PREFS_DEFAULTS = { in_app: true, push: false, cat_proje: true, cat_teklif: true, cat_cad: true, cat_gorev: true, cat_termin: true, cat_sistem: true, own_actions: true }
+const PREFS_DEFAULTS = { in_app: true, push: false, cat_proje: true, cat_teklif: true, cat_cad: true, cat_gorev: true, cat_termin: true, cat_sistem: true, cat_firsat: true, own_actions: true }
 /** Gönderilmiş teklifte değişebilen alanlar (supabase/migrations/20261013000600_leonx_quotes.sql ile aynı) */
 const QUOTE_FREE = ['status', 'superseded', 'sent_at', 'decided_at', 'internal_notes', 'project_id']
 const QUOTE_DEFAULTS = {
@@ -104,6 +141,12 @@ export class MockSupabase {
     this.eventSeq = 1
     /** Testte push sunucusunun açık anahtarı (null: sunucu henüz hazır değil) */
     this.vapidPublic = null
+    this.radarActionSeq = 1
+    /** Radar Edge Function'ları dağıtıldı mı (false: 404 — "dağıtılmadı" açıklaması sınanır) */
+    this.radarFunctionsDeployed = false
+    this.functionCalls = []
+    this.db.radar_settings.push({ id: randomUUID(), ...RADAR_SETTINGS_DEFAULT, created_at: this.now(), updated_at: this.now(), version: 1 })
+    RADAR_CATEGORIES.forEach(([key, name, group_key], i) => this.db.radar_categories.push({ key, id: randomUUID(), name, group_key, sort_order: (i + 1) * 10, active: true, extra_keywords: [], version: 1 }))
   }
 
   // ---------------------------------------------------------------- Faz 7 tetikleyici karşılıkları
@@ -394,7 +437,9 @@ export class MockSupabase {
   insertRow(table, input, actor = OWNER.id, system = false) {
     const now = this.now()
     let row
-    if (table === 'project_status_history' || table === 'quantity_item_history' || table === 'quote_history') {
+    if (table === 'radar_actions') {
+      row = { id: this.radarActionSeq++, created_at: now, created_by: actor, note: null, from_status: null, ...input }
+    } else if (table === 'project_status_history' || table === 'quantity_item_history' || table === 'quote_history') {
       row = { id: this.historySeq++, changed_at: now, changed_by: actor, ...input }
     } else {
       // İstemcinin ürettiği UUID kabul edilir (idempotent yeniden deneme); aynı id ikinci kez eklenemez
@@ -426,6 +471,13 @@ export class MockSupabase {
       if (ok) row.uncertain = false
     }
     if (table === 'quote_settings') row = { ...SETTINGS_DEFAULTS, ...row }
+    if (RADAR_DEFAULTS[table]) row = { ...RADAR_DEFAULTS[table], ...row }
+    if (table === 'radar_opportunities') row = { first_seen_at: now, last_updated_at: now, ...row }
+    if (table === 'radar_sources') {
+      if (row.interval_minutes < 30) return guardError('radar_sources_interval_minutes_check')
+      if (row.url && /(^|\.)(ekap\.kik\.gov\.tr|ilan\.gov\.tr)(\/|$)/i.test(new URL(row.url).hostname + '/') && (row.kind !== 'manual' || row.permission_status === 'izinli')) return guardError('radar_sources_no_scrape')
+    }
+    if (table === 'radar_contacts' && (!row.source_url || !row.verified_at)) return { error: { status: 400, code: '23502', message: 'null value violates not-null constraint' } }
     if (table === 'quotes') {
       row = { ...QUOTE_DEFAULTS, ...row }
       if (row.status !== 'taslak') return guardError('Yeni teklif veya revizyon taslak olarak oluşturulur')
@@ -476,7 +528,7 @@ export class MockSupabase {
       const g = this.financeGuard(table, row, null)
       if (g) return g
     }
-    if (table === 'notifications' || table === 'project_events') return { error: { status: 403, code: '42501', message: 'permission denied' } }
+    if (!system && ['notifications', 'project_events', 'radar_actions', 'radar_opportunities', 'radar_items', 'radar_evidence', 'radar_opportunity_categories', 'radar_source_runs'].includes(table)) return { error: { status: 403, code: '42501', message: 'permission denied' } }
     this.db[table].push(row)
     this.broadcast(table, 'INSERT', row, null)
     this.afterInsert(table, row, actor)
@@ -547,6 +599,11 @@ export class MockSupabase {
       next = this.syncStage(next, old)
     }
     if (table === 'project_tasks') next.done_at = next.done ? (old.done ? old.done_at : this.now()) : null
+    if (table === 'radar_opportunities' && !system) {
+      // Sütun düzeyi yetki: istemci yalnız iş akışı alanlarını değiştirebilir
+      const bad = Object.keys(patch).filter((k) => !['status', 'status_note', 'next_action', 'notes'].includes(k))
+      if (bad.length) return { error: { status: 403, code: '42501', message: `permission denied for column ${bad[0]}` } }
+    }
     this.db[table][i] = next
     this.broadcast(table, 'UPDATE', next, { id: old.id })
     this.afterUpdate(table, old, next, actor)
@@ -557,6 +614,9 @@ export class MockSupabase {
     }
     if (table === 'projects' && next.status !== old.status) {
       this.insertRow('project_status_history', { project_id: id, from_status: old.status, to_status: next.status }, actor)
+    }
+    if (table === 'radar_opportunities' && next.status !== old.status) {
+      this.insertRow('radar_actions', { opportunity_id: id, from_status: old.status, to_status: next.status, note: next.status_note ?? null }, actor, true)
     }
     if (table === 'quotes' && patch.status && patch.status !== old.status) {
       this.insertRow('quote_history', { quote_id: id, root_id: old.root_id, action: 'durum', from_status: old.status, to_status: patch.status, note: null }, actor)
@@ -620,6 +680,12 @@ export class MockSupabase {
   // ---------------------------------------------------------------- "başka cihaz" simülasyonu
   externalInsert(table, input) {
     return this.insertRow(table, input).row
+  }
+  /** Sunucu (radar_ingest) yazımının karşılığı: istemcinin yazamadığı radar tablolarına test verisi */
+  serverInsert(table, input) {
+    const r = this.insertRow(table, input, null, true)
+    if (r.error) throw new Error(r.error.message)
+    return r.row
   }
   externalUpdate(table, id, patch) {
     return this.updateRow(table, id, patch)
@@ -801,6 +867,84 @@ export class MockSupabase {
       }
       if (p_mode === 'revizyon') this.updateRow('quotes', src.id, { superseded: true }, user.id, true)
       return json(200, r.row.id)
+    }
+
+
+    // ---------------- 015: LEONX AI Radar
+    if (p === '/rest/v1/rpc/radar_claim_source_test') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      const { p_source } = req.postDataJSON()
+      const src = this.db.radar_sources.find((x) => x.id === p_source)
+      if (!src || (src.last_test_at && Date.now() - Date.parse(src.last_test_at) < 5 * 60000)) return json(200, false)
+      this.updateRow('radar_sources', src.id, { last_test_at: this.now() }, user.id, true)
+      return json(200, true)
+    }
+    if (p === '/rest/v1/rpc/radar_add_manual_item') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      const { p_url, p_title, p_text } = req.postDataJSON()
+      if (!/^https?:\/\/[^\s/?#]+\.[^\s/?#]+/i.test(p_url ?? '')) return json(400, { code: '23514', message: 'Geçerli bir http(s) adresi girin' })
+      const clean = (t) => String(t ?? '').replace(/<(script|style)[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+      const canon = p_url.replace(/#.*$/, '')
+      const ex = this.db.radar_items.find((x) => x.canonical_url === canon)
+      if (ex) return json(200, ex.id)
+      let src = this.db.radar_sources.find((x) => x.kind === 'manual' && !x.url)
+      if (!src) src = this.insertRow('radar_sources', { name: 'Elle eklenen bağlantılar', kind: 'manual', permission_status: 'inceleniyor', active: false }, user.id, true).row
+      const text = clean(p_text)
+      const row = this.insertRow('radar_items', { source_id: src.id, canonical_url: canon, url_hash: canon, title: clean(p_title) || text.slice(0, 200), summary: text.slice(0, 4000), raw_text: text, content_hash: 'x', pending: true, first_seen_at: this.now(), last_seen_at: this.now() }, user.id, true).row
+      return json(200, row.id)
+    }
+    if (p === '/rest/v1/rpc/radar_import_to_crm') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      const { p_opportunity, p_company, p_create_project } = req.postDataJSON()
+      const opp = this.db.radar_opportunities.find((x) => x.id === p_opportunity)
+      if (!opp) return json(400, { code: 'P0002', message: 'Fırsat bulunamadı' })
+      let companyId = null
+      let projectId = null
+      if (p_company) {
+        const rc = this.db.radar_companies.find((x) => x.id === p_company)
+        if (!rc || !this.db.radar_opportunity_companies.some((l) => l.opportunity_id === opp.id && l.company_id === rc.id)) return json(400, { code: 'P0002', message: 'Firma bu fırsatla ilişkili değil' })
+        if (rc.crm_company_id && this.db.companies.some((c) => c.id === rc.crm_company_id)) companyId = rc.crm_company_id
+        else {
+          const email = this.db.radar_contacts.find((k) => k.company_id === rc.id && k.kind.endsWith('eposta'))?.value ?? null
+          const phone = this.db.radar_contacts.find((k) => k.company_id === rc.id && k.kind === 'telefon')?.value ?? null
+          companyId = this.insertRow('companies', { name: rc.name, email, phone, notes: 'LEONX Radar fırsatından aktarıldı.' }, user.id).row.id
+          this.updateRow('radar_companies', rc.id, { crm_company_id: companyId }, user.id, true)
+        }
+        if (!opp.crm_company_id) this.updateRow('radar_opportunities', opp.id, { crm_company_id: companyId }, user.id, true)
+      }
+      if (p_create_project) {
+        const cur = this.db.radar_opportunities.find((x) => x.id === opp.id)
+        if (cur.project_id && this.db.projects.some((x) => x.id === cur.project_id)) projectId = cur.project_id
+        else {
+          const year = new Date().getFullYear()
+          const nums = this.db.projects.map((x) => x.code.match(new RegExp(`^LX-${year}-(\\d+)$`))?.[1]).filter(Boolean).map(Number)
+          const code = `LX-${year}-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0')}`
+          projectId = this.insertRow('projects', { code, name: cur.title.slice(0, 200), category: 'diger', company_id: companyId ?? cur.crm_company_id, stage: 'yeni_firsat', location: [cur.district, cur.city].filter(Boolean).join(' / ') || null, description: 'LEONX Radar proje adayı' }, user.id).row.id
+          this.updateRow('radar_opportunities', opp.id, { project_id: projectId }, user.id, true)
+        }
+      }
+      return json(200, { company_id: companyId, project_id: projectId })
+    }
+
+    // ---------------- Edge Functions (radar)
+    if (p.startsWith('/functions/v1/')) {
+      const fn = p.slice('/functions/v1/'.length)
+      this.functionCalls.push({ fn, user: user?.email ?? null, body: req.method() === 'POST' ? req.postDataJSON() : null })
+      if (!this.radarFunctionsDeployed) return json(404, { code: 'NOT_FOUND', message: 'Requested function was not found' })
+      if (!this.isOwner(user)) return json(403, { error: 'Yetkisiz' })
+      const b = req.postDataJSON() ?? {}
+      if (fn === 'radar-scan' && b.test_source_id) {
+        // SENTETİK test yanıtı (gerçek kaynak indirilmedi)
+        return json(200, { ok: true, error: null, http_status: 200, content_type: 'application/rss+xml', item_count: 2, items: [{ title: 'Sentetik ilan 1', link: 'https://akis.ornek.test/1' }, { title: 'Sentetik ilan 2', link: 'https://akis.ornek.test/2' }], warnings: ['Tarih okunamadı: "dün"'], robots: 'gerekmiyor' })
+      }
+      if (fn === 'radar-contacts') {
+        const rc = this.db.radar_companies.find((x) => x.id === b.company_id)
+        if (!rc?.website) return json(400, { error: 'Firmanın web sitesi kayıtlı değil.' })
+        const host = new URL(rc.website).hostname.replace(/^www\./, '')
+        this.insertRow('radar_contacts', { company_id: rc.id, kind: 'satinalma_eposta', value: `satinalma@${host}`, source_url: `${rc.website.replace(/\/$/, '')}/iletisim`, verified_at: this.now() }, user.id, true)
+        return json(200, { pages: [{ url: `${rc.website}/iletisim`, status: 200, note: null }], saved: 1, skipped_personal: 1, skipped_foreign_domain: 0, skipped_irrelevant: 0 })
+      }
+      return json(404, { message: 'mock: bilinmeyen işlev' })
     }
 
     // ---------------- Storage
