@@ -1,4 +1,4 @@
-# LEONX AI — Proje ve İş Fırsatı Radarı (0.12.0)
+# LEONX AI — Proje ve İş Fırsatı Radarı (0.12.0 + 016 zamanlanmış istihbarat, 0.13.0)
 
 LEONX METAL'in ürün ve hizmetlerine (kapı sistemleri; alüminyum/PVC doğrama ve cephe; korkuluk; metal imalat)
 uygun proje ve iş fırsatlarını **izinli** kaynaklardan toplayan, **kaynağa bağlı kanıtla** sınıflandıran ve puanlayan,
@@ -156,7 +156,7 @@ Tekrar çalıştırılabilir; tablo veya veri silme yok; sahte fırsat tohumlanm
 
 ## 11. Dağıtım (sahip onayından sonra; bu dalda YAPILMADI)
 
-1. Migration'ı uygulayın (015). Uzak veritabanında önce yedek alın.
+1. Migration'ları sırayla uygulayın (015, ardından 016). Uzak veritabanında önce yedek alın.
 2. Edge Function'ları yayımlayın:
    - `supabase functions deploy radar-scan --no-verify-jwt` (zamanlayıcı JWT taşımaz; istek `x-leonx-cron` ile, test modu sahip JWT + `is_owner()` ile doğrulanır)
    - `supabase functions deploy radar-contacts` (sahip JWT; service_role kullanmaz)
@@ -166,8 +166,12 @@ Tekrar çalıştırılabilir; tablo veya veri silme yok; sahte fırsat tohumlanm
    `update leonx_private.radar_config set scan_url = 'https://<proje-ref>.supabase.co/functions/v1/radar-scan' where singleton;`
    (`leonx-radar` her saat :17'de, `leonx-radar-bildirim` :05'te çalışır; adres boşken hiçbir istek yapılmaz.)
 5. Kaynakları ekleyin, "Kaynağı test et" ile canlı doğrulayın, izin notunu yazın, ancak sonra "İzinli + Etkin" yapın.
+6. (İsteğe bağlı, 016) Cihazlar kapalıyken de yeni sürüm bildirimi için:
+   `update leonx_private.release_watch set version_url = 'https://leonx-os.vercel.app/version.json' where singleton;`
 
-**Geri alma**: `update leonx_private.radar_config set scan_url = null where singleton;` (tarama durur) · kaynakları pasif yapın ·
+**Geri alma**: `update leonx_private.radar_config set scan_url = null where singleton;` (tarama durur) ·
+016 işleri: `select cron.unschedule(j) from unnest(array['leonx-radar-gunluk','leonx-radar-haftalik','leonx-radar-guncelleme','leonx-radar-saglik','leonx-surum']) j;`,
+`update leonx_private.release_watch set version_url = null where singleton;` · kaynakları pasif yapın ·
 `select cron.unschedule('leonx-radar'); select cron.unschedule('leonx-radar-bildirim');` · Edge Function'ları kaldırın ·
 `radar_settings.search_api_enabled = false` · `TAVILY_API_KEY`'i silin. Tablolar veri kaybı olmadan kalır; arayüz boş durumu gösterir.
 
@@ -190,3 +194,26 @@ Tekrar çalıştırılabilir; tablo veya veri silme yok; sahte fırsat tohumlanm
 - `site` türü yalnız kayıtlı liste sayfasındaki aynı makine başlık bağlantılarını öğe sayar (bağlantılar indirilmez; özet boş).
 - İl/ilçe sözlüğü yalnız Ankara ilçelerini içerir; diğer illerde ilçe çıkarılmaz.
 - Puanın iletişim bileşeni sonradan bulunan kanallarla anında yeniden hesaplanmaz (§5).
+
+## 14. Zamanlanmış istihbarat (016, `20261023001600_leonx_radar_intel.sql`)
+
+Tümü sunucuda (pg_cron) çalışır; hiçbir cihazın açık olması gerekmez. Saatler Türkiye saati.
+
+| İş | Zaman | Ne yapar | Tekilleştirme |
+| --- | --- | --- | --- |
+| `leonx-radar` (015) | her saat :17 | keşif/güncelleme taraması | `radar:<id>` |
+| `leonx-radar-guncelleme` | her saat :35 | son tarih hatırlatması (7/3/1/0 gün; yalnız takip edilen veya doğrulanmış açık fırsatlar) + önemli değişiklik bildirimi | `radar:son:<id>:<gün>`, `radar:degisim:<id>:<zaman>` |
+| `leonx-radar-saglik` | her saat :50 | ≥3 ardışık hata veren kaynak; tarama bağlı + izinli kaynak varken 3 saattir çalıştırma yok | `radar:saglik:…:<gün>` (günde bir) |
+| `leonx-radar-gunluk` | 07:30 | günlük öncelikli rapor (`radar_reports`) | `radar:rapor:gunluk:<tarih>` |
+| `leonx-radar-haftalik` | Pazartesi 08:00 | haftalık hat, 7 gündür hareketsiz takipler, yaklaşan son tarihler | `radar:rapor:haftalik:<tarih>` |
+| `leonx-surum` | 10 dakikada bir | `version.json` yoklaması; yeni **production** derlemesi → `surum_yeni` | `surum_yeni:<buildId>` (açık uygulamanın `notify_client_event` çağrısıyla aynı anahtar → tek bildirim) |
+
+- **Önemli değişiklik**: daha önce bildirilmiş bir fırsatta aşama, son tarih, doğrulanmış ihtiyaç veya etiket değişirse `radar_changes`
+  satırı yazılır (tetikleyici; bu sütunları yalnız sunucu değiştirebilir). Fırsat başına tek birleşik bildirim; puan eşiği ve sessiz saat uygulanır.
+- **Raporlar**: LEONX AI › Raporlar. PDF/Excel aynı çiziciyle; potansiyel kayıtlar "doğrulanmış ihale değildir" notuyla.
+- **Sağlık**: Raporlar bölümünde `radar_health()` özeti (yalnız sahip). Hata bildirimleri `sistem` kategorisinde.
+- **Sürüm izleme** varsayılan **kapalı** (`release_watch.version_url` boş); yalnız `https://…/version.json` kabul edilir. İki adımlı pg_net
+  yoklaması: önceki isteğin yanıtı okunur, yeni istek atılır; ilk okuma yalnız temel alınır, preview derlemeleri ve HTTP hataları bildirilmez.
+- **CRM**: "Görev oluştur" (`radar_create_task`; proje adayı yoksa tekrarsız oluşturulur, son tarih ≤7 gün → acil) ve "Teklif taslağı"
+  (CRM firması gerekir; mevcut teklif modülünde **taslak**, kalem/fiyat girilmez, aynı proje+firma için ikinci taslak açılmaz).
+- Tablolar `radar_reports`, `radar_changes`: RLS (yalnız sahip okur), istemci yazamaz, Realtime yayınında.

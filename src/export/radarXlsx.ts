@@ -15,7 +15,7 @@ export function radarToXlsx(r: RadarReport): Uint8Array {
   return buildXlsx(
     [
       { name: 'Rapor', rows, cols: [34, 110] },
-      { name: 'Kaynaklar', rows: src, cols: [70, 60, 14, 18], freezeRows: 1 },
+      ...(r.noSourceSection ? [] : [{ name: 'Kaynaklar', rows: src, cols: [70, 60, 14, 18], freezeRows: 1 }]),
     ],
     { title: `LEONX AI Radar — ${r.title}`, creator: 'LEONX OS', created: r.generatedAt },
   )

@@ -227,7 +227,69 @@ export interface RadarData {
   usage: RadarSearchUsage[]
 }
 
-export const EMPTY_RADAR: RadarData = { items: [], settings: null, categories: [], sources: [], runs: [], opportunities: [], oppCategories: [], companies: [], oppCompanies: [], contacts: [], usage: [] }
+/** 016: önemli değişiklik (yalnız sunucu yazar) */
+export interface RadarChange {
+  id: string
+  opportunity_id: string
+  field: 'stage' | 'deadline' | 'verified_need' | 'label'
+  old_value: string | null
+  new_value: string | null
+  created_at: string
+  notified_at: string | null
+}
+
+/** 016: rapor satırındaki kısa fırsat özeti */
+export interface DigestOpp {
+  id: string
+  title: string
+  city: string | null
+  district?: string | null
+  score: number
+  reliability?: number
+  label?: RadarOpportunity['label']
+  stage?: OppStage
+  status: OppStatus
+  deadline: string | null
+  is_new?: boolean
+  next_action?: string | null
+  last_touch?: string
+}
+
+/** 016: zamanlanmış rapor (günlük öncelikli rapor / haftalık hat ve takip özeti) */
+export interface RadarDigest {
+  id: string
+  kind: 'gunluk' | 'haftalik'
+  period_start: string
+  period_end: string
+  created_at: string
+  payload: {
+    generated_at?: string
+    new_count?: number
+    updated_count?: number
+    verified_count?: number
+    top?: DigestOpp[]
+    deadlines?: DigestOpp[]
+    follow_ups?: DigestOpp[]
+    pipeline?: Partial<Record<OppStatus, number>>
+    won?: number
+    lost?: number
+    sources?: { active: number; failing: number; runs_24h: number; errors_24h: number }
+  }
+}
+
+/** 016: radar_health() */
+export interface RadarHealth {
+  checked_at: string
+  scan_configured: boolean
+  active_sources: number
+  failing_sources: { id: string; name: string; failures: number; last_status: RunStatus | null }[]
+  last_run_at: string | null
+  runs_24h: number
+  errors_24h: number
+  pending_notifications: number
+}
+
+export const EMPTY_RADAR: RadarData ={ items: [], settings: null, categories: [], sources: [], runs: [], opportunities: [], oppCategories: [], companies: [], oppCompanies: [], contacts: [], usage: [] }
 
 // ------------------------------------------------------------------ Etiketler
 export const STATUS_LABEL: Record<OppStatus, string> = {
