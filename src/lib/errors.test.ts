@@ -1,5 +1,33 @@
 import { describe, expect, it } from 'vitest'
-import { authErrorMessage, dataErrorMessage } from './errors'
+import { authErrorMessage, dataErrorMessage, isAuthExpiredError, isServerUnreachable, withHttpStatus } from './errors'
+
+describe('bağlantı ve oturum hatası sınıflandırması', () => {
+  it('ağ hatası, zaman aşımı ve 5xx "sunucuya ulaşılamıyor" sayılır; iş kuralı hataları sayılmaz', () => {
+    expect(isServerUnreachable({ message: 'TypeError: Failed to fetch', status: 0 })).toBe(true)
+    expect(isServerUnreachable({ message: 'AbortError: signal is aborted without reason', code: '' })).toBe(true)
+    expect(isServerUnreachable({ name: 'TimeoutError', message: 'x' })).toBe(true)
+    expect(isServerUnreachable({ message: 'Service Unavailable', status: 503 })).toBe(true)
+    expect(isServerUnreachable({ message: 'upstream', status: 520 })).toBe(true)
+    expect(isServerUnreachable({ code: '23505', status: 409 })).toBe(false)
+    expect(isServerUnreachable({ code: 'PGRST303', status: 401 })).toBe(false)
+    expect(isServerUnreachable(null)).toBe(false)
+  })
+  it('süresi dolmuş / geçersiz belirteç ayırt edilir', () => {
+    expect(isAuthExpiredError({ code: 'PGRST303', message: 'JWT expired', status: 401 })).toBe(true)
+    expect(isAuthExpiredError({ code: 'PGRST301' })).toBe(true)
+    expect(isAuthExpiredError({ message: 'JWT expired' })).toBe(true)
+    expect(isAuthExpiredError({ code: '42501', status: 403 })).toBe(false)
+  })
+  it('HTTP durumu hata nesnesine eklenir, var olan durum ezilmez', () => {
+    expect(withHttpStatus({ message: 'x' }, 503)).toEqual({ message: 'x', status: 503 })
+    expect(withHttpStatus({ message: 'x', status: 413 }, 400)).toEqual({ message: 'x', status: 413 })
+    expect(withHttpStatus(null, 500)).toBeNull()
+  })
+  it('kullanıcı iletileri', () => {
+    expect(dataErrorMessage({ message: 'Service Unavailable', status: 503 })).toMatch(/Sunucuya \(Supabase\) ulaşılamıyor/)
+    expect(dataErrorMessage({ code: 'PGRST303', message: 'JWT expired', status: 401 })).toMatch(/süresi doldu/)
+  })
+})
 
 describe('hata iletileri', () => {
   it('giriş hataları', () => {

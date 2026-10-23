@@ -22,6 +22,41 @@ export function isNetworkError(e: unknown): boolean {
   )
 }
 
+/**
+ * Sunucuya (Supabase) ulaşılamıyor mu? Ağ hatası, zaman aşımı/iptal (bkz. supabase.ts →
+ * fetchWithTimeout) veya 5xx yanıtı. Cihazın çevrimdışı olup olmadığı ayrıca kontrol edilmelidir.
+ */
+export function isServerUnreachable(e: unknown): boolean {
+  const err = e as AppErrorLike | undefined
+  const msg = (err?.message ?? '').toLowerCase()
+  if (isNetworkError(e)) return true
+  if (err?.name === 'AbortError' || err?.name === 'TimeoutError') return true
+  if (msg.includes('aborterror') || msg.includes('timeouterror') || msg.includes('timed out')) return true
+  return typeof err?.status === 'number' && (err.status === 0 || err.status >= 500)
+}
+
+/**
+ * Oturum belirteci sunucuda geçersiz veya süresi dolmuş (PostgREST 401 / PGRST301 / PGRST303,
+ * "JWT expired"). Cihaz saati yanlışsa istemci belirteci geçerli sanabilir; sunucu reddeder.
+ */
+export function isAuthExpiredError(e: unknown): boolean {
+  const err = e as AppErrorLike | undefined
+  const msg = (err?.message ?? '').toLowerCase()
+  return err?.status === 401 || err?.code === 'PGRST301' || err?.code === 'PGRST303' || msg.includes('jwt expired') || msg.includes('invalid jwt')
+}
+
+/** PostgREST yanıtının HTTP durumunu hata nesnesine ekler (hata nesnesi durum taşımaz) */
+export function withHttpStatus<E>(error: E, status: number | undefined): E {
+  if (error && typeof error === 'object' && typeof status === 'number' && typeof (error as AppErrorLike).status !== 'number') {
+    try {
+      ;(error as AppErrorLike).status = status
+    } catch {
+      /* dondurulmuş nesne */
+    }
+  }
+  return error
+}
+
 export function authErrorMessage(e: unknown): string {
   if (isNetworkError(e)) return 'Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edip tekrar deneyin.'
   const err = e as AppErrorLike
@@ -64,5 +99,7 @@ export function dataErrorMessage(e: unknown, context = 'İşlem'): string {
   if (err?.status === 413 || (err?.message ?? '').toLowerCase().includes('exceeded the maximum allowed size')) {
     return 'Dosya boyut sınırını aşıyor.'
   }
+  if (isServerUnreachable(e)) return 'Sunucuya (Supabase) ulaşılamıyor. Biraz sonra tekrar deneyin; verileriniz güvende.'
+  if (isAuthExpiredError(e)) return 'Oturumunuzun süresi doldu. Lütfen tekrar giriş yapın.'
   return `${context} tamamlanamadı. Lütfen tekrar deneyin.`
 }
