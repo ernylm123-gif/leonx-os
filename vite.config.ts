@@ -37,6 +37,10 @@ function versionFile(): Plugin {
     generateBundle() {
       this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ ...BUILD }, null, 2) })
     },
+    // Açılış koruması (public/boot-guard.js) paket hiç yüklenmese bile yüklü HTML'in sürümünü bilir
+    transformIndexHtml() {
+      return [{ tag: 'meta', attrs: { name: 'leonx-build', content: BUILD.buildId }, injectTo: 'head' }]
+    },
   }
 }
 
