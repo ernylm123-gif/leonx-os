@@ -1,0 +1,23 @@
+{
+  "_not": "SENTETİK TEST VERİSİ — Tavily yanıt biçiminde kaydedilmiş örnek; gerçek arama sonucu DEĞİLDİR.",
+  "query": "Ankara yangın kapısı ihalesi",
+  "results": [
+    {
+      "title": "Sincan'da okul binası yangın kapısı alımı ihalesi",
+      "url": "https://haber.ornek.test/sincan-okul-yangin-kapisi",
+      "content": "Sincan ilçesinde bir okul binası için yangın kapısı alımı ihalesi ilan edildi. Son teklif tarihi 30.11.2026.",
+      "score": 0.81,
+      "published_date": "2026-10-19"
+    },
+    {
+      "title": "Gölbaşı'nda yeni hastane inşaatı sürüyor",
+      "url": "https://haber.ornek.test/golbasi-hastane",
+      "content": "Gölbaşı'nda hastane inşaatı sürüyor; binada alüminyum doğrama kullanılacak.",
+      "score": 0.66
+    },
+    { "title": "Güvensiz bağlantı", "url": "http://haber.ornek.test/http-only", "content": "http adresi atlanmalı" },
+    { "title": "", "url": "https://haber.ornek.test/bos", "content": "" },
+    "bozuk-kayit"
+  ],
+  "response_time": 1.2
+}

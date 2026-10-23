@@ -1,6 +1,6 @@
 # LEONX OS — Geliştirme durumu
 
-Son güncelleme: PR-2 (DWG → DXF → PDF dönüştürme prototipi) · uygulama sürümü 0.9.2
+Son güncelleme: LEONX AI — Proje ve İş Fırsatı Radarı · uygulama sürümü 0.12.0 (0.10/0.11 numaraları bekleyen kasa ve BOM dallarına ayrıldı)
 
 0.8.2 (denetim düzeltmeleri): diyalog formları açılışta render sırasında sıfırlanır (hızlı yazılan değer/hata kaybı ve kararsız e2e giderildi);
 büyük listeler 1000 satırlık sayfalarla okunur (sessiz kesilme yok, 50 sayfa sınırında açık hata); bütçe formunda teklif kalemleri
@@ -23,11 +23,13 @@ Tek üretim adresi: <https://leonx-os.vercel.app> (yalnızca `main` dalından). 
 | 8 | Finans: birim maliyet kataloğu, kullanıcı kurları, proje bütçesi (kabul edilen teklif anlık görüntüsü), tahmini maliyet (elle / onaylı metrajdan), gerçekleşen gider (KDV ayrı), ödeme planı ve tahsilat (FIFO), tahmini/beklenen/gerçekleşen kâr, bütçe aşımı ve tahsilat bildirimleri, /finans paneli (nakit akışı, geciken ödemeler) |
 | 7 | 12 aşamalı proje akışı (liste + pano), ilerleme, adres/harita, gerçek bitiş tarihi; görev ve termin (hatırlatma, gecikme); sunucu olaylarından işlem geçmişi; bildirim merkezi (zil, geçmiş, okundu eşitleme, tercihler); Web Push (VAPID, kendi service worker'ı); canlı yönetim paneli; teklif kabulünde aşama önerisi |
 | 13 | CAD/BIM: **DXF mimari analiz** — model uzayı mimari motora (PDF ile aynı) sanal kâğıt olarak verilir: pafta türü, doğrama çizelgesi (metin tablosu), poz etiketi, kat tekrarı, teknik özellik, çelişki; blok geometrisiyle birleşik (yazılı ölçü yoksa ölçü bloktan, uyuşmazsa ölçü çelişkisi; duvarlar poz sayılmaz). **Metraj revizyon karşılaştırması** — eklenen/silinen/değişen pozlar, metraj farkı, katalog maliyet farkı ve teklif tutarı etkisi (fiyat yoksa tutar yok, para birimleri ayrı). Metraj özetinde brüt (boşluk) alan, çevre ve **malzeme/seri bazlı** tablo. DWG değerlendirmesi (`docs/DWG_DEGERLENDIRME.md`) |
+| LEONX AI | **Proje ve iş fırsatı radarı** (`docs/LEONX_AI_RADAR.md`): kural tabanlı Türkçe sınıflandırıcı (32 kategori, 81 il + 25 Ankara ilçesi, ihale/İKN/son tarih), doğrulanmış ↔ potansiyel ihtiyaç ayrımı, açıklanabilir fırsat puanı ve ayrı güvenilirlik, kaynaklı kanıt, Ankara öncelikli panel ve süzgeçler, A–F raporu (PDF/Excel), durum hattı ve geçmişi, CRM'e aktarma ve proje adayı, e-posta taslağı (gönderim yok), kaynak yönetimi ve "Kaynağı test et", elle bağlantı, asistan, `firsat` bildirim kategorisi; `radar-scan` / `radar-contacts` Edge Function'ları (SSRF koruması, robots.txt, Tavily bağlayıcısı + aylık bütçe; varsayılan kapalı). **Dağıtım sahip onayı bekliyor**; kaynaklar canlı doğrulanmadı |
 | PR-2 | **DWG → DXF → PDF dönüştürme prototipi**: ayrı, yalıtılmış dönüştürme servisi (`services/cad-worker`: GNU LibreDWG + ezdxf, Supabase JWT, kaynak sınırları, dosya saklamaz), kalite raporu (kaybolan nesne/katman/blok, birim, layout, XREF, proxy), PDF önizleme; uygulamada açık onayla sunucuda dönüştürme, dönüştürülen DXF'in mevcut analize verilmesi, özgün DWG/DXF/PDF indirme. Barındırma onay bekliyor (`docs/DWG_DONUSTURME.md`) |
 
 ## Veritabanı
 
-Migration'lar `supabase/migrations/` altında, sırasıyla 001–009, 011 (Faz 8 finans) ve 012 (Faz 5.2 inceleme); 010 numarası kullanılmadı.
+Migration'lar `supabase/migrations/` altında, sırasıyla 001–009, 011 (Faz 8 finans), 012 (Faz 5.2 inceleme) ve 015 (LEONX AI Radar; 013/014 bekleyen kasa/BOM dallarına ayrıldı); 010 numarası kullanılmadı.
+015 henüz uzak veritabanına UYGULANMADI (yerel `npm run test:db` ile iki kez uygulanıp sınandı).
 Hepsi gerçek Supabase projesine uygulandı (011 uzak test 14/14; 012 uzakta katalog doğrulaması: 5 sütun, tetikleyici, 3 kısıt, anon erişimi kapalı, mevcut satırlara dokunulmadı). Tümü
 tekrar çalıştırılabilir ve DROP/veri silme içermez.
 
@@ -38,7 +40,7 @@ tekrar çalıştırılabilir ve DROP/veri silme içermez.
 | `npm run test` | Doğruluk ölçümü (sentetik fikstürler: precision/recall, adet/ölçü/alan hatası), AutoCAD yazı-çizgi ve karma pafta için uçtan uca karo OCR, kart tipi liste, mimari PDF analizi (çok sayfalı proje, çizelge, ölçeksiz plan, yanlış ölçek, yazısız/taranmış/boş/bozuk PDF, OCR), hesap motorları (metraj, teklif), birim dönüşümleri, PDF/Excel içerik ve toplam eşitliği, sürüm, yeniden deneme |
 | `npm run bench:cad` | Doğruluk ölçümü; `CAD_REFERANS_DIR` ile gerçek referans projeler (depo dışında) |
 | `npm run test:db` | Migration'lar iki kez + RLS, kilit, numara, revizyon, silme ilişkileri; Faz 8: finans RLS, metraj çift aktarım engeli, kur seçimi, FIFO tahsilat, bütçe aşımı ve hatırlatma tekilleştirme; Faz 5.2: onay bilgisinin sunucuda yazılması, değiştirilemez ilk değer, belirsiz işareti, çelişki/doğrulama bildirimleri (yerel PostgreSQL) |
-| `npm run test:e2e` | Tarayıcı akışları (sahte Supabase): giriş, CRUD, çoklu cihaz, çevrimdışı, sürüm, CAD/metraj, teklif akışları, 6 ekran × 2 tema |
+| `npm run test:e2e` | Tarayıcı akışları (sahte Supabase): giriş, CRUD, çoklu cihaz, çevrimdışı, sürüm, CAD/metraj, teklif akışları, LEONX AI Radar (panel, rapor, CRM, taslak, kaynak testi, asistan, iPhone SE/iPad), 6 ekran × 2 tema |
 | `supabase/tests/*.remote_safe.sql` | Gerçek Supabase'de silmesiz, geri alınan RLS/kural testleri |
 
 CI (GitHub Actions) her PR'da kalite, veritabanı ve tarayıcı testlerini çalıştırır; Vercel build'i birim testleri ve

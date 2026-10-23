@@ -131,10 +131,10 @@ export const NAV_ITEMS: NavItem[] = [
     path: '/leonx-ai',
     code: 'M06',
     label: 'LEONX AI',
-    description: 'Yapay zekâ destekli asistan',
+    description: 'Proje ve iş fırsatı radarı (kural tabanlı, kaynaklı)',
     icon: Bot,
     group: 'muhendislik',
-    status: 'planned',
+    status: 'ready',
   },
   {
     path: '/raporlar',
