@@ -20,7 +20,7 @@ const fakeJwt = (user) =>
     role: 'authenticated',
     aud: 'authenticated',
     exp: Math.floor(Date.now() / 1000) + 3600,
-  })}.test-imza`
+  })}.dGVzdC1pbXph`  // "test-imza" (base64url; setSession biçimi doğrular)
 
 const TABLES = [
   'companies',
@@ -147,6 +147,10 @@ export class MockSupabase {
     this.historySeq = 1
     this.requests = []
     this.failNext = null
+    this.loginFailures = 0
+    this.loginCalls = []
+    /** owner-login sunucusundaki OWNER_EMAIL hangi hesabı gösteriyor (yanlış yapılandırma testi için değiştirilir) */
+    this.ownerLoginUser = null
     this.quoteCounter = {}
     this.copyNote = null
     this.eventSeq = 1
@@ -509,6 +513,8 @@ export class MockSupabase {
         row.quote_no = root.quote_no
         if (this.db.quotes.some((q) => q.root_id === row.root_id && q.revision === row.revision)) return { error: { status: 409, code: '23505', message: 'duplicate key value violates unique constraint "quotes_root_revision_unique"' } }
       }
+      // 017: fırsat başına tek teklif taslağı
+      if (row.radar_opportunity_id && this.db.quotes.some((q) => q.radar_opportunity_id === row.radar_opportunity_id)) return uniqueError('quotes_radar_opportunity_unique')
     }
     if (table === 'quote_items') {
       row = { ...ITEM_DEFAULTS, ...row }
@@ -974,6 +980,21 @@ export class MockSupabase {
     }
 
     // ---------------- Edge Functions (radar)
+    // ---------------- owner-login (yalnız şifre; sahip e-postası sunucu gizli değeri)
+    if (p === '/functions/v1/owner-login') {
+      const b = req.postDataJSON() ?? {}
+      this.loginCalls.push({ keys: Object.keys(b) })
+      if (this.loginFailures >= 5) return json(429, { error: 'Çok fazla hatalı deneme. 30 saniye sonra tekrar deneyin.', code: 'locked', retry_after: 30 })
+      const u = this.ownerLoginUser ?? OWNER
+      if (typeof b.password !== 'string' || b.password !== u.password) {
+        this.loginFailures = (this.loginFailures ?? 0) + 1
+        return json(401, { error: 'Şifre hatalı.', code: 'invalid_credentials' })
+      }
+      this.loginFailures = 0
+      const now = Math.floor(Date.now() / 1000)
+      return json(200, { access_token: fakeJwt(u), refresh_token: randomUUID(), expires_in: 3600, expires_at: now + 3600 })
+    }
+
     if (p.startsWith('/functions/v1/')) {
       const fn = p.slice('/functions/v1/'.length)
       this.functionCalls.push({ fn, user: user?.email ?? null, body: req.method() === 'POST' ? req.postDataJSON() : null })
@@ -1038,6 +1059,7 @@ export class MockSupabase {
     for (const [k, v] of url.searchParams) {
       if (['select', 'order', 'offset', 'limit', 'columns', 'on_conflict', 'or'].includes(k)) continue
       if (v === 'is.null') filters.push((r) => r[k] == null)
+      if (v === 'not.is.null') filters.push((r) => r[k] != null)
       const fm = v.match(/^eq\.(.*)$/)
       if (fm) filters.push((r) => String(r[k]) === fm[1])
       const im = v.match(/^in\.\((.*)\)$/)

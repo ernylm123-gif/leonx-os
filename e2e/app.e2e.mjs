@@ -88,7 +88,6 @@ async function eventually(fn, msg, timeout = 4000) {
 }
 async function login(page, user = OWNER, next = '/') {
   await page.goto(`${BASE}${next === '/' ? '/giris' : `/giris?next=${encodeURIComponent(next)}`}`)
-  await page.getByLabel('E-posta').fill(user.email)
   await page.locator('input[name="password"]').fill(user.password)
   await page.getByRole('button', { name: 'Giriş yap' }).click()
 }
@@ -133,26 +132,43 @@ await test('Giriş yapılmadan özel sayfa açılamaz ve veri istenmez', async (
   expect((await signup.count()) + (await signupBtn.count()) === 0, 'herkese açık kayıt seçeneği var')
 })
 
-await test('Form doğrulaması ve hatalı şifre iletisi', async ({ page }) => {
+await test('Yalnız şifre ile giriş: e-posta alanı yok, hatalı şifre ve kilit iletisi', async ({ page, mock }) => {
   await page.goto(`${BASE}/giris`)
+  expect((await page.locator('input[type="email"], input[name="email"]').count()) === 0, 'giriş ekranında e-posta alanı var')
+  expect((await page.getByLabel('E-posta').count()) === 0, 'giriş ekranında e-posta etiketi var')
+  await page.getByRole('button', { name: 'Giriş Yap', exact: true }).waitFor()
   await page.getByRole('button', { name: 'Giriş yap' }).click()
-  await page.getByText('Geçerli bir e-posta adresi girin.').waitFor()
   await page.getByText('Şifrenizi girin.').waitFor()
-  await page.getByLabel('E-posta').fill(OWNER.email)
-  await page.locator('input[name="password"]').fill('yanlis-sifre')
+  expect(mock.loginCalls.length === 0, 'boş şifre sunucuya gönderildi')
+  for (let i = 0; i < 5; i++) {
+    await page.locator('input[name="password"]').fill(`yanlis-sifre-${i}`)
+    await page.getByRole('button', { name: 'Giriş yap' }).click()
+    await page.getByText('Şifre hatalı.').waitFor()
+    expect((await page.locator('input[name="password"]').inputValue()) === '', 'hatalı denemeden sonra şifre alanı temizlenmedi')
+  }
+  await page.locator('input[name="password"]').fill(OWNER.password)
   await page.getByRole('button', { name: 'Giriş yap' }).click()
-  await page.getByText('E-posta veya şifre hatalı.').waitFor()
-  expect((await page.locator('input[name="password"]').inputValue()) === '', 'hatalı denemeden sonra şifre alanı temizlenmedi')
+  await page.getByText(/Çok fazla hatalı deneme/).waitFor()
+  expect(mock.loginCalls.length === 6 && mock.loginCalls.every((c) => c.keys.length === 1 && c.keys[0] === 'password'), 'giriş isteğinde şifre dışında alan gönderildi')
+  expect(!mock.requests.some((r) => r.path === '/auth/v1/token'), 'istemci doğrudan e-posta/şifre girişi yaptı')
+})
+
+await test('Giriş hizmeti kurulmamışsa anlaşılır ileti', async ({ page, mock }) => {
+  mock.failNext = { match: '/functions/v1/owner-login', status: 404, body: { code: 'NOT_FOUND', message: 'Requested function was not found' } }
+  await login(page)
+  await page.getByText(/Giriş hizmeti henüz kurulmamış/).waitFor()
 })
 
 await test('Bağlantı hatasında anlaşılır ileti', async ({ page, mock }) => {
-  mock.failNext = { match: '/auth/v1/token', abort: true }
+  mock.failNext = { match: '/functions/v1/owner-login', abort: true }
   await login(page)
   await page.getByText(/Sunucuya ulaşılamadı/).waitFor()
 })
 
 await test('Geçerli ama yetkisiz hesap hiçbir veriye erişemez', async ({ page, mock }) => {
   mock.externalInsert('companies', { name: 'Gizli Firma' })
+  // Sunucudaki OWNER_EMAIL yanlış hesabı gösteriyorsa: oturum açılır ama is_owner() reddeder
+  mock.ownerLoginUser = INTRUDER
   await login(page, INTRUDER)
   await page.getByRole('heading', { name: 'Bu hesap yetkili değil' }).waitFor()
   expect((await page.getByText('Gizli Firma').count()) === 0, 'yetkisiz kullanıcı veri gördü')
@@ -1750,6 +1766,16 @@ await test('LEONX AI Radar 016: zamanlanmış raporlar (günlük/haftalık, PDF/
   await page.getByTestId('opp-quote').click()
   await page.waitForURL(/\/teklifler\//)
   expect(mock.db.quotes.length === 1, 'teklif taslağı çiftlendi')
+  expect(mock.db.quotes[0].radar_opportunity_id === a.id, 'teklif taslağı fırsata bağlanmadı (017)')
+  // 0.14.0: başka cihaz aynı fırsata teklif açmışsa (veritabanı benzersizliği) ikinci taslak oluşmaz
+  expect(mock.insertRow('quotes', { company_id: mock.db.quotes[0].company_id, title: 'İkinci', radar_opportunity_id: a.id }).error?.code === '23505', 'fırsat başına tek teklif kuralı yok')
+  // CRM hattı: bağlı teklif "Teklif hazırlandı" sütununda; her kartta öneri (tavsiye etiketiyle)
+  await page.goto(`${BASE}/leonx-ai`)
+  await page.getByTestId('radar-card-advice').first().getByText(/tavsiyedir/).waitFor()
+  await page.getByTestId('radar-mode-hat').click()
+  await page.getByTestId('radar-pipeline').waitFor()
+  await page.getByTestId('pipeline-teklif_hazirlandi').getByText(a.title).waitFor()
+  expect((await page.getByTestId('pipeline-teklif_hazirlandi').getByTestId('pipeline-count').innerText()) === '1', 'teklif hazırlandı sütunu sayısı yanlış')
   const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime|404/i.test(e))
   expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
 }, { viewport: { width: 1440, height: 900 }, acceptDownloads: true })
@@ -1821,9 +1847,17 @@ await test('LEONX AI Radar: asistan yalnız kayıtlardan yanıt verir, dayandı�
   await page.getByTestId('assistant-send').click()
   await eventually(async () => (await page.getByTestId('assistant-answer').first().innerText()) === 'Doğrulanmış sonuç bulunamadı.', 'eşleşmeyen soruya uydurma yanıt')
   expect(mock.functionCalls.length === 0, 'asistan dış işlev çağırdı')
+  // Fırsat sayfasında "bu proje": eksik bilgiler "bilinmiyor" olarak, uydurma olmadan
+  await page.goto(`${BASE}/leonx-ai/firsat/${a.id}`)
+  await page.getByTestId('opp-advice').getByText(/Öneri \(tavsiyedir/).waitFor()
+  await page.getByTestId('opp-assistant').getByRole('button', { name: 'Bu proje için hangi bilgiler eksik?' }).click()
+  await page.getByTestId('opp-assistant').getByTestId('assistant-answer').first().getByText(/bulunmayan bilgiler \(bilinmiyor\)/).waitFor()
+  await page.getByTestId('opp-assistant').getByRole('button', { name: 'Bu firmaya kurumsal teklif talep mesajı hazırla.' }).click()
+  await page.getByTestId('opp-assistant').getByTestId('assistant-answer').first().getByText(/otomatik gönderilmez/).waitFor()
+  expect(mock.functionCalls.length === 0, 'asistan dış işlev çağırdı')
 })
 
-for (const [name, dev] of [['iphone-se', devices['iPhone SE']], ['ipad', devices['iPad Pro 11']]]) {
+for (const [name, dev] of [['iphone-se', devices['iPhone SE']], ['ipad', devices['iPad Pro 11']], ['android', devices['Pixel 7']]]) {
   const { defaultBrowserType: _ignored, ...opts } = dev
   await test(`LEONX AI Radar ekran ${name}: panel, rapor, kaynaklar, asistan — taşma yok`, async ({ page, mock, consoleErrors }) => {
     const { a } = seedRadar(mock)

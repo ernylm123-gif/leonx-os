@@ -25,12 +25,28 @@ interface AuthContextValue {
   /** owner_check_failed durumunda kullanıcıya gösterilecek ileti */
   ownerError: string | null
   signOutReason: SignOutReason
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>
+  /** Yalnız şifre: sahip e-postası sunucuda (owner-login Edge Function, OWNER_EMAIL) tutulur */
+  signIn: (password: string) => Promise<{ error: string | null }>
   signOut: (scope?: 'local' | 'global') => Promise<void>
   retryOwnerCheck: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
+
+/** owner-login hata yanıtını Türkçe iletiye çevirir (sunucu iletisi zaten geneldir) */
+async function ownerLoginError(err: unknown): Promise<string> {
+  const e = err as { name?: string; context?: Response }
+  const ctx = e.context
+  if (e.name === 'FunctionsFetchError' || !ctx || typeof ctx.status !== 'number') return authErrorMessage({ name: 'AuthRetryableFetchError' })
+  if (ctx.status === 404) return 'Giriş hizmeti henüz kurulmamış (owner-login). Kurulum: docs/SUPABASE_KURULUM.md'
+  try {
+    const body = (await ctx.json()) as { error?: unknown }
+    if (typeof body.error === 'string' && body.error.length <= 200) return body.error
+  } catch {
+    // gövde okunamadı
+  }
+  return ctx.status === 429 ? 'Çok fazla deneme yapıldı. Birkaç dakika bekleyip tekrar deneyin.' : 'Giriş yapılamadı. Lütfen tekrar deneyin.'
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
@@ -91,11 +107,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [verifyOwner])
 
-  const signIn = useCallback(async (email: string, password: string) => {
+  const signIn = useCallback(async (password: string) => {
     if (!supabase) return { error: 'Supabase yapılandırılmamış.' }
     setSignOutReason(null)
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+      const r = await supabase.functions.invoke('owner-login', { body: { password } })
+      if (r.error) return { error: await ownerLoginError(r.error) }
+      const s = r.data as { access_token?: string; refresh_token?: string } | null
+      if (!s?.access_token || !s.refresh_token) return { error: 'Giriş yapılamadı. Lütfen tekrar deneyin.' }
+      const { error } = await supabase.auth.setSession({ access_token: s.access_token, refresh_token: s.refresh_token })
       return { error: error ? authErrorMessage(error) : null }
     } catch (e) {
       return { error: authErrorMessage(e) }
