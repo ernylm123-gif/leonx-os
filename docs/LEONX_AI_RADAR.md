@@ -1,4 +1,4 @@
-# LEONX AI — Proje ve İş Fırsatı Radarı (0.12.0 + 016 zamanlanmış istihbarat, 0.13.0)
+# LEONX AI — Proje ve İş Fırsatı Radarı (0.12.0 + 016 zamanlanmış istihbarat, 0.13.0 + 017 yayın hazırlığı, 0.14.0)
 
 LEONX METAL'in ürün ve hizmetlerine (kapı sistemleri; alüminyum/PVC doğrama ve cephe; korkuluk; metal imalat)
 uygun proje ve iş fırsatlarını **izinli** kaynaklardan toplayan, **kaynağa bağlı kanıtla** sınıflandıran ve puanlayan,
@@ -156,8 +156,12 @@ Tekrar çalıştırılabilir; tablo veya veri silme yok; sahte fırsat tohumlanm
 
 ## 11. Dağıtım (sahip onayından sonra; bu dalda YAPILMADI)
 
-1. Migration'ları sırayla uygulayın (015, ardından 016). Uzak veritabanında önce yedek alın.
+1. Migration'ları sırayla uygulayın (015, 016, ardından 017). Uzak veritabanında önce yedek alın ve geri yüklemeyi üretim dışı bir hedefte deneyin.
+   013/014 (kasa/BOM dalları) ile uygulama sırası sahip kararıdır (§15).
 2. Edge Function'ları yayımlayın:
+   - `supabase functions deploy owner-login --no-verify-jwt` (yalnız şifre ile giriş; **arayüzden önce** dağıtılmalı, yoksa giriş ekranı
+     "Giriş hizmeti henüz kurulmamış" der). Gizli değer: `OWNER_EMAIL` (sahip hesabının e-postası; istemci paketinde yer almaz),
+     isteğe bağlı `OWNER_LOGIN_SALT`. Kaba kuvvet sayaçları 017'deki `owner_login_check/record` (yalnız service_role).
    - `supabase functions deploy radar-scan --no-verify-jwt` (zamanlayıcı JWT taşımaz; istek `x-leonx-cron` ile, test modu sahip JWT + `is_owner()` ile doğrulanır)
    - `supabase functions deploy radar-contacts` (sahip JWT; service_role kullanmaz)
 3. Gizli değişkenler: `RADAR_ALLOWED_ORIGINS=https://leonx-os.vercel.app` (CORS); isteğe bağlı `TAVILY_API_KEY` (koşullar onaylandıktan sonra).
@@ -170,6 +174,9 @@ Tekrar çalıştırılabilir; tablo veya veri silme yok; sahte fırsat tohumlanm
    `update leonx_private.release_watch set version_url = 'https://leonx-os.vercel.app/version.json' where singleton;`
 
 **Geri alma**: `update leonx_private.radar_config set scan_url = null where singleton;` (tarama durur) ·
+017: `drop trigger if exists radar_opportunity_rescore on public.radar_opportunities; drop trigger if exists radar_contacts_rescore on public.radar_contacts;
+drop trigger if exists radar_opportunity_companies_rescore on public.radar_opportunity_companies;` (puanlar son değerinde kalır) ·
+yalnız şifre girişini geri almak için önceki arayüz sürümüne dönülür (Vercel → önceki dağıtımı Promote); `owner-login` kaldırılabilir ·
 016 işleri: `select cron.unschedule(j) from unnest(array['leonx-radar-gunluk','leonx-radar-haftalik','leonx-radar-guncelleme','leonx-radar-saglik','leonx-surum']) j;`,
 `update leonx_private.release_watch set version_url = null where singleton;` · kaynakları pasif yapın ·
 `select cron.unschedule('leonx-radar'); select cron.unschedule('leonx-radar-bildirim');` · Edge Function'ları kaldırın ·
@@ -192,8 +199,10 @@ Tekrar çalıştırılabilir; tablo veya veri silme yok; sahte fırsat tohumlanm
 - Gerçek kaynak akışları bu ortamdan doğrulanamadı (ağ yok); dağıtımdan sonra her kaynak "Kaynağı test et" ile denenmeli.
 - Edge Function'lar Deno ile yerelde çalıştırılmadı (ortamda Deno yok); çekirdek mantık aynı modüllerle Vitest'te sınandı.
 - `site` türü yalnız kayıtlı liste sayfasındaki aynı makine başlık bağlantılarını öğe sayar (bağlantılar indirilmez; özet boş).
-- İl/ilçe sözlüğü yalnız Ankara ilçelerini içerir; diğer illerde ilçe çıkarılmaz.
-- Puanın iletişim bileşeni sonradan bulunan kanallarla anında yeniden hesaplanmaz (§5).
+- İl/ilçe sözlüğü 81 ilin 922 ilçesini içerir ("Merkez" ilçeler hariç). İl adı geçmeden yalnız ayırt edici ilçe adından il çıkarılır
+  (düşük güven); aynı adlı ilçeler (Ereğli, Yenişehir…) ve gündelik sözcük/kulüp adları (Pazar, Kale, Beşiktaş…) il geçmedikçe konum sayılmaz.
+  Ankara semti olan adlar (Bahçelievler, Maltepe, Kavaklıdere) başka ile kaydırılmaz. Mahalle düzeyi yoktur.
+- 0.14.0'dan önce puanın iletişim bileşeni sonradan bulunan kanallarla yeniden hesaplanmıyordu; 017 ile düzeltildi (§15).
 
 ## 14. Zamanlanmış istihbarat (016, `20261023001600_leonx_radar_intel.sql`)
 
@@ -217,3 +226,49 @@ Tümü sunucuda (pg_cron) çalışır; hiçbir cihazın açık olması gerekmez.
 - **CRM**: "Görev oluştur" (`radar_create_task`; proje adayı yoksa tekrarsız oluşturulur, son tarih ≤7 gün → acil) ve "Teklif taslağı"
   (CRM firması gerekir; mevcut teklif modülünde **taslak**, kalem/fiyat girilmez, aynı proje+firma için ikinci taslak açılmaz).
 - Tablolar `radar_reports`, `radar_changes`: RLS (yalnız sahip okur), istemci yazamaz, Realtime yayınında.
+
+## 15. Yayın hazırlığı (0.14.0, 017 `20261025001700_leonx_radar_release.sql`)
+
+**Yalnız şifre ile giriş.** Giriş ekranında yalnız *Şifre* alanı ve *Giriş Yap* düğmesi vardır. İstemci şifreyi `owner-login` Edge
+Function'ına gönderir; işlev sahip e-postasını `OWNER_EMAIL` gizli değerinden okur, Supabase Auth girişini sunucuda yapar ve oturum
+belirteçlerini döner (istemci `supabase.auth.setSession`). Yetki modeli değişmez: RLS + `is_owner()`; anon rolüne veri yetkisi yoktur.
+Kaba kuvvet koruması: IP adresinin SHA-256 özetiyle (IP açık metin saklanmaz) 15 dakikalık pencerede 5 hatadan sonra 30 sn × 2^(hata−5)
+kilit (en çok 1 saat), genel sınır 15 dakikada 50 hata → 5 dakika; hatalı denemede 0,8 sn sabit gecikme, genel ileti ("Şifre hatalı.").
+Supabase Auth'un kendi hız sınırları da geçerlidir. CORS: `RADAR_ALLOWED_ORIGINS`; listede olmayan `Origin` 403. Şifre ve e-posta loglanmaz.
+Bilinen ödünleşimler: IP, vekilin ilettiği `x-forwarded-for` başlığından okunur; başlığı değiştiren bir saldırgan IP sınırını aşsa da genel
+sınıra takılır. Genel sınır, kasıtlı hatalı denemelerle sahibin yeni girişini en çok 5 dakika geciktirebilir; açık oturumlar etkilenmez.
+Şifre tek etken olduğundan uzun ve benzersiz olması zorunludur.
+**Şifre**: `123456` kamuya açıklanmış bir şifredir, kullanılmaz. Sahip Supabase panelinde (Authentication → Users) en az 16 karakterli güçlü
+bir şifre belirler; yayın bu onaya bağlıdır. Şifre hiçbir yerde saklanmaz, Claude tarafından seçilmez.
+
+**İletişim etkeninin yeniden hesaplanması.** `score_breakdown` içindeki `iletisim` parçası artık sınıflandırmadan gelen taban değeri
+(`base_factor`, `base_reason`) taşır. Fırsatın bağlı firmalarına kaynaklı kanal eklenince/silinince veya firma bağlantısı değişince
+tetikleyici aynı kuralla (portal / ihale adresi / satın alma e-postası → 1; diğer kanal → 0,7; yoksa taban) etkeni ve toplam puanı yeniden
+hesaplar. Tarama dökümü yeniden yazsa da kayıtlı kanal korunur. 017 mevcut kayıtları bir kez yeniden puanlar.
+
+**Fırsattan teklif.** `quotes.radar_opportunity_id` (benzersiz): fırsat başına tek teklif taslağı; iki cihaz aynı anda bassa da ikinci taslak
+açılmaz, mevcut olan açılır. Revizyon ve kopyalar bu bağı taşımaz. Taslakta kalem ve fiyat üretilmez ("fiyat tanımlanmamış").
+
+**CRM hattı.** Panelde *Liste / CRM hattı* görünümü. Sütunlar mevcut durum değerleridir: Keşfedildi (yeni) → Araştırılıyor (inceleniyor) →
+Nitelikli (firma_dogrulandi) → İletişime hazır (iletisim_planlandi) → İletişime geçildi → Teklif istendi → **Teklif hazırlandı** (bağlı
+taslaktan türetilir; yeni durum değeri eklenmedi) → Teklif verildi → Görüşme → Kazanıldı / Kaybedildi (ilgisiz gösterilmez).
+
+**Öneri (tavsiye).** Her kartta ve fırsat sayfasında `advice.ts` kuralıyla beş öneriden biri: Hemen iletişime geç · Teklif hazırla ·
+Araştırmaya devam et · Sonra takip et · Düşük öncelik — gerekçesiyle ve "tavsiyedir, doğrulanmış bilgi değildir" etiketiyle.
+
+**Asistan.** Yeni soru türleri: "henüz ihaleye çıkmamış", "son N günde değişenler" (son güncelleme tarihine göre), "öncelikli N işim"
+(açık kayıtlar + öneri), "hangi firmalara teklif göndermeliyim" (yalnız kaynaklı kanalı olan firmalar; öneri etiketli), "bu proje için hangi
+bilgiler eksik" ve "bu firmaya teklif talep mesajı hazırla" (fırsat sayfasındaki asistan odaktaki kaydı kullanır). Odak veya ad yoksa
+asistan hangi kaydı kastettiğinizi sorar; uydurmaz.
+
+**Kategori eşlemesi** (yeni kategori gerekmedi): alüminyum → `aluminyum_dograma`; PVC → `pvc_dograma`; giydirme/cam cephe → `giydirme_cephe`,
+`cam_cephe`; kompozit → `kompozit_cephe`; cam balkon → `surme_sistemleri`, cam korkuluk → `aluminyum_korkuluk`; çelik kapı → `celik_kapi`;
+yangın kapısı → `yangin_kapisi`; iç kapı → `oda_kapisi`, `ahsap_melamin_kapi`, `lake_kapi`; giriş/pivot → `bina_giris_kapisi`,
+`villa_giris_kapisi`, `pivot_kapi`; korkuluk/metal → `metal_korkuluk`, `kupeste`, `dekoratif_metal_cephe`; çelik yapı → `ozel_metal_imalat`;
+lazer/delikli sac → `lazer_kesim`, `boru_profil_lazer`, `delikli_sac`, `cnc_abkant`.
+
+**Kaynak adayları**: `docs/LEONX_RADAR_KAYNAK_ADAYLARI.md` — sahip onayı için; hiçbiri "İzinli" yapılmadı.
+
+**Testler**: `supabase/tests/radar_release.test.sql` (giriş koruması, yeniden puanlama, tekil teklif), `_shared/auth/ownerLogin.test.ts`,
+`_shared/radar/release.test.ts` (8 örnek soru, öneri, taban etken), il/ilçe testleri (`classify.test.ts`), tarayıcıda yalnız şifre girişi,
+kilit iletisi, hizmet kurulmamış iletisi, CRM hattı, Android (Pixel 7) ekranı.

@@ -47,7 +47,8 @@ Bu ayarı kapatın:
 ## 3. Kullanıcı hesabınızı oluşturun
 
 1. **Authentication → Users → Add user → Create new user**.
-2. E-posta adresinizi ve **güçlü bir şifre** girin (en az 12 karakter; parola yöneticisi önerilir).
+2. E-posta adresinizi ve **güçlü bir şifre** girin (en az 16 karakter; parola yöneticisi önerilir). `123456` gibi kamuya
+   açıklanmış veya kısa şifreler kullanılmaz: 0.14.0'dan itibaren giriş ekranında e-posta alanı yoktur, yalnız şifre sorulur.
 3. **Auto Confirm User** seçeneğini işaretleyin → **Create user**.
 4. Oluşan satırdaki **User UID** değerini kopyalayın (5. adımda gerekecek).
 
@@ -141,15 +142,25 @@ yalnızca SQL Editor'dan yapılabilir.
 > uygulama "Kurulum gerekli" ekranını gösterir. Değişkenler yalnızca publishable anahtar içerdiği için
 > Preview ortamına eklenmeleri güvenlidir; `service_role` / `sb_secret_` anahtarı hiçbir ortama eklenmez.
 
+### Yalnız şifre ile giriş (0.14.0)
+
+Giriş ekranı yalnız şifre sorar; e-posta sunucuda tutulur:
+
+1. Migration 017'yi uygulayın (kaba kuvvet sayaçları).
+2. **Edge Functions → Secrets**: `OWNER_EMAIL` = 3. adımda oluşturduğunuz hesabın e-postası; `RADAR_ALLOWED_ORIGINS=https://leonx-os.vercel.app`.
+   İsteğe bağlı `OWNER_LOGIN_SALT` (rastgele uzun bir değer).
+3. `supabase functions deploy owner-login --no-verify-jwt`
+4. Bu işlev dağıtılmadan yeni arayüz yayımlanırsa giriş ekranı "Giriş hizmeti henüz kurulmamış" der; önce işlevi dağıtın.
+
 ## 9. Doğrulama
 
-1. Uygulamayı açın → giriş ekranı görünmeli (kayıt bağlantısı yoktur).
-2. Hesabınızla giriş yapın → Dashboard açılmalı; üst çubukta senkronizasyon göstergesi **Canlı** olmalı.
+1. Uygulamayı açın → giriş ekranı görünmeli (kayıt bağlantısı yoktur; yalnız Şifre alanı ve Giriş Yap düğmesi).
+2. Şifrenizle giriş yapın → Dashboard açılmalı; üst çubukta senkronizasyon göstergesi **Canlı** olmalı.
 3. Bir firma ve bir proje ekleyin.
 4. iPad veya telefonunuzda aynı hesapla giriş yapın; kayıtlar görünmeli. Bir cihazda proje durumunu
    değiştirin, diğer cihazda birkaç saniye içinde güncellendiğini görün.
-5. (İsteğe bağlı) Supabase'de ikinci bir test kullanıcısı oluşturup onunla giriş yapın: "Bu hesap yetkili
-   değil" ekranı görünmeli ve hiçbir veri görünmemelidir. Testten sonra bu kullanıcıyı silin.
+5. Yanlış şifreyi 5 kez deneyin: "Çok fazla hatalı deneme … sonra tekrar deneyin" iletisi görünmeli (kilit kısa sürelidir).
+6. `OWNER_EMAIL` yanlışlıkla sahip olmayan bir hesabı gösteriyorsa "Bu hesap yetkili değil" ekranı görünür ve hiçbir veri görünmez.
 
 ## Free plan notları
 
