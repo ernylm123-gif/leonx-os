@@ -241,6 +241,16 @@ sınıra takılır. Genel sınır, kasıtlı hatalı denemelerle sahibin yeni gi
 **Şifre**: `123456` kamuya açıklanmış bir şifredir, kullanılmaz. Sahip Supabase panelinde (Authentication → Users) en az 16 karakterli güçlü
 bir şifre belirler; yayın bu onaya bağlıdır. Şifre hiçbir yerde saklanmaz, Claude tarafından seçilmez.
 
+**Tek kullanımlık kayıt kodu ve yetkili cihazlar.** Aynı alan *kayıt kodu* da kabul eder. Kod `owner_enrollment_open(kod, dakika)` ile
+yalnız sahip (veya SQL Editor) tarafından açılır: 6–64 karakter, en çok 30 dakika, tek kullanımlık; tabloda (`leonx_private.owner_enrollment`)
+yalnız SHA-256 özeti tutulur, yeni kod öncekini geçersiz kılar. `owner-login` önce kodu atomik olarak tüketir (`owner_enrollment_consume`,
+yalnız `service_role`), sonra sahip için e-posta göndermeden sunucuda oturum üretir (`generateLink` + `verifyOtp`); hatalı kod şifre
+gibi sayılır ve aynı kilit sınırına girer. Her başarılı giriş `owner_devices` tablosuna oturum kimliğiyle bir cihaz satırı yazar. Cihaz,
+Supabase oturumunun yenileme belirteci ile hatırlanır (uygulama kapatılıp açıldığında veya PWA'da şifre sorulmaz; belirteç otomatik
+yenilenir). **İptal**: `owner_device_revoke` satırı işaretler ve `auth.sessions` kaydını siler — cihaz uygulamayı açtığında veya öne
+getirdiğinde `owner_device_touch` → `iptal` ile yerel oturumu kapatır; en geç erişim belirtecinin süresi (≤ 1 saat) dolunca yenileme
+reddedilir. `123456` yalnız ilk kayıt için, sahip tarafından açılan kısa bir pencerede kullanılır; kalıcı kimlik bilgisi değildir.
+
 **İletişim etkeninin yeniden hesaplanması.** `score_breakdown` içindeki `iletisim` parçası artık sınıflandırmadan gelen taban değeri
 (`base_factor`, `base_reason`) taşır. Fırsatın bağlı firmalarına kaynaklı kanal eklenince/silinince veya firma bağlantısı değişince
 tetikleyici aynı kuralla (portal / ihale adresi / satın alma e-postası → 1; diğer kanal → 0,7; yoksa taban) etkeni ve toplam puanı yeniden

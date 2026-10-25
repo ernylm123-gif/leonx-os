@@ -3,6 +3,7 @@
 --   A) Yalnız şifre ile giriş için kaba kuvvet koruması (owner-login Edge Function)
 --   B) İletişim kanalı sonradan bulunduğunda fırsat puanının iletişim etkeni yeniden hesaplanır
 --   C) Fırsattan teklif taslağı: fırsat başına tek teklif (veritabanı düzeyinde tekrar önleme)
+--   D) Tek kullanımlık, kısa ömürlü cihaz kayıt kodu ve yetkili cihazlar (hatırlama, iptal)
 -- 015 ve 016'ya bağlıdır. Tekrar çalıştırılabilir; tablo veya veri silmez (yalnız süresi geçmiş
 -- giriş denemesi sayaçları temizlenir). Şifre veya e-posta veritabanında SAKLANMAZ.
 -- =====================================================================
@@ -254,3 +255,181 @@ update public.radar_opportunities o
 -- =====================================================================
 alter table public.quotes add column if not exists radar_opportunity_id uuid references public.radar_opportunities (id) on delete set null;
 create unique index if not exists quotes_radar_opportunity_unique on public.quotes (radar_opportunity_id) where radar_opportunity_id is not null;
+
+-- =====================================================================
+-- D) CİHAZ KAYDI
+--   Kayıt kodu kalıcı kimlik bilgisi DEĞİLDİR: yalnız SHA-256 özeti saklanır, en çok 30 dakika geçerlidir,
+--   tek kullanımlıktır ve yeni kod açılınca öncekiler geçersiz olur. Kod, Supabase SQL Editor'dan
+--   (postgres) veya yetkili bir cihazdan (sahip oturumu) açılır. Kodu yalnız owner-login (service_role)
+--   tüketir. Kayıtlı cihaz, Supabase oturumu (yenileme belirteci) ile hatırlanır; iptal edilen cihazın
+--   oturumu silinir ve uygulama açılışta oturumu kapatır.
+-- =====================================================================
+create table if not exists leonx_private.owner_enrollment (
+  id           uuid primary key default gen_random_uuid(),
+  code_hash    text not null check (code_hash ~ '^[0-9a-f]{64}$'),
+  expires_at   timestamptz not null,
+  used_at      timestamptz,
+  created_at   timestamptz not null default now(),
+  constraint owner_enrollment_window check (expires_at <= created_at + interval '30 minutes')
+);
+revoke all on table leonx_private.owner_enrollment from public, anon, authenticated;
+
+create table if not exists public.owner_devices (
+  id           uuid primary key default gen_random_uuid(),
+  session_id   uuid unique,
+  label        text not null default 'Cihaz' check (char_length(label) between 1 and 120),
+  method       text not null check (method in ('kod', 'sifre')),
+  created_at   timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  revoked_at   timestamptz
+);
+alter table public.owner_devices enable row level security;
+drop policy if exists owner_devices_select on public.owner_devices;
+create policy owner_devices_select on public.owner_devices for select to authenticated using ((select public.is_owner()));
+revoke all on table public.owner_devices from public, anon, authenticated;
+grant select on table public.owner_devices to authenticated;
+
+-- Kod açar; bitiş zamanını döner. Yalnız sahip oturumu veya veritabanı yöneticisi (SQL Editor).
+create or replace function public.owner_enrollment_open(p_code text, p_minutes integer default 15)
+returns timestamptz
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_exp timestamptz;
+begin
+  if not (public.is_owner() or (auth.uid() is null and session_user in ('postgres', 'supabase_admin'))) then
+    raise exception 'Yetkisiz' using errcode = '42501';
+  end if;
+  if p_code is null or char_length(p_code) not between 6 and 64 or p_code ~ '\s' then
+    raise exception 'Kod 6–64 karakter olmalı ve boşluk içermemeli' using errcode = '22023';
+  end if;
+  if p_minutes is null or p_minutes not between 1 and 30 then
+    raise exception 'Geçerlilik 1–30 dakika olmalı' using errcode = '22023';
+  end if;
+  update leonx_private.owner_enrollment set expires_at = now() where used_at is null and expires_at > now();
+  v_exp := now() + make_interval(mins => p_minutes);
+  insert into leonx_private.owner_enrollment (code_hash, expires_at) values (encode(sha256(convert_to(p_code, 'UTF8')), 'hex'), v_exp);
+  delete from leonx_private.owner_enrollment where created_at < now() - interval '30 days';
+  return v_exp;
+end;
+$$;
+
+-- Kodu tüketir (tek kullanım, süre sınırı). Eşleşirse true. Yalnız service_role (owner-login).
+create or replace function public.owner_enrollment_consume(p_code_hash text)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_id uuid;
+begin
+  if p_code_hash is null or p_code_hash !~ '^[0-9a-f]{64}$' then
+    raise exception 'Geçersiz kod özeti' using errcode = '22023';
+  end if;
+  update leonx_private.owner_enrollment e
+     set used_at = now()
+   where e.id = (select x.id from leonx_private.owner_enrollment x
+                  where x.used_at is null and x.expires_at > now() and x.code_hash = p_code_hash
+                  order by x.created_at desc limit 1 for update skip locked)
+  returning e.id into v_id;
+  return v_id is not null;
+end;
+$$;
+
+-- Başarılı girişten sonra cihazı kaydeder. Yalnız service_role.
+create or replace function public.owner_device_register(p_session uuid, p_label text, p_method text)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_id uuid;
+begin
+  if p_method not in ('kod', 'sifre') then
+    raise exception 'Geçersiz yöntem' using errcode = '22023';
+  end if;
+  insert into public.owner_devices (session_id, label, method)
+  values (p_session, coalesce(nullif(left(btrim(coalesce(p_label, '')), 120), ''), 'Cihaz'), p_method)
+  on conflict (session_id) do update set last_seen_at = now(), revoked_at = null
+  returning id into v_id;
+  return v_id;
+end;
+$$;
+
+-- Açılışta: oturumun cihazı iptal edilmişse 'iptal' döner (istemci oturumu kapatır); değilse son görülmeyi yazar.
+create or replace function public.owner_device_touch()
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_session uuid := nullif(current_setting('request.jwt.claims', true)::jsonb ->> 'session_id', '')::uuid;
+  v_revoked timestamptz;
+  v_found boolean;
+begin
+  if not public.is_owner() then
+    raise exception 'Yetkisiz' using errcode = '42501';
+  end if;
+  if v_session is null then
+    return 'bilinmiyor';
+  end if;
+  select true, d.revoked_at into v_found, v_revoked from public.owner_devices d where d.session_id = v_session;
+  if v_found is null then
+    return 'kayitsiz';
+  end if;
+  if v_revoked is not null then
+    return 'iptal';
+  end if;
+  update public.owner_devices set last_seen_at = now() where session_id = v_session and last_seen_at < now() - interval '5 minutes';
+  return 'yetkili';
+end;
+$$;
+
+-- Cihaz iptali: kayıt işaretlenir ve Supabase oturumu (yenileme belirteci) silinir.
+create or replace function public.owner_device_revoke(p_device uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_session uuid;
+begin
+  if not public.is_owner() then
+    raise exception 'Yetkisiz' using errcode = '42501';
+  end if;
+  update public.owner_devices set revoked_at = coalesce(revoked_at, now()) where id = p_device returning session_id into v_session;
+  if not found then
+    raise exception 'Cihaz bulunamadı' using errcode = 'P0002';
+  end if;
+  if v_session is not null and to_regclass('auth.sessions') is not null then
+    execute 'delete from auth.sessions where id = $1' using v_session;
+  end if;
+end;
+$$;
+
+revoke all on function public.owner_enrollment_open(text, integer) from public, anon;
+revoke all on function public.owner_enrollment_consume(text) from public, anon, authenticated;
+revoke all on function public.owner_device_register(uuid, text, text) from public, anon, authenticated;
+revoke all on function public.owner_device_touch() from public, anon;
+revoke all on function public.owner_device_revoke(uuid) from public, anon;
+grant execute on function public.owner_enrollment_open(text, integer) to authenticated;
+grant execute on function public.owner_device_touch() to authenticated;
+grant execute on function public.owner_device_revoke(uuid) to authenticated;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    execute 'grant execute on function public.owner_enrollment_consume(text) to service_role';
+    execute 'grant execute on function public.owner_device_register(uuid, text, text) to service_role';
+  end if;
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'owner_devices') then
+    execute 'alter publication supabase_realtime add table public.owner_devices';
+  end if;
+end;
+$$;

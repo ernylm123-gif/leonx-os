@@ -1,6 +1,8 @@
 // LEONX OS — owner-login (Supabase Edge Function, Deno)
 //
-// Yalnız şifre ile giriş. İstek: POST { "password": "..." } (JWT gerekmez: --no-verify-jwt).
+// Yalnız şifre / tek kullanımlık kayıt kodu ile giriş. İstek: POST { "password": "...", "device": "iPhone · Safari" }
+// (JWT gerekmez: --no-verify-jwt). Kayıt kodu owner_enrollment_open ile açılır (017); kod eşleşirse oturum,
+// sahip e-postası için service_role ile üretilen tek kullanımlık bağlantı belirteciyle açılır (e-posta gönderilmez).
 // Sahip e-postası OWNER_EMAIL gizli değerinden okunur; Supabase Auth girişi sunucuda yapılır ve oturum
 // belirteçleri döner (istemci supabase.auth.setSession ile kurar). Kaba kuvvet sayaçları service_role ile
 // owner_login_check / owner_login_record (017) üzerinden tutulur. Şifre ve e-posta loglanmaz.
@@ -8,7 +10,7 @@
 // Gizli değerler: OWNER_EMAIL (zorunlu), OWNER_LOGIN_SALT (isteğe bağlı), SUPABASE_SERVICE_ROLE_KEY
 // (Supabase sağlar). CORS: RADAR_ALLOWED_ORIGINS (varsayılan https://leonx-os.vercel.app).
 import { createClient } from 'npm:@supabase/supabase-js@2.117.3'
-import { clientIp, handleOwnerLogin, type SignInResult } from '../_shared/auth/ownerLogin.ts'
+import { clientIp, handleOwnerLogin, type OwnerSession, sessionIdOf, type SignInResult } from '../_shared/auth/ownerLogin.ts'
 
 const URL_ = Deno.env.get('SUPABASE_URL')!
 const ANON = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
@@ -51,6 +53,27 @@ async function signIn(email: string, password: string): Promise<SignInResult> {
   }
 }
 
+async function issueSession(email: string): Promise<SignInResult> {
+  try {
+    const link = await service.auth.admin.generateLink({ type: 'magiclink', email })
+    const hashed = link.data?.properties?.hashed_token
+    if (link.error || !hashed) return { session: null, error: 'unavailable' }
+    const auth = createClient(URL_, ANON, { auth: { persistSession: false, autoRefreshToken: false } })
+    const { data, error } = await auth.auth.verifyOtp({ token_hash: hashed, type: 'email' })
+    if (error || !data.session) return { session: null, error: 'unavailable' }
+    const s = data.session
+    return { session: { access_token: s.access_token, refresh_token: s.refresh_token, expires_in: s.expires_in, expires_at: s.expires_at }, error: null }
+  } catch {
+    return { session: null, error: 'unavailable' }
+  }
+}
+
+async function registerDevice(s: OwnerSession, label: string, method: 'kod' | 'sifre'): Promise<void> {
+  const r = await service.rpc('owner_device_register', { p_session: sessionIdOf(s.access_token), p_label: label, p_method: method })
+  // Cihaz kaydı başarısız olsa da giriş geçerlidir (oturum yine RLS + is_owner() ile korunur)
+  if (r.error) console.error('owner-login cihaz kaydı:', r.error.message.slice(0, 200))
+}
+
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get('origin')
   if (origin && !ORIGINS.includes(origin)) return new Response(null, { status: 403 })
@@ -65,6 +88,13 @@ Deno.serve(async (req: Request) => {
       check: (h) => rpcInt('owner_login_check', { p_ip_hash: h }),
       record: (h, ok) => rpcInt('owner_login_record', { p_ip_hash: h, p_success: ok }),
       signIn,
+      consumeCode: async (h) => {
+        const r = await service.rpc('owner_enrollment_consume', { p_code_hash: h })
+        if (r.error) throw new Error(`owner_enrollment_consume: ${r.error.message}`)
+        return r.data === true
+      },
+      issueSession,
+      registerDevice,
       sleep: (ms) => new Promise((res) => setTimeout(res, ms)),
     })
     return json(req, r.status, r.body)

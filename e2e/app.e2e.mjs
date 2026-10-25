@@ -138,7 +138,7 @@ await test('Yalnız şifre ile giriş: e-posta alanı yok, hatalı şifre ve kil
   expect((await page.getByLabel('E-posta').count()) === 0, 'giriş ekranında e-posta etiketi var')
   await page.getByRole('button', { name: 'Giriş Yap', exact: true }).waitFor()
   await page.getByRole('button', { name: 'Giriş yap' }).click()
-  await page.getByText('Şifrenizi girin.').waitFor()
+  await page.getByText('Şifrenizi veya kayıt kodunu girin.').waitFor()
   expect(mock.loginCalls.length === 0, 'boş şifre sunucuya gönderildi')
   for (let i = 0; i < 5; i++) {
     await page.locator('input[name="password"]').fill(`yanlis-sifre-${i}`)
@@ -149,7 +149,7 @@ await test('Yalnız şifre ile giriş: e-posta alanı yok, hatalı şifre ve kil
   await page.locator('input[name="password"]').fill(OWNER.password)
   await page.getByRole('button', { name: 'Giriş yap' }).click()
   await page.getByText(/Çok fazla hatalı deneme/).waitFor()
-  expect(mock.loginCalls.length === 6 && mock.loginCalls.every((c) => c.keys.length === 1 && c.keys[0] === 'password'), 'giriş isteğinde şifre dışında alan gönderildi')
+  expect(mock.loginCalls.length === 6 && mock.loginCalls.every((c) => c.keys.includes('password') && c.keys.every((k) => k === 'password' || k === 'device')), 'giriş isteğinde şifre dışında alan gönderildi')
   expect(!mock.requests.some((r) => r.path === '/auth/v1/token'), 'istemci doğrudan e-posta/şifre girişi yaptı')
 })
 
@@ -413,6 +413,48 @@ await test('Oturum sayfa yenilemede ve yeni sekmede korunur (aynı cihaz)', asyn
   await mock.attach(second)
   await second.goto(`${BASE}/projeler`)
   await second.getByRole('heading', { name: 'Projeler' }).waitFor()
+})
+
+
+await test('Kayıt kodu: 123456 bir kez geçerli, cihaz hatırlanır, yeni cihaz kodu ve iptal', async ({ page, ctx, mock }) => {
+  mock.enrollment = { code: '123456', expiresAt: Date.now() + 15 * 60_000, used: false }
+  await page.goto(`${BASE}/giris?next=${encodeURIComponent('/ayarlar')}`)
+  await page.getByLabel('Şifre veya kayıt kodu').fill('123456')
+  await page.getByRole('button', { name: 'Giriş yap' }).click()
+  await page.getByRole('heading', { name: 'Ayarlar', exact: true }).waitFor()
+  const devices = page.getByRole('list', { name: 'Yetkili cihazlar' })
+  await devices.getByText('Bu cihaz').waitFor()
+  await devices.getByText(/Kayıt kodu ile/).waitFor()
+  // Kapatıp açma: aynı tarayıcı bağlamında yeniden yükleme şifre sormaz
+  await page.reload()
+  await page.getByRole('heading', { name: 'Ayarlar', exact: true }).waitFor()
+  expect(mock.loginCalls.length === 1, 'yeniden açılışta tekrar giriş istendi')
+  // Aynı kod ikinci cihazda reddedilir (tek kullanımlık)
+  const other = await openDevice(mock, { viewport: { width: 390, height: 844 } })
+  await other.page.goto(`${BASE}/giris`)
+  await other.page.locator('input[name="password"]').fill('123456')
+  await other.page.getByRole('button', { name: 'Giriş yap' }).click()
+  await other.page.getByText('Şifre hatalı.').waitFor()
+  // Yetkili cihazdan yeni kod: ikinci cihaz bununla girer
+  await page.getByRole('button', { name: 'Yeni cihaz için kod oluştur' }).click()
+  const code = (await page.getByTestId('enrollment-code').textContent()).trim()
+  expect(/^\d{8}$/.test(code) && code !== '123456', `üretilen kod: ${code}`)
+  await other.page.locator('input[name="password"]').fill(code)
+  await other.page.getByRole('button', { name: 'Giriş yap' }).click()
+  await other.page.getByRole('heading', { name: 'Ana Sayfa' }).or(other.page.getByRole('heading', { level: 1 })).first().waitFor()
+  await eventually(() => mock.db.owner_devices.filter((d) => !d.revoked_at).length === 2, 'ikinci cihaz kaydedilmedi')
+  // İkinci cihazı iptal et: açılışta oturumu kapanır ve neden gösterilir
+  await page.reload()
+  const second = mock.db.owner_devices.find((d) => d.session_id !== mock.db.owner_devices[0].session_id)
+  await page.getByRole('list', { name: 'Yetkili cihazlar' }).getByRole('listitem').filter({ hasNotText: 'Bu cihaz' }).getByRole('button', { name: /cihazını iptal et/ }).click()
+  await eventually(() => !!mock.db.owner_devices.find((d) => d.id === second.id).revoked_at, 'iptal kaydedilmedi')
+  await other.page.reload()
+  await other.page.getByText('Bu cihazın yetkisi kaldırıldı').waitFor()
+  expect((await other.page.locator('input[name="password"]').count()) === 1, 'iptal sonrası giriş ekranı yok')
+  // Yetkili cihaz etkilenmez
+  await page.reload()
+  await page.getByRole('heading', { name: 'Ayarlar', exact: true }).waitFor()
+  await other.ctx.close()
 })
 
 

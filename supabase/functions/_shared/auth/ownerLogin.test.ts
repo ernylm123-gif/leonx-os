@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { clientIp, handleOwnerLogin, type OwnerLoginDeps, sha256Hex } from './ownerLogin.ts'
+import { clientIp, deviceLabel, handleOwnerLogin, type OwnerLoginDeps, sessionIdOf, sha256Hex } from './ownerLogin.ts'
 
 const SESSION = { access_token: 'erisim', refresh_token: 'yenileme', expires_in: 3600, expires_at: 1 }
 
@@ -15,6 +15,9 @@ function deps(over: Partial<OwnerLoginDeps> = {}): OwnerLoginDeps & { calls: str
       return password === 'Dogru-Sifre' ? { session: SESSION, error: null } : { session: null, error: 'invalid' as const }
     }),
     sleep: vi.fn(async () => {}),
+    consumeCode: vi.fn(async () => false),
+    issueSession: vi.fn(async () => ({ session: { ...SESSION, access_token: 'kod-erisim' }, error: null as null })),
+    registerDevice: vi.fn(async () => {}),
     ...over,
   }
 }
@@ -91,5 +94,45 @@ describe('owner-login', () => {
     expect(clientIp(new Headers({ 'cf-connecting-ip': '2001:DB8::1' }))).toBe('2001:db8::1')
     expect(clientIp(new Headers({ 'x-forwarded-for': '<script>' }))).toBe('bilinmiyor')
     expect(clientIp(new Headers())).toBe('bilinmiyor')
+  })
+
+  it('tek kullanımlık kayıt kodu: özetle tüketilir, oturum sunucuda üretilir, cihaz kaydedilir', async () => {
+    const used = new Set<string>()
+    const open = await sha256Hex('123456')
+    const d = deps({ consumeCode: vi.fn(async (h: string) => h === open && !used.has(h) && (used.add(h), true)) })
+    const r = await handleOwnerLogin({ password: '123456', device: 'iPhone · Safari' }, '1.1.1.1', d)
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ access_token: 'kod-erisim', method: 'kod' })
+    expect(d.signIn).not.toHaveBeenCalled()
+    expect(d.registerDevice).toHaveBeenCalledWith(expect.objectContaining({ access_token: 'kod-erisim' }), 'iPhone · Safari', 'kod')
+    // İkinci kullanım: kod tükenmiş → şifre olarak denenir ve reddedilir
+    const again = await handleOwnerLogin({ password: '123456' }, '1.1.1.1', d)
+    expect(again.status).toBe(401)
+    expect(d.consumeCode).toHaveBeenCalledWith(open)
+  })
+
+  it('kilitliyken kod da denenemez; şifre girişi de cihaz kaydeder', async () => {
+    const locked = deps({ check: vi.fn(async () => 60), consumeCode: vi.fn(async () => true) })
+    expect((await handleOwnerLogin({ password: '123456' }, '1.1.1.1', locked)).status).toBe(429)
+    expect(locked.consumeCode).not.toHaveBeenCalled()
+    const d = deps()
+    await handleOwnerLogin({ password: 'Dogru-Sifre' }, '1.1.1.1', d)
+    expect(d.registerDevice).toHaveBeenCalledWith(expect.anything(), 'Cihaz', 'sifre')
+  })
+
+  it('kod kabul edilip oturum üretilemezse açık ileti', async () => {
+    const d = deps({ consumeCode: vi.fn(async () => true), issueSession: vi.fn(async () => ({ session: null, error: 'unavailable' as const })) })
+    const r = await handleOwnerLogin({ password: '123456' }, '1.1.1.1', d)
+    expect(r.status).toBe(502)
+    expect(String(r.body.error)).toContain('Yeni bir kod')
+  })
+
+  it('cihaz adı temizlenir; oturum kimliği belirteçten okunur', () => {
+    expect(deviceLabel('<b>iPad</b>\n Safari')).toBe('biPad/b Safari')
+    expect(deviceLabel(42)).toBe('Cihaz')
+    expect(deviceLabel('x'.repeat(300))).toHaveLength(120)
+    const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url')
+    expect(sessionIdOf(`h.${b64({ session_id: '99999999-9999-4999-8999-999999999999' })}.s`)).toBe('99999999-9999-4999-8999-999999999999')
+    expect(sessionIdOf('bozuk')).toBeNull()
   })
 })

@@ -13,16 +13,27 @@ export const OWNER = { id: '0a0a0a0a-0000-4000-8000-000000000001', email: 'sahip
 export const INTRUDER = { id: '0b0b0b0b-0000-4000-8000-000000000002', email: 'yabanci@example.test', password: 'Dogru-Sifre-2026' }
 
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
-const fakeJwt = (user) =>
+const fakeJwt = (user, sessionId = randomUUID()) =>
   `${b64url({ alg: 'HS256', typ: 'JWT' })}.${b64url({
     sub: user.id,
+    session_id: sessionId,
     email: user.email,
     role: 'authenticated',
     aud: 'authenticated',
     exp: Math.floor(Date.now() / 1000) + 3600,
   })}.dGVzdC1pbXph`  // "test-imza" (base64url; setSession biçimi doğrular)
 
+const sessionOf = (headers) => {
+  try {
+    const t = (headers['authorization'] || '').replace(/^Bearer\s+/i, '').split('.')[1]
+    return JSON.parse(Buffer.from(t, 'base64url').toString()).session_id ?? null
+  } catch {
+    return null
+  }
+}
+
 const TABLES = [
+  'owner_devices',
   'companies',
   'contacts',
   'projects',
@@ -151,6 +162,8 @@ export class MockSupabase {
     this.loginCalls = []
     /** owner-login sunucusundaki OWNER_EMAIL hangi hesabı gösteriyor (yanlış yapılandırma testi için değiştirilir) */
     this.ownerLoginUser = null
+    /** Açık kayıt kodu (sunucuda yalnız özeti tutulur; mock düz metin saklar) */
+    this.enrollment = null
     this.quoteCounter = {}
     this.copyNote = null
     this.eventSeq = 1
@@ -811,6 +824,30 @@ export class MockSupabase {
     if (p === '/auth/v1/user') return user ? json(200, { id: user.id, email: user.email, aud: 'authenticated', role: 'authenticated' }) : json(401, { msg: 'invalid JWT' })
 
     // ---------------- RPC
+    if (p === '/rest/v1/rpc/owner_device_touch') {
+      if (!user || !this.isOwner(user)) return json(401, { code: '42501', message: 'permission denied' })
+      const sid = sessionOf(headers)
+      const d = this.db.owner_devices.find((x) => x.session_id === sid)
+      if (!d) return json(200, sid ? 'kayitsiz' : 'bilinmiyor')
+      if (d.revoked_at) return json(200, 'iptal')
+      d.last_seen_at = this.now()
+      return json(200, 'yetkili')
+    }
+    if (p === '/rest/v1/rpc/owner_device_revoke') {
+      if (!user || !this.isOwner(user)) return json(401, { code: '42501', message: 'permission denied' })
+      const d = this.db.owner_devices.find((x) => x.id === req.postDataJSON()?.p_device)
+      if (d && !d.revoked_at) d.revoked_at = this.now()
+      return json(200, !!d)
+    }
+    if (p === '/rest/v1/rpc/owner_enrollment_open') {
+      if (!user || !this.isOwner(user)) return json(401, { code: '42501', message: 'permission denied' })
+      const b = req.postDataJSON() ?? {}
+      const code = String(b.p_code ?? '')
+      const min = Number(b.p_minutes ?? 15)
+      if (code.length < 6 || code.length > 64 || /\s/.test(code) || min < 1 || min > 30) return json(400, { code: '22023', message: 'geçersiz kod' })
+      this.enrollment = { code, expiresAt: Date.now() + min * 60_000, used: false }
+      return json(200, null)
+    }
     if (p === '/rest/v1/rpc/is_owner') return user ? json(200, this.isOwner(user)) : json(401, { code: '42501', message: 'permission denied' })
     if (p === '/rest/v1/rpc/suggest_project_code') {
       if (!this.isOwner(user)) return json(200, 'LX-2026-001')
@@ -986,13 +1023,21 @@ export class MockSupabase {
       this.loginCalls.push({ keys: Object.keys(b) })
       if (this.loginFailures >= 5) return json(429, { error: 'Çok fazla hatalı deneme. 30 saniye sonra tekrar deneyin.', code: 'locked', retry_after: 30 })
       const u = this.ownerLoginUser ?? OWNER
-      if (typeof b.password !== 'string' || b.password !== u.password) {
+      const e = this.enrollment
+      let method = 'sifre'
+      if (e && !e.used && e.expiresAt > Date.now() && b.password === e.code) {
+        e.used = true
+        method = 'kod'
+      } else if (typeof b.password !== 'string' || b.password !== u.password) {
         this.loginFailures = (this.loginFailures ?? 0) + 1
         return json(401, { error: 'Şifre hatalı.', code: 'invalid_credentials' })
       }
       this.loginFailures = 0
       const now = Math.floor(Date.now() / 1000)
-      return json(200, { access_token: fakeJwt(u), refresh_token: randomUUID(), expires_in: 3600, expires_at: now + 3600 })
+      const sid = randomUUID()
+      const ts = this.now()
+      this.db.owner_devices.push({ id: randomUUID(), session_id: sid, label: String(b.device ?? 'Cihaz'), method, created_at: ts, last_seen_at: ts, revoked_at: null })
+      return json(200, { access_token: fakeJwt(u, sid), refresh_token: randomUUID(), expires_in: 3600, expires_at: now + 3600, method })
     }
 
     if (p.startsWith('/functions/v1/')) {

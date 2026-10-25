@@ -151,6 +151,12 @@ Giriş ekranı yalnız şifre sorar; e-posta sunucuda tutulur:
    İsteğe bağlı `OWNER_LOGIN_SALT` (rastgele uzun bir değer).
 3. `supabase functions deploy owner-login --no-verify-jwt`
 4. Bu işlev dağıtılmadan yeni arayüz yayımlanırsa giriş ekranı "Giriş hizmeti henüz kurulmamış" der; önce işlevi dağıtın.
+5. **İlk cihaz kaydı (tek kullanımlık kod).** SQL Editor'da yalnız cihazı kaydetmeye hazır olduğunuzda çalıştırın:
+   `select public.owner_enrollment_open('123456', 15);` — kod **15 dakika** geçerlidir, **bir kez** kullanılır, sunucuda yalnız
+   SHA-256 özeti saklanır ve yeni bir kod öncekini geçersiz kılar. Giriş ekranına `123456` yazın; cihaz hatırlanır (uygulama
+   kapatılıp açıldığında veya PWA olarak yüklendiğinde şifre sorulmaz). `123456` herkesçe bilinen bir değerdir: kodu yalnız hemen
+   kullanacaksanız açın. Sonraki cihazlar için **Ayarlar › Yetkili cihazlar › Yeni cihaz için kod oluştur** 8 haneli rastgele,
+   10 dakikalık kod üretir. Aynı ekrandan bir cihaz **İptal et** ile kapatılır (oturumu sunucuda silinir).
 
 ## 9. Doğrulama
 

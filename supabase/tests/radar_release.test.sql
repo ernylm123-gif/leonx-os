@@ -165,5 +165,93 @@ end;
 $$;
 reset role;
 
+-- =====================================================================
+-- E) TEK KULLANIMLIK KAYIT KODU VE CİHAZLAR
+-- =====================================================================
+do $$
+declare
+  v_h text := encode(sha256(convert_to('123456', 'UTF8')), 'hex');
+  v_exp timestamptz;
+  v_dev uuid;
+begin
+  if has_function_privilege('authenticated', 'public.owner_enrollment_consume(text)', 'execute')
+     or has_function_privilege('authenticated', 'public.owner_device_register(uuid, text, text)', 'execute')
+     or has_function_privilege('anon', 'public.owner_enrollment_open(text, integer)', 'execute')
+     or has_table_privilege('authenticated', 'leonx_private.owner_enrollment', 'select')
+     or has_table_privilege('authenticated', 'public.owner_devices', 'insert') then
+    raise exception 'TEST BAŞARISIZ: kayıt kodu işlevleri/tabloları istemciye açık';
+  end if;
+  -- Açık kod yokken tüketilemez
+  if public.owner_enrollment_consume(v_h) then raise exception 'TEST BAŞARISIZ: açılmamış kod kabul edildi'; end if;
+  -- Yönetici (SQL Editor) kodu açar; yalnız özet saklanır
+  v_exp := public.owner_enrollment_open('123456', 15);
+  if v_exp > now() + interval '15 minutes' + interval '1 second' then raise exception 'TEST BAŞARISIZ: süre uzun'; end if;
+  if exists (select 1 from leonx_private.owner_enrollment where code_hash = '123456') then raise exception 'TEST BAŞARISIZ: kod açık metin saklandı'; end if;
+  if public.owner_enrollment_consume(encode(sha256(convert_to('654321', 'UTF8')), 'hex')) then raise exception 'TEST BAŞARISIZ: yanlış kod kabul edildi'; end if;
+  if not public.owner_enrollment_consume(v_h) then raise exception 'TEST BAŞARISIZ: doğru kod reddedildi'; end if;
+  if public.owner_enrollment_consume(v_h) then raise exception 'TEST BAŞARISIZ: kod ikinci kez kullanıldı'; end if;
+  -- Süresi dolan kod
+  perform public.owner_enrollment_open('123456', 1);
+  update leonx_private.owner_enrollment set expires_at = now() - interval '1 second' where used_at is null;
+  if public.owner_enrollment_consume(v_h) then raise exception 'TEST BAŞARISIZ: süresi dolan kod kabul edildi'; end if;
+  -- Yeni kod öncekini geçersiz kılar
+  perform public.owner_enrollment_open('111111', 10);
+  perform public.owner_enrollment_open('222222', 10);
+  if public.owner_enrollment_consume(encode(sha256(convert_to('111111', 'UTF8')), 'hex')) then raise exception 'TEST BAŞARISIZ: eski kod geçerli kaldı'; end if;
+  begin
+    perform public.owner_enrollment_open('123456', 60);
+    raise exception 'TEST BAŞARISIZ: 30 dakikadan uzun kod açıldı';
+  exception when sqlstate '22023' then null;
+  end;
+  begin
+    perform public.owner_enrollment_open('12345', 10);
+    raise exception 'TEST BAŞARISIZ: 6 karakterden kısa kod açıldı';
+  exception when sqlstate '22023' then null;
+  end;
+  v_dev := public.owner_device_register('99999999-9999-4999-8999-999999999999', 'iPhone · Safari', 'kod');
+  if (select method from public.owner_devices where id = v_dev) <> 'kod' then raise exception 'TEST BAŞARISIZ: cihaz kaydedilmedi'; end if;
+  perform set_config('leonx.device', v_dev::text, true);
+  raise notice 'PASS E: kayıt kodu tek kullanımlık, süreli, yalnız özet; yeni kod öncekini geçersiz kılar; cihaz kaydı';
+end;
+$$;
+
+set local role authenticated;
+select pg_temp.act_as(current_setting('leonx.owner'));
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('leonx.owner'), 'role', 'authenticated', 'session_id', '99999999-9999-4999-8999-999999999999')::text, true);
+do $$
+begin
+  if public.owner_device_touch() <> 'yetkili' then raise exception 'TEST BAŞARISIZ: yetkili cihaz tanınmadı'; end if;
+  if (select count(*) from public.owner_devices) <> 1 then raise exception 'TEST BAŞARISIZ: sahip cihazları göremiyor'; end if;
+  -- Yetkili cihazdan yeni cihaz kodu açılabilir
+  perform public.owner_enrollment_open('83920571', 10);
+  perform public.owner_device_revoke(current_setting('leonx.device')::uuid);
+  if public.owner_device_touch() <> 'iptal' then raise exception 'TEST BAŞARISIZ: iptal edilen cihaz açılışta reddedilmedi'; end if;
+  begin
+    insert into public.owner_devices (label, method) values ('Sahte', 'kod');
+    raise exception 'TEST BAŞARISIZ: istemci cihaz ekledi';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'PASS F: cihaz açılışta doğrulanır, iptal edilen cihaz kapanır, istemci cihaz ekleyemez';
+end;
+$$;
+select pg_temp.act_as(gen_random_uuid()::text);
+do $$
+begin
+  if (select count(*) from public.owner_devices) <> 0 then raise exception 'TEST BAŞARISIZ: yabancı cihaz listesini gördü'; end if;
+  begin
+    perform public.owner_enrollment_open('99999999', 10);
+    raise exception 'TEST BAŞARISIZ: yabancı kullanıcı kod açtı';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_device_revoke(current_setting('leonx.device')::uuid);
+    raise exception 'TEST BAŞARISIZ: yabancı cihaz iptal etti';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'PASS G: yabancı hesap cihazları göremez, kod açamaz, iptal edemez';
+end;
+$$;
+reset role;
+
 do $$ begin raise notice 'TESTLER BAŞARILI (radar yayın)'; end $$;
 rollback;

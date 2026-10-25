@@ -30,7 +30,7 @@ export function LoginPage() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
     const fe: typeof fieldErrors = {}
-    if (!password) fe.password = 'Şifrenizi girin.'
+    if (!password) fe.password = 'Şifrenizi veya kayıt kodunu girin.'
     setFieldErrors(fe)
     if (Object.keys(fe).length) return
     setBusy(true)
@@ -50,9 +50,12 @@ export function LoginPage() {
           <LockKeyhole className="h-5 w-5 text-anthracite" strokeWidth={1.75} aria-hidden="true" />
         </span>
         <h1 className="mt-5 text-[26px] font-semibold tracking-[-0.015em] text-ink">Giriş yap</h1>
-        <p className="mt-1.5 text-sm text-muted">LEONX OS şifrenizle oturum açın.</p>
+        <p className="mt-1.5 text-sm text-muted">Şifrenizi veya tek kullanımlık kayıt kodunu girin. Bu cihaz sonra hatırlanır.</p>
       </div>
 
+      {signOutReason === 'revoked' && !error && (
+        <FormAlert tone="warn">Bu cihazın yetkisi kaldırıldı. Devam etmek için şifrenizi veya yeni bir kayıt kodu girin.</FormAlert>
+      )}
       {signOutReason === 'expired' && !error && (
         <FormAlert tone="warn">Oturumunuzun süresi doldu veya başka bir cihazdan kapatıldı. Lütfen tekrar giriş yapın.</FormAlert>
       )}
@@ -61,7 +64,7 @@ export function LoginPage() {
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
         <div className="relative">
           <TextField
-            label="Şifre"
+            label="Şifre veya kayıt kodu"
             type={showPassword ? 'text' : 'password'}
             name="password"
             autoComplete="current-password"

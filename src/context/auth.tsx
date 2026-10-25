@@ -1,6 +1,7 @@
 import type { Session } from '@supabase/supabase-js'
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { checkIsOwner } from '@/data/api'
+import { deviceLabel } from '@/lib/device'
 import { authErrorMessage, dataErrorMessage } from '@/lib/errors'
 import { supabase } from '@/lib/supabase'
 
@@ -17,7 +18,7 @@ export type AuthStatus =
   | 'not_owner' // geçerli hesap, yetkili sahip değil
   | 'owner_check_failed' // ağ veya kurulum hatası
 
-export type SignOutReason = 'manual' | 'expired' | null
+export type SignOutReason = 'manual' | 'expired' | 'revoked' | null
 
 interface AuthContextValue {
   status: AuthStatus
@@ -25,13 +26,23 @@ interface AuthContextValue {
   /** owner_check_failed durumunda kullanıcıya gösterilecek ileti */
   ownerError: string | null
   signOutReason: SignOutReason
-  /** Yalnız şifre: sahip e-postası sunucuda (owner-login Edge Function, OWNER_EMAIL) tutulur */
-  signIn: (password: string) => Promise<{ error: string | null }>
+  /** Şifre veya tek kullanımlık kayıt kodu: sahip e-postası sunucuda (owner-login Edge Function, OWNER_EMAIL) tutulur */
+  signIn: (secret: string) => Promise<{ error: string | null }>
   signOut: (scope?: 'local' | 'global') => Promise<void>
   retryOwnerCheck: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
+
+/** Bu oturumun cihazı iptal edildi mi? (017 öncesi veritabanında işlev yoktur → false) */
+async function deviceRevoked(db: NonNullable<typeof supabase>): Promise<boolean> {
+  try {
+    const r = await db.rpc('owner_device_touch')
+    return !r.error && r.data === 'iptal'
+  } catch {
+    return false
+  }
+}
 
 /** owner-login hata yanıtını Türkçe iletiye çevirir (sunucu iletisi zaten geneldir) */
 async function ownerLoginError(err: unknown): Promise<string> {
@@ -54,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ownerError, setOwnerError] = useState<string | null>(null)
   const [signOutReason, setSignOutReason] = useState<SignOutReason>(null)
   const manualSignOut = useRef(false)
+  const revokedSignOut = useRef(false)
   const hadSession = useRef(false)
   const checkedFor = useRef<string | null>(null)
 
@@ -65,6 +77,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const ok = await checkIsOwner(supabase)
       if (checkedFor.current !== userId) return
+      // 017: iptal edilen cihaz açılışta kapanır (yenileme belirteci sunucuda silinmiştir)
+      if (ok && (await deviceRevoked(supabase))) {
+        revokedSignOut.current = true
+        await supabase.auth.signOut({ scope: 'local' })
+        return
+      }
       setStatus(ok ? 'owner' : 'not_owner')
     } catch (e) {
       if (checkedFor.current !== userId) return
@@ -83,8 +101,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!next) {
         checkedFor.current = null
         // Kullanıcı çıkış yapmadıysa oturum süresi dolmuş / yenilenememiştir
-        if (hadSession.current) setSignOutReason(manualSignOut.current ? 'manual' : 'expired')
+        if (hadSession.current || revokedSignOut.current) setSignOutReason(revokedSignOut.current ? 'revoked' : manualSignOut.current ? 'manual' : 'expired')
         manualSignOut.current = false
+        revokedSignOut.current = false
         hadSession.current = false
         setStatus('signed_out')
         return
@@ -107,11 +126,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [verifyOwner])
 
-  const signIn = useCallback(async (password: string) => {
+  // Uygulama öne geldiğinde cihaz iptal edilmiş mi (PWA günlerce açık kalabilir)
+  useEffect(() => {
+    if (!supabase || status !== 'owner') return
+    const db = supabase
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      void deviceRevoked(db).then(async (revoked) => {
+        if (!revoked) return
+        revokedSignOut.current = true
+        await db.auth.signOut({ scope: 'local' })
+      })
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [status])
+
+  const signIn = useCallback(async (secret: string) => {
     if (!supabase) return { error: 'Supabase yapılandırılmamış.' }
     setSignOutReason(null)
     try {
-      const r = await supabase.functions.invoke('owner-login', { body: { password } })
+      const r = await supabase.functions.invoke('owner-login', { body: { password: secret, device: deviceLabel() } })
       if (r.error) return { error: await ownerLoginError(r.error) }
       const s = r.data as { access_token?: string; refresh_token?: string } | null
       if (!s?.access_token || !s.refresh_token) return { error: 'Giriş yapılamadı. Lütfen tekrar deneyin.' }
