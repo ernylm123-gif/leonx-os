@@ -8,22 +8,26 @@ import { answer, type AssistantAnswer } from '@radar/assistant.ts'
 import { buildViews, capabilitiesFrom, toAssistant } from '@/radar/view'
 
 const EXAMPLES = [
-  'Ankara fırsatlarını göster',
-  "Etimesgut'taki yangın kapısı işleri",
-  'en yüksek 5 fırsat',
+  "Ankara'da bugün hangi yeni işler var?",
+  'Henüz ihaleye çıkmamış alüminyum doğrama projeleri hangileri?',
+  'Hangi firmalara teklif göndermeliyim?',
+  'Yangın kapısı ihtimali olan yeni projeleri göster.',
+  'Son 7 günde hangi fırsatlar değişti?',
+  'Öncelikli 10 işimi sırala.',
   'bu hafta son tarihi olan ihaleler',
-  'son 7 gün kamu ihaleleri',
 ]
+/** Fırsat sayfasında ("bu proje / bu firma") */
+const FOCUS_EXAMPLES = ['Bu proje için hangi bilgiler eksik?', 'Bu firmaya kurumsal teklif talep mesajı hazırla.', 'Ana yüklenici kim?', 'Nasıl teklif gönderebilirim?']
 
 /** Deterministik Türkçe asistan: yalnız yüklü kayıtlardan yanıt verir (dış servis ve dil modeli yok) */
-export function AssistantPanel({ data }: { data: RadarData }) {
+export function AssistantPanel({ data, focusId }: { data: RadarData; focusId?: string }) {
   const [q, setQ] = useState('')
   const [log, setLog] = useState<{ q: string; a: AssistantAnswer }[]>([])
   const opps = useMemo(() => toAssistant(buildViews(data), data), [data])
   const titles = useMemo(() => new Map(data.opportunities.map((o) => [o.id, o.title])), [data.opportunities])
   const ask = (text: string) => {
     if (!text.trim()) return
-    const a = answer(text, opps, { now: new Date(), capabilities: capabilitiesFrom(data.settings?.capability_text, COMPANY.capabilities), companyName: COMPANY.name, website: COMPANY.website })
+    const a = answer(text, opps, { now: new Date(), capabilities: capabilitiesFrom(data.settings?.capability_text, COMPANY.capabilities), companyName: COMPANY.name, website: COMPANY.website, focusId })
     setLog((l) => [{ q: text, a }, ...l].slice(0, 20))
     setQ('')
   }
@@ -36,7 +40,7 @@ export function AssistantPanel({ data }: { data: RadarData }) {
         </button>
       </form>
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {EXAMPLES.map((e) => <button key={e} type="button" className="rounded-full border border-line px-2.5 py-1 text-[11.5px] text-ink-2 hover:bg-surface-2" onClick={() => ask(e)}>{e}</button>)}
+        {(focusId ? FOCUS_EXAMPLES : EXAMPLES).map((e) => <button key={e} type="button" className="rounded-full border border-line px-2.5 py-1 text-[11.5px] text-ink-2 hover:bg-surface-2" onClick={() => ask(e)}>{e}</button>)}
       </div>
       <ul className="mt-4 flex flex-col gap-3" data-testid="assistant-log">
         {log.map((x, i) => (

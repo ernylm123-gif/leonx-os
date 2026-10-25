@@ -9,7 +9,7 @@ import { Panel } from '@/components/ui/Panel'
 import { ErrorState, LoadingState } from '@/components/ui/States'
 import { COMPANY } from '@/config/company'
 import { useToast } from '@/context/toast'
-import { createQuote, listQuotesBy } from '@/data/quoteApi'
+import { createQuoteForOpportunity, findOpportunityQuote, listQuotesBy } from '@/data/quoteApi'
 import {
   createDraft,
   createTaskFromOpportunity,
@@ -25,13 +25,14 @@ import {
 } from '@/data/radarApi'
 import { ROLE_LABEL, SECTOR_LABEL, STAGE_LABEL, STATUS_LABEL, STATUS_ORDER, type OppStatus, type RadarCompany, type RadarDraft } from '@/data/radarTypes'
 import { useQuoteSettings } from '@/features/quotes/shared'
+import { AssistantPanel } from '@/features/radar/AssistantPanel'
 import { NeedBadge, ExtLink, Meter, Notice, useRadarData } from '@/features/radar/shared'
 import { downloadBytes, loadPdfAssets } from '@/lib/download'
 import { dataErrorMessage } from '@/lib/errors'
 import { requireSupabase } from '@/lib/supabase'
 import { useLiveQuery } from '@/lib/useLiveList'
 import type { QuoteInput } from '@/quote/types'
-import { addDays, buildViews, capabilitiesFrom, fmtDateTime, fmtDay, locationText, missingInfo, projectTypeLabel, risks, strategy, toAssistant, localDate } from '@/radar/view'
+import { addDays, adviceFor, buildViews, capabilitiesFrom, fmtDateTime, fmtDay, locationText, missingInfo, projectTypeLabel, risks, strategy, toAssistant, localDate } from '@/radar/view'
 import { draftEmail } from '@radar/assistant.ts'
 import { CONTACT_KIND_LABEL } from '@radar/contacts.ts'
 import { LABEL_TEXT } from '@radar/score.ts'
@@ -80,6 +81,7 @@ export function RadarOpportunityPage() {
   const o = v.opp
   const today = localDate()
   const st = strategy(v)
+  const advice = adviceFor(v, q.data.quotedOpportunityIds.includes(o.id))
   const verified = v.categories.filter((c) => c.need_status === 'dogrulanmis')
   const potential = v.categories.filter((c) => c.need_status !== 'dogrulanmis')
   const emails = v.companies.flatMap((c) => c.contacts.filter((k) => k.kind.endsWith('eposta')).map((k) => ({ c, k })))
@@ -122,6 +124,12 @@ export function RadarOpportunityPage() {
       const db = requireSupabase()
       const companyId = o.crm_company_id
       if (!companyId) throw new Error("Teklif için önce firmayı CRM'e aktarın.")
+      const linked = await findOpportunityQuote(db, o.id)
+      if (linked) {
+        notify('Bu fırsat için teklif zaten var; açılıyor.', 'info')
+        navigate(`/teklifler/${linked.id}`)
+        return
+      }
       const projectId = o.project_id ?? (await importToCrm(db, o.id, null, true)).project_id
       const existing = projectId ? (await listQuotesBy(db, 'project_id', projectId)).find((x) => x.company_id === companyId) : undefined
       if (existing) {
@@ -142,8 +150,8 @@ export function RadarOpportunityPage() {
         internal_notes: [`LEONX Radar fırsatı: /leonx-ai/firsat/${o.id}`, o.deadline ? `Son teklif tarihi: ${fmtDay(o.deadline)}` : null,
           ...d.data.evidence.slice(0, 5).map((e) => `Kaynak: ${e.url}`)].filter(Boolean).join('\n').slice(0, 5000),
       }
-      const created = await createQuote(db, input)
-      notify('Teklif taslağı oluşturuldu; kalemleri ve fiyatları siz girin.', 'success')
+      const { quote: created, existing: dup } = await createQuoteForOpportunity(db, o.id, input)
+      notify(dup ? 'Bu fırsat için teklif başka bir cihazda oluşturulmuş; açılıyor.' : 'Teklif taslağı oluşturuldu; kalemleri ve fiyatları siz girin.', dup ? 'info' : 'success')
       navigate(`/teklifler/${created.id}`)
     })
 
@@ -271,6 +279,7 @@ export function RadarOpportunityPage() {
                 <div key={t}><h3 className="text-[12px] font-semibold text-muted">{t}</h3><ul className="mt-1 list-disc pl-5 text-ink-2">{list.map((x) => <li key={x}>{x}</li>)}</ul></div>
               ))}
               <div><h3 className="text-[12px] font-semibold text-muted">Sonraki aksiyon</h3><p className="mt-1 text-ink">{st.nextAction}</p></div>
+              <div data-testid="opp-advice"><h3 className="text-[12px] font-semibold text-muted">Öneri (tavsiyedir, doğrulanmış bilgi değildir)</h3><p className="mt-1 text-ink"><b>{advice.text}</b> — {advice.reason}</p></div>
             </div>
           </Panel>
 
@@ -349,6 +358,10 @@ export function RadarOpportunityPage() {
             </ul>
           </Panel>
         </div>
+      </div>
+
+      <div className="mt-6" data-testid="opp-assistant">
+        <AssistantPanel data={q.data} focusId={o.id} />
       </div>
 
       <Modal

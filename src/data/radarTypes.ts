@@ -225,6 +225,8 @@ export interface RadarData {
   oppCompanies: RadarOppCompany[]
   contacts: RadarContact[]
   usage: RadarSearchUsage[]
+  /** 017: teklif taslağı bağlı fırsatlar (Teklif hazırlandı aşaması bundan türetilir) */
+  quotedOpportunityIds: string[]
 }
 
 /** 016: önemli değişiklik (yalnız sunucu yazar) */
@@ -289,7 +291,7 @@ export interface RadarHealth {
   pending_notifications: number
 }
 
-export const EMPTY_RADAR: RadarData ={ items: [], settings: null, categories: [], sources: [], runs: [], opportunities: [], oppCategories: [], companies: [], oppCompanies: [], contacts: [], usage: [] }
+export const EMPTY_RADAR: RadarData ={ items: [], settings: null, categories: [], sources: [], runs: [], opportunities: [], oppCategories: [], companies: [], oppCompanies: [], contacts: [], usage: [], quotedOpportunityIds: [] }
 
 // ------------------------------------------------------------------ Etiketler
 export const STATUS_LABEL: Record<OppStatus, string> = {
