@@ -2,6 +2,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchAllPages, insertOnce, versionedUpdate } from './api'
 import type {
   RadarAction,
+  RadarChange,
+  RadarDigest,
+  RadarHealth,
   RadarCategory,
   RadarCompany,
   RadarContact,
@@ -33,7 +36,7 @@ function unwrap<T>(res: { data: T | null; error: unknown }): T {
 }
 
 export const RADAR_TABLES = [
-  'radar_settings', 'radar_categories', 'radar_sources', 'radar_source_runs', 'radar_opportunities', 'radar_opportunity_categories',
+  'quotes', 'radar_settings', 'radar_categories', 'radar_sources', 'radar_source_runs', 'radar_opportunities', 'radar_opportunity_categories',
   'radar_companies', 'radar_opportunity_companies', 'radar_contacts', 'radar_search_usage',
 ] as const
 
@@ -51,22 +54,37 @@ export async function loadRadar(db: SupabaseClient): Promise<RadarData> {
     db.from('radar_search_usage').select('*').order('month', { ascending: false }).range(0, 11).then((r) => unwrap(r) as RadarSearchUsage[]),
     fetchAllPages<RadarItemLink>((f, t) => db.from('radar_items').select('id, opportunity_id, source_id, canonical_url, published_at, first_seen_at, last_seen_at, pending').order('first_seen_at', { ascending: false }).order('id').range(f, t)),
   ])
-  return { items, settings, categories, sources, runs, opportunities, oppCategories, companies, oppCompanies, contacts, usage }
+  return { items, settings, categories, sources, runs, opportunities, oppCategories, companies, oppCompanies, contacts, usage, quotedOpportunityIds: await loadQuotedOpportunities(db) }
+}
+
+/** 017 öncesi veritabanında sütun yoktur; o durumda boş liste döner (hat yine çalışır) */
+async function loadQuotedOpportunities(db: SupabaseClient): Promise<string[]> {
+  try {
+    const rows = await fetchAllPages<{ radar_opportunity_id: string }>((f, t) =>
+      db.from('quotes').select('radar_opportunity_id').not('radar_opportunity_id', 'is', null).order('radar_opportunity_id').range(f, t))
+    return rows.map((r) => r.radar_opportunity_id)
+  } catch {
+    return []
+  }
 }
 
 export interface OpportunityDetail {
   evidence: RadarEvidence[]
   actions: RadarAction[]
   drafts: RadarDraft[]
+  changes: RadarChange[]
 }
 
 export async function loadOpportunityDetail(db: SupabaseClient, id: string): Promise<OpportunityDetail> {
-  const [evidence, actions, drafts] = await Promise.all([
+  const [evidence, actions, drafts, changes] = await Promise.all([
     fetchAllPages<RadarEvidence>((f, t) => db.from('radar_evidence').select('*').eq('opportunity_id', id).order('accessed_at').order('id').range(f, t)),
     fetchAllPages<RadarAction>((f, t) => db.from('radar_actions').select('*').eq('opportunity_id', id).order('created_at', { ascending: false }).order('id').range(f, t)),
     fetchAllPages<RadarDraft>((f, t) => db.from('radar_outreach_drafts').select('*').eq('opportunity_id', id).order('created_at', { ascending: false }).order('id').range(f, t)),
+    // 016 uygulanmadıysa tablo yoktur: değişiklik geçmişi boş gösterilir, sayfa çalışmaya devam eder
+    db.from('radar_changes').select('*').eq('opportunity_id', id).order('created_at', { ascending: false }).range(0, 99)
+      .then((r) => (r.error ? [] : ((r.data ?? []) as RadarChange[]))),
   ])
-  return { evidence, actions, drafts }
+  return { evidence, actions, drafts, changes }
 }
 
 // ------------------------------------------------------------------ Fırsat iş akışı
@@ -76,6 +94,20 @@ export function setOpportunityStatus(db: SupabaseClient, o: Pick<RadarOpportunit
 export function updateOpportunity(db: SupabaseClient, o: Pick<RadarOpportunity, 'id' | 'version'>, patch: { next_action?: string | null; notes?: string | null }) {
   return versionedUpdate<RadarOpportunity>(db, 'radar_opportunities', o.id, o.version, patch)
 }
+/** 016: fırsattan proje görevi (proje adayı yoksa tekrarlanabilir biçimde oluşturulur) */
+export async function createTaskFromOpportunity(db: SupabaseClient, opportunityId: string, title: string, due: string | null): Promise<{ project_id: string; task_id: string }> {
+  return unwrap(await db.rpc('radar_create_task', { p_opportunity: opportunityId, p_title: title, p_due: due })) as { project_id: string; task_id: string }
+}
+
+// ------------------------------------------------------------------ 016: raporlar ve sağlık
+export async function listDigests(db: SupabaseClient): Promise<RadarDigest[]> {
+  return unwrap(await db.from('radar_reports').select('*').order('period_start', { ascending: false }).order('kind').range(0, 59)) as RadarDigest[]
+}
+
+export async function loadHealth(db: SupabaseClient): Promise<RadarHealth> {
+  return unwrap(await db.rpc('radar_health')) as RadarHealth
+}
+
 export async function importToCrm(db: SupabaseClient, opportunityId: string, companyId: string | null, createProject: boolean): Promise<{ company_id: string | null; project_id: string | null }> {
   return unwrap(await db.rpc('radar_import_to_crm', { p_opportunity: opportunityId, p_company: companyId, p_create_project: createProject }))
 }

@@ -1,6 +1,6 @@
-import { ArrowLeft, Building2, ClipboardCopy, FileDown, FileSpreadsheet, FolderPlus, History, Loader2, Mail, Radar, Search, ShieldAlert, Sparkles, Target } from 'lucide-react'
+import { ArrowLeft, Building2, ClipboardCopy, ClipboardList, FileDown, FileSpreadsheet, FilePlus2, FolderPlus, History, Loader2, Mail, Radar, Search, ShieldAlert, Sparkles, Target } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { FormAlert, SelectField, TextAreaField, TextField } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
@@ -9,8 +9,10 @@ import { Panel } from '@/components/ui/Panel'
 import { ErrorState, LoadingState } from '@/components/ui/States'
 import { COMPANY } from '@/config/company'
 import { useToast } from '@/context/toast'
+import { createQuoteForOpportunity, findOpportunityQuote, listQuotesBy } from '@/data/quoteApi'
 import {
   createDraft,
+  createTaskFromOpportunity,
   FunctionUnavailableError,
   importToCrm,
   loadOpportunityDetail,
@@ -22,18 +24,22 @@ import {
   updateRadarCompany,
 } from '@/data/radarApi'
 import { ROLE_LABEL, SECTOR_LABEL, STAGE_LABEL, STATUS_LABEL, STATUS_ORDER, type OppStatus, type RadarCompany, type RadarDraft } from '@/data/radarTypes'
+import { useQuoteSettings } from '@/features/quotes/shared'
+import { AssistantPanel } from '@/features/radar/AssistantPanel'
 import { NeedBadge, ExtLink, Meter, Notice, useRadarData } from '@/features/radar/shared'
 import { downloadBytes, loadPdfAssets } from '@/lib/download'
 import { dataErrorMessage } from '@/lib/errors'
 import { requireSupabase } from '@/lib/supabase'
 import { useLiveQuery } from '@/lib/useLiveList'
-import { buildViews, capabilitiesFrom, fmtDateTime, fmtDay, locationText, missingInfo, projectTypeLabel, risks, strategy, toAssistant, localDate } from '@/radar/view'
+import type { QuoteInput } from '@/quote/types'
+import { addDays, adviceFor, buildViews, capabilitiesFrom, fmtDateTime, fmtDay, locationText, missingInfo, projectTypeLabel, risks, strategy, toAssistant, localDate } from '@/radar/view'
 import { draftEmail } from '@radar/assistant.ts'
 import { CONTACT_KIND_LABEL } from '@radar/contacts.ts'
 import { LABEL_TEXT } from '@radar/score.ts'
 import { categoryName } from '@radar/taxonomy.ts'
 
-const EMPTY_DETAIL: OpportunityDetail = { evidence: [], actions: [], drafts: [] }
+const EMPTY_DETAIL: OpportunityDetail = { evidence: [], actions: [], drafts: [], changes: [] }
+const CHANGE_LABEL = { stage: 'Aşama', deadline: 'Son tarih', verified_need: 'Doğrulanmış ihtiyaç', label: 'Etiket' } as const
 const FN_KEY = 'leonx-radar-fn-unavailable'
 
 function fnUnavailable(): boolean {
@@ -48,7 +54,7 @@ export function RadarOpportunityPage() {
   const { id = '' } = useParams()
   const { notify } = useToast()
   const q = useRadarData()
-  const d = useLiveQuery<OpportunityDetail>(['radar_evidence', 'radar_actions', 'radar_outreach_drafts'], () => loadOpportunityDetail(requireSupabase(), id), EMPTY_DETAIL)
+  const d = useLiveQuery<OpportunityDetail>(['radar_evidence', 'radar_actions', 'radar_outreach_drafts', 'radar_changes'], () => loadOpportunityDetail(requireSupabase(), id), EMPTY_DETAIL)
   const views = useMemo(() => buildViews(q.data), [q.data])
   const v = views.find((x) => x.opp.id === id)
   const [statusDraft, setStatusDraft] = useState<{ status: OppStatus; note: string } | null>(null)
@@ -58,6 +64,9 @@ export function RadarOpportunityPage() {
   const [mail, setMail] = useState<{ draft: RadarDraft | null; subject: string; body: string; to: string } | null>(null)
   const [unavailable, setUnavailable] = useState(fnUnavailable())
   const [site, setSite] = useState<{ c: RadarCompany; url: string } | null>(null)
+  const [task, setTask] = useState<{ title: string; due: string } | null>(null)
+  const { values: quoteSettings } = useQuoteSettings()
+  const navigate = useNavigate()
 
   if (q.error && !q.data.opportunities.length) return <ErrorState message={q.error} onRetry={() => void q.reload()} />
   if (q.loading && !v) return <LoadingState />
@@ -72,6 +81,7 @@ export function RadarOpportunityPage() {
   const o = v.opp
   const today = localDate()
   const st = strategy(v)
+  const advice = adviceFor(v, q.data.quotedOpportunityIds.includes(o.id))
   const verified = v.categories.filter((c) => c.need_status === 'dogrulanmis')
   const potential = v.categories.filter((c) => c.need_status !== 'dogrulanmis')
   const emails = v.companies.flatMap((c) => c.contacts.filter((k) => k.kind.endsWith('eposta')).map((k) => ({ c, k })))
@@ -108,6 +118,43 @@ export function RadarOpportunityPage() {
       }
     })
 
+  // Teklif hazırlığı: mevcut teklif modülünde TASLAK açar (fiyat/miktar girilmez; kalemleri kullanıcı ekler)
+  const prepareQuote = () =>
+    run('quote', async () => {
+      const db = requireSupabase()
+      const companyId = o.crm_company_id
+      if (!companyId) throw new Error("Teklif için önce firmayı CRM'e aktarın.")
+      const linked = await findOpportunityQuote(db, o.id)
+      if (linked) {
+        notify('Bu fırsat için teklif zaten var; açılıyor.', 'info')
+        navigate(`/teklifler/${linked.id}`)
+        return
+      }
+      const projectId = o.project_id ?? (await importToCrm(db, o.id, null, true)).project_id
+      const existing = projectId ? (await listQuotesBy(db, 'project_id', projectId)).find((x) => x.company_id === companyId) : undefined
+      if (existing) {
+        notify('Bu fırsat için teklif zaten var; açılıyor.', 'info')
+        navigate(`/teklifler/${existing.id}`)
+        return
+      }
+      const today = localDate()
+      const cats = (verified.length ? verified : potential).map((c) => categoryName(c.category_key)).join(', ')
+      const input: QuoteInput = {
+        company_id: companyId, contact_id: null, project_id: projectId ?? null,
+        title: o.title.slice(0, 200),
+        scope: cats ? `${verified.length ? 'Kaynakla doğrulanmış kapsam' : 'Olası kapsam (kaynakla DOĞRULANMADI)'}: ${cats}`.slice(0, 5000) : null,
+        quote_date: today, valid_until: addDays(today, quoteSettings.default_validity_days), currency: quoteSettings.default_currency,
+        pricing_mode: 'detayli', lump_sum: null, lump_cost: null, waste_pct: 0, overhead_pct: 0, profit_pct: 0, shipping_amount: 0, other_amount: 0, other_label: null,
+        discount_kind: 'yok', discount_value: 0, vat_pct: quoteSettings.default_vat_pct, hide_unit_prices: false,
+        payment_terms: quoteSettings.default_payment_terms, delivery_terms: quoteSettings.default_delivery_terms, notes: null,
+        internal_notes: [`LEONX Radar fırsatı: /leonx-ai/firsat/${o.id}`, o.deadline ? `Son teklif tarihi: ${fmtDay(o.deadline)}` : null,
+          ...d.data.evidence.slice(0, 5).map((e) => `Kaynak: ${e.url}`)].filter(Boolean).join('\n').slice(0, 5000),
+      }
+      const { quote: created, existing: dup } = await createQuoteForOpportunity(db, o.id, input)
+      notify(dup ? 'Bu fırsat için teklif başka bir cihazda oluşturulmuş; açılıyor.' : 'Teklif taslağı oluşturuldu; kalemleri ve fiyatları siz girin.', dup ? 'info' : 'success')
+      navigate(`/teklifler/${created.id}`)
+    })
+
   const openMail = (existing?: RadarDraft) => {
     if (existing) return setMail({ draft: existing, subject: existing.subject, body: existing.body, to: emails[0]?.k.value ?? '' })
     const as = toAssistant([v], q.data)[0]
@@ -126,6 +173,8 @@ export function RadarOpportunityPage() {
       <div className="mb-4 flex flex-wrap gap-2" data-testid="opp-actions">
         <Button variant="secondary" icon={Building2} disabled={!v.companies.length || !!busy} onClick={() => setCrm({ project: false, companyId: v.companies[0]?.company.id ?? '' })} data-testid="opp-crm">Firmayı CRM'e aktar</Button>
         <Button variant="secondary" icon={FolderPlus} disabled={!!busy} onClick={() => setCrm({ project: true, companyId: v.companies[0]?.company.id ?? '' })} data-testid="opp-project">{o.project_id ? 'Proje adayını aç' : 'Proje adayı oluştur'}</Button>
+        <Button variant="secondary" icon={ClipboardList} disabled={!!busy} onClick={() => setTask({ title: st.nextAction.slice(0, 200), due: o.deadline && o.deadline >= today ? o.deadline : '' })} data-testid="opp-task">Görev oluştur</Button>
+        <Button variant="secondary" icon={busy === 'quote' ? Loader2 : FilePlus2} disabled={!!busy || !o.crm_company_id} title={o.crm_company_id ? undefined : "Önce firmayı CRM'e aktarın"} onClick={() => void prepareQuote()} data-testid="opp-quote">Teklif taslağı</Button>
         <Button variant="secondary" icon={Mail} onClick={() => openMail()} data-testid="opp-mail">E-posta taslağı</Button>
         <Button variant="secondary" icon={busy === 'pdf' ? Loader2 : FileDown} disabled={!!busy} onClick={() => void exportReport('pdf')} data-testid="opp-pdf">PDF</Button>
         <Button variant="secondary" icon={busy === 'xlsx' ? Loader2 : FileSpreadsheet} disabled={!!busy} onClick={() => void exportReport('xlsx')} data-testid="opp-xlsx">Excel</Button>
@@ -230,6 +279,7 @@ export function RadarOpportunityPage() {
                 <div key={t}><h3 className="text-[12px] font-semibold text-muted">{t}</h3><ul className="mt-1 list-disc pl-5 text-ink-2">{list.map((x) => <li key={x}>{x}</li>)}</ul></div>
               ))}
               <div><h3 className="text-[12px] font-semibold text-muted">Sonraki aksiyon</h3><p className="mt-1 text-ink">{st.nextAction}</p></div>
+              <div data-testid="opp-advice"><h3 className="text-[12px] font-semibold text-muted">Öneri (tavsiyedir, doğrulanmış bilgi değildir)</h3><p className="mt-1 text-ink"><b>{advice.text}</b> — {advice.reason}</p></div>
             </div>
           </Panel>
 
@@ -283,6 +333,19 @@ export function RadarOpportunityPage() {
                 </li>
               )) : <li className="text-subtle">Henüz durum değişikliği yok.</li>}
             </ul>
+            {d.data.changes.length > 0 && (
+              <>
+                <h3 className="mt-4 text-[12px] font-semibold text-muted uppercase">Kaynaktaki değişiklikler</h3>
+                <ul className="mt-1 text-[12.5px]" data-testid="opp-changes">
+                  {d.data.changes.map((c) => (
+                    <li key={c.id} className="border-b border-line py-1.5 last:border-0">
+                      <span className="text-ink">{CHANGE_LABEL[c.field]}: {c.field === 'verified_need' ? 'kaynakla doğrulandı' : `${c.old_value ?? '—'} → ${c.new_value ?? '—'}`}</span>
+                      <span className="block text-[11.5px] text-subtle">{fmtDateTime(c.created_at)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </Panel>
           <Panel title="E-posta taslakları" subtitle="Sistem e-posta GÖNDERMEZ; taslağı kopyalayıp kendi e-posta istemcinizden gönderirsiniz." icon={Mail}>
             <ul className="text-[12.5px]" data-testid="opp-drafts">
@@ -296,6 +359,37 @@ export function RadarOpportunityPage() {
           </Panel>
         </div>
       </div>
+
+      <div className="mt-6" data-testid="opp-assistant">
+        <AssistantPanel data={q.data} focusId={o.id} />
+      </div>
+
+      <Modal
+        open={!!task}
+        onClose={() => setTask(null)}
+        busy={busy === 'task'}
+        title="Fırsattan görev oluştur"
+        description="Görev, fırsatın proje adayına eklenir (proje adayı yoksa oluşturulur; tekrar çift kayıt oluşturmaz)."
+        footer={task && (
+          <>
+            <Button variant="ghost" onClick={() => setTask(null)}>Vazgeç</Button>
+            <Button variant="primary" disabled={busy === 'task' || !task.title.trim()} data-testid="task-confirm" onClick={() => void run('task', async () => {
+              const r = await createTaskFromOpportunity(requireSupabase(), o.id, task.title.trim(), task.due || null)
+              notify('Görev oluşturuldu.', 'success')
+              setTask(null)
+              await q.reload()
+              navigate(`/projeler/${r.project_id}`)
+            })}>Oluştur</Button>
+          </>
+        )}
+      >
+        {task && (
+          <div className="grid gap-3">
+            <TextField label="Görev" value={task.title} maxLength={200} onChange={(e) => setTask({ ...task, title: e.target.value })} data-testid="task-title" />
+            <TextField label="Bitiş tarihi (isteğe bağlı)" type="date" value={task.due} onChange={(e) => setTask({ ...task, due: e.target.value })} data-testid="task-due" />
+          </div>
+        )}
+      </Modal>
 
       <Modal
         open={!!crm}

@@ -13,16 +13,27 @@ export const OWNER = { id: '0a0a0a0a-0000-4000-8000-000000000001', email: 'sahip
 export const INTRUDER = { id: '0b0b0b0b-0000-4000-8000-000000000002', email: 'yabanci@example.test', password: 'Dogru-Sifre-2026' }
 
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
-const fakeJwt = (user) =>
+const fakeJwt = (user, sessionId = randomUUID()) =>
   `${b64url({ alg: 'HS256', typ: 'JWT' })}.${b64url({
     sub: user.id,
+    session_id: sessionId,
     email: user.email,
     role: 'authenticated',
     aud: 'authenticated',
     exp: Math.floor(Date.now() / 1000) + 3600,
-  })}.test-imza`
+  })}.dGVzdC1pbXph`  // "test-imza" (base64url; setSession biçimi doğrular)
+
+const sessionOf = (headers) => {
+  try {
+    const t = (headers['authorization'] || '').replace(/^Bearer\s+/i, '').split('.')[1]
+    return JSON.parse(Buffer.from(t, 'base64url').toString()).session_id ?? null
+  } catch {
+    return null
+  }
+}
 
 const TABLES = [
+  'owner_devices',
   'companies',
   'contacts',
   'projects',
@@ -64,6 +75,9 @@ const TABLES = [
   'radar_actions',
   'radar_outreach_drafts',
   'radar_search_usage',
+  // 016
+  'radar_reports',
+  'radar_changes',
 ]
 // 015 varsayılanları (supabase/migrations/20261022001500_leonx_radar.sql ile aynı)
 const RADAR_DEFAULTS = {
@@ -144,6 +158,12 @@ export class MockSupabase {
     this.historySeq = 1
     this.requests = []
     this.failNext = null
+    this.loginFailures = 0
+    this.loginCalls = []
+    /** owner-login sunucusundaki OWNER_EMAIL hangi hesabı gösteriyor (yanlış yapılandırma testi için değiştirilir) */
+    this.ownerLoginUser = null
+    /** Açık kayıt kodu (sunucuda yalnız özeti tutulur; mock düz metin saklar) */
+    this.enrollment = null
     this.quoteCounter = {}
     this.copyNote = null
     this.eventSeq = 1
@@ -506,6 +526,8 @@ export class MockSupabase {
         row.quote_no = root.quote_no
         if (this.db.quotes.some((q) => q.root_id === row.root_id && q.revision === row.revision)) return { error: { status: 409, code: '23505', message: 'duplicate key value violates unique constraint "quotes_root_revision_unique"' } }
       }
+      // 017: fırsat başına tek teklif taslağı
+      if (row.radar_opportunity_id && this.db.quotes.some((q) => q.radar_opportunity_id === row.radar_opportunity_id)) return uniqueError('quotes_radar_opportunity_unique')
     }
     if (table === 'quote_items') {
       row = { ...ITEM_DEFAULTS, ...row }
@@ -802,6 +824,30 @@ export class MockSupabase {
     if (p === '/auth/v1/user') return user ? json(200, { id: user.id, email: user.email, aud: 'authenticated', role: 'authenticated' }) : json(401, { msg: 'invalid JWT' })
 
     // ---------------- RPC
+    if (p === '/rest/v1/rpc/owner_device_touch') {
+      if (!user || !this.isOwner(user)) return json(401, { code: '42501', message: 'permission denied' })
+      const sid = sessionOf(headers)
+      const d = this.db.owner_devices.find((x) => x.session_id === sid)
+      if (!d) return json(200, sid ? 'kayitsiz' : 'bilinmiyor')
+      if (d.revoked_at) return json(200, 'iptal')
+      d.last_seen_at = this.now()
+      return json(200, 'yetkili')
+    }
+    if (p === '/rest/v1/rpc/owner_device_revoke') {
+      if (!user || !this.isOwner(user)) return json(401, { code: '42501', message: 'permission denied' })
+      const d = this.db.owner_devices.find((x) => x.id === req.postDataJSON()?.p_device)
+      if (d && !d.revoked_at) d.revoked_at = this.now()
+      return json(200, !!d)
+    }
+    if (p === '/rest/v1/rpc/owner_enrollment_open') {
+      if (!user || !this.isOwner(user)) return json(401, { code: '42501', message: 'permission denied' })
+      const b = req.postDataJSON() ?? {}
+      const code = String(b.p_code ?? '')
+      const min = Number(b.p_minutes ?? 15)
+      if (code.length < 6 || code.length > 64 || /\s/.test(code) || min < 1 || min > 30) return json(400, { code: '22023', message: 'geçersiz kod' })
+      this.enrollment = { code, expiresAt: Date.now() + min * 60_000, used: false }
+      return json(200, null)
+    }
     if (p === '/rest/v1/rpc/is_owner') return user ? json(200, this.isOwner(user)) : json(401, { code: '42501', message: 'permission denied' })
     if (p === '/rest/v1/rpc/suggest_project_code') {
       if (!this.isOwner(user)) return json(200, 'LX-2026-001')
@@ -901,6 +947,42 @@ export class MockSupabase {
       const row = this.insertRow('radar_items', { source_id: src.id, canonical_url: canon, url_hash: canon, title: clean(p_title) || text.slice(0, 200), summary: text.slice(0, 4000), raw_text: text, content_hash: 'x', pending: true, first_seen_at: this.now(), last_seen_at: this.now() }, user.id, true).row
       return json(200, row.id)
     }
+    // 016: sağlık özeti ve fırsattan görev (supabase/migrations/20261023001600_leonx_radar_intel.sql ile aynı kurallar)
+    if (p === '/rest/v1/rpc/radar_health') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      const day = Date.now() - 86400000
+      const runs = this.db.radar_source_runs.filter((r) => Date.parse(r.started_at) > day)
+      return json(200, {
+        checked_at: this.now(), scan_configured: !!this.radarScanConfigured,
+        active_sources: this.db.radar_sources.filter((s) => s.active && s.permission_status === 'izinli').length,
+        failing_sources: this.db.radar_sources.filter((s) => s.active && s.consecutive_failures >= 3).map((s) => ({ id: s.id, name: s.name, failures: s.consecutive_failures, last_status: s.last_status })),
+        last_run_at: this.db.radar_source_runs.map((r) => r.started_at).sort().at(-1) ?? null,
+        runs_24h: runs.length, errors_24h: runs.filter((r) => r.status === 'hata').length,
+        pending_notifications: this.db.radar_opportunities.filter((o) => !o.notified_at).length,
+      })
+    }
+    if (p === '/rest/v1/rpc/radar_create_task') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      const { p_opportunity, p_title, p_due } = req.postDataJSON()
+      const title = String(p_title ?? '').trim()
+      if (title.length < 1 || title.length > 200) return json(400, { code: '22023', message: 'Görev başlığı 1–200 karakter olmalı' })
+      const opp = this.db.radar_opportunities.find((x) => x.id === p_opportunity)
+      if (!opp) return json(400, { code: 'P0002', message: 'Fırsat bulunamadı' })
+      let projectId = opp.project_id && this.db.projects.some((x) => x.id === opp.project_id) ? opp.project_id : null
+      if (!projectId) {
+        const year = new Date().getFullYear()
+        const nums = this.db.projects.map((x) => x.code.match(new RegExp(`^LX-${year}-(\\d+)$`))?.[1]).filter(Boolean).map(Number)
+        const code = `LX-${year}-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0')}`
+        projectId = this.insertRow('projects', { code, name: opp.title.slice(0, 200), category: 'diger', company_id: opp.crm_company_id, stage: 'yeni_firsat', location: [opp.district, opp.city].filter(Boolean).join(' / ') || null, description: 'LEONX Radar proje adayı' }, user.id).row.id
+        this.updateRow('radar_opportunities', opp.id, { project_id: projectId }, user.id, true)
+      }
+      const today = new Date().toISOString().slice(0, 10)
+      const soon = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+      const priority = opp.deadline && opp.deadline <= soon ? 'acil' : opp.verified_need ? 'yuksek' : 'normal'
+      const due = p_due ?? (opp.deadline && opp.deadline >= today ? opp.deadline : null)
+      const task = this.insertRow('project_tasks', { project_id: projectId, title, description: `LEONX Radar fırsatı: ${opp.title}`, priority, due_date: due }, user.id).row
+      return json(200, { project_id: projectId, task_id: task.id })
+    }
     if (p === '/rest/v1/rpc/radar_import_to_crm') {
       if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
       const { p_opportunity, p_company, p_create_project } = req.postDataJSON()
@@ -935,6 +1017,29 @@ export class MockSupabase {
     }
 
     // ---------------- Edge Functions (radar)
+    // ---------------- owner-login (yalnız şifre; sahip e-postası sunucu gizli değeri)
+    if (p === '/functions/v1/owner-login') {
+      const b = req.postDataJSON() ?? {}
+      this.loginCalls.push({ keys: Object.keys(b) })
+      if (this.loginFailures >= 5) return json(429, { error: 'Çok fazla hatalı deneme. 30 saniye sonra tekrar deneyin.', code: 'locked', retry_after: 30 })
+      const u = this.ownerLoginUser ?? OWNER
+      const e = this.enrollment
+      let method = 'sifre'
+      if (e && !e.used && e.expiresAt > Date.now() && b.password === e.code) {
+        e.used = true
+        method = 'kod'
+      } else if (typeof b.password !== 'string' || b.password !== u.password) {
+        this.loginFailures = (this.loginFailures ?? 0) + 1
+        return json(401, { error: 'Şifre hatalı.', code: 'invalid_credentials' })
+      }
+      this.loginFailures = 0
+      const now = Math.floor(Date.now() / 1000)
+      const sid = randomUUID()
+      const ts = this.now()
+      this.db.owner_devices.push({ id: randomUUID(), session_id: sid, label: String(b.device ?? 'Cihaz'), method, created_at: ts, last_seen_at: ts, revoked_at: null })
+      return json(200, { access_token: fakeJwt(u, sid), refresh_token: randomUUID(), expires_in: 3600, expires_at: now + 3600, method })
+    }
+
     if (p.startsWith('/functions/v1/')) {
       const fn = p.slice('/functions/v1/'.length)
       this.functionCalls.push({ fn, user: user?.email ?? null, body: req.method() === 'POST' ? req.postDataJSON() : null })
@@ -999,6 +1104,7 @@ export class MockSupabase {
     for (const [k, v] of url.searchParams) {
       if (['select', 'order', 'offset', 'limit', 'columns', 'on_conflict', 'or'].includes(k)) continue
       if (v === 'is.null') filters.push((r) => r[k] == null)
+      if (v === 'not.is.null') filters.push((r) => r[k] != null)
       const fm = v.match(/^eq\.(.*)$/)
       if (fm) filters.push((r) => String(r[k]) === fm[1])
       const im = v.match(/^in\.\((.*)\)$/)

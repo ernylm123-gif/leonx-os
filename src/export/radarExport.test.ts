@@ -39,3 +39,40 @@ describe('radar raporu', () => {
     expect(radarFileName('Çankaya İş Merkezi — cephe', 'pdf')).toBe('LEONX-Radar-Cankaya-Is-Merkezi-cephe.pdf')
   })
 })
+
+// 016: zamanlanmış özet raporu (SENTETİK)
+describe('radar zamanlanmış raporu', () => {
+  it('günlük rapor: potansiyel uyarısı, Excel tek sayfa (kaynak sayfası yok)', async () => {
+    const { buildDigestReport } = await import('./radarDigest')
+    const r = buildDigestReport({
+      id: 'r1', kind: 'gunluk', period_start: '2026-10-23', period_end: '2026-10-23', created_at: '2026-10-23T04:30:00Z',
+      payload: {
+        generated_at: '2026-10-23T04:30:00Z', new_count: 1, updated_count: 0, verified_count: 0,
+        top: [{ id: 'o1', title: 'Sentetik konut projesi', city: 'Ankara', district: 'Çankaya', score: 64, label: 'potansiyel_ihtiyac', stage: 'planlama', status: 'yeni', deadline: null, is_new: true }],
+        deadlines: [], sources: { active: 2, failing: 1, runs_24h: 24, errors_24h: 3 },
+      },
+    })
+    expect(r.title).toContain('Günlük öncelikli rapor — 23.10.2026')
+    const top = r.sections.find((s) => s.key === 'oncelik')!
+    expect(top.note).toMatch(/DEĞİLDİR/)
+    expect(top.rows[0].label).toBe('[Yeni] Sentetik konut projesi')
+    expect(top.rows[0].value).toContain('Ankara / Çankaya')
+    expect(r.sections.find((s) => s.key === 'son')!.rows[0].tone).toBe('muted')
+    expect(r.sections.find((s) => s.key === 'kaynak')!.rows[1].tone).toBe('warn')
+    const files = unzipSync(radarToXlsx(r))
+    expect(Object.keys(files).filter((k) => k.startsWith('xl/worksheets/sheet'))).toHaveLength(1)
+  })
+
+  it('haftalık özet: hat dağılımı ve hareketsiz takip', async () => {
+    const { buildDigestReport } = await import('./radarDigest')
+    const r = buildDigestReport({
+      id: 'r2', kind: 'haftalik', period_start: '2026-10-17', period_end: '2026-10-23', created_at: '2026-10-23T05:00:00Z',
+      payload: { new_count: 3, won: 1, lost: 0, pipeline: { yeni: 3, iletisime_gecildi: 1 }, follow_ups: [{ id: 'o2', title: 'Sentetik takip', city: null, score: 80, status: 'iletisime_gecildi', deadline: null, next_action: 'Arama yap', last_touch: '2026-10-10T00:00:00Z' }], deadlines: [] },
+    })
+    expect(r.title).toContain('17.10.2026 – 23.10.2026')
+    expect(r.sections.find((s) => s.key === 'hat')!.rows.map((x) => x.label)).toEqual(['Yeni', 'İletişime geçildi'])
+    const f = r.sections.find((s) => s.key === 'takip')!.rows[0]
+    expect(f.value).toContain('konum bilinmiyor')
+    expect(f.value).toContain('sonraki aksiyon: Arama yap')
+  })
+})

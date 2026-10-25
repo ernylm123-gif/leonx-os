@@ -51,6 +51,9 @@ export const REALTIME_TABLES = [
   'radar_actions',
   'radar_outreach_drafts',
   'radar_search_usage',
+  // 016: zamanlanmış raporlar ve önemli değişiklikler (yalnız sunucu yazar)
+  'radar_reports',
+  'radar_changes',
 ] as const
 
 export type DetailTable = Exclude<(typeof REALTIME_TABLES)[number], 'companies' | 'projects'>

@@ -1,20 +1,22 @@
-import { Activity, Building2, CalendarClock, MapPin, Radar, RotateCcw } from 'lucide-react'
+import { Activity, Building2, CalendarClock, Columns3, Lightbulb, List, MapPin, Radar, RotateCcw } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Panel } from '@/components/ui/Panel'
 import { ErrorState, SkeletonRows } from '@/components/ui/States'
 import { FilterSelect, SearchInput } from '@/components/ui/Toolbar'
-import { ANKARA_DISTRICTS } from '@radar/geo.ts'
+import { ANKARA_DISTRICTS, DISTRICTS } from '@radar/geo.ts'
 import { LABEL_TEXT } from '@radar/score.ts'
 import { categoryName } from '@radar/taxonomy.ts'
 import { KIND_LABEL, RUN_LABEL, type RadarData, SECTOR_LABEL, STAGE_LABEL, STATUS_LABEL, STATUS_ORDER, PERMISSION_LABEL } from '@/data/radarTypes'
 import { cn } from '@/lib/cn'
-import { applyFilters, buildViews, daysLeft, DEFAULT_FILTERS, fmtDateTime, fmtDay, kpis, localDate, locationText, type OppView, type RadarFilters, sortAnkaraFirst } from '@/radar/view'
+import { adviceFor, applyFilters, buildViews, daysLeft, DEFAULT_FILTERS, fmtDateTime, fmtDay, groupPipeline, kpis, localDate, locationText, type OppView, PIPELINE, type RadarFilters, sortAnkaraFirst } from '@/radar/view'
 import { Kpi, Meter, NeedBadge, Notice } from './shared'
 
 export function RadarDashboard({ data, loading, error, reload }: { data: RadarData; loading: boolean; error: string | null; reload: () => void }) {
   const [f, setF] = useState<RadarFilters>(DEFAULT_FILTERS)
+  const [mode, setMode] = useState<'liste' | 'hat'>('liste')
   const views = useMemo(() => buildViews(data), [data])
+  const quoted = useMemo(() => new Set(data.quotedOpportunityIds), [data.quotedOpportunityIds])
   const list = useMemo(() => sortAnkaraFirst(applyFilters(views, f)), [views, f])
   const k = useMemo(() => kpis(views, new Date(), data.settings?.high_priority_score ?? 75), [views, data.settings])
   const cities = useMemo(() => [...new Set(data.opportunities.map((o) => o.city).filter((c): c is string => !!c))].sort((a, b) => (a === 'Ankara' ? -1 : b === 'Ankara' ? 1 : a.localeCompare(b, 'tr'))), [data.opportunities])
@@ -67,13 +69,13 @@ export function RadarDashboard({ data, loading, error, reload }: { data: RadarDa
         <div className="flex flex-col gap-2.5">
           <SearchInput value={f.q} onChange={(v) => set('q', v)} placeholder="Fırsat, şehir veya firma ara…" label="Fırsatlarda ara" />
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6" data-testid="radar-filters">
-            <FilterSelect value={f.city} onChange={(v) => setF((x) => ({ ...x, city: v, district: v === 'Ankara' || !v ? x.district : '' }))} label="Şehir">
+            <FilterSelect value={f.city} onChange={(v) => setF((x) => ({ ...x, city: v, district: !v || (DISTRICTS[v] ?? []).includes(x.district) ? x.district : '' }))} label="Şehir">
               <option value="">Tüm şehirler</option>
               {cities.map((c) => <option key={c} value={c}>{c}</option>)}
             </FilterSelect>
-            <FilterSelect value={f.district} onChange={(v) => set('district', v)} label="İlçe (Ankara)">
+            <FilterSelect value={f.district} onChange={(v) => set('district', v)} label={f.city && f.city !== 'Ankara' ? `İlçe (${f.city})` : 'İlçe (Ankara)'}>
               <option value="">Tüm ilçeler</option>
-              {ANKARA_DISTRICTS.map((d) => <option key={d} value={d}>{d}</option>)}
+              {(f.city ? DISTRICTS[f.city] ?? [] : ANKARA_DISTRICTS).map((d) => <option key={d} value={d}>{d}</option>)}
             </FilterSelect>
             <FilterSelect value={f.category} onChange={(v) => set('category', v)} label="Kategori">
               <option value="">Tüm kategoriler</option>
@@ -113,10 +115,18 @@ export function RadarDashboard({ data, loading, error, reload }: { data: RadarDa
               <input type="date" value={f.deadlineTo} onChange={(e) => set('deadlineTo', e.target.value)} aria-label="Son tarih bitiş" className="h-9 rounded-lg border border-line bg-surface px-2 text-base text-ink sm:text-sm" />
             </label>
           </div>
-          <div className="flex items-center justify-between text-xs text-muted">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
             <span>
               <b className="font-semibold text-ink" data-testid="radar-count">{list.length}</b> fırsat · Ankara öncelikli sıralama
             </span>
+            <div role="radiogroup" aria-label="Görünüm" className="inline-flex rounded-lg border border-line bg-surface-2 p-0.5">
+              {([['liste', 'Liste', List], ['hat', 'CRM hattı', Columns3]] as const).map(([k, label, Icon]) => (
+                <button key={k} type="button" role="radio" aria-checked={mode === k} onClick={() => setMode(k)} data-testid={`radar-mode-${k}`}
+                  className={cn('inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold', mode === k ? 'bg-surface text-ink shadow-card' : 'text-muted hover:text-ink')}>
+                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />{label}
+                </button>
+              ))}
+            </div>
             {dirty && (
               <button type="button" className="inline-flex items-center gap-1 font-medium text-ink-2 hover:underline" onClick={() => setF(DEFAULT_FILTERS)}>
                 <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" /> Filtreleri temizle
@@ -138,9 +148,11 @@ export function RadarDashboard({ data, loading, error, reload }: { data: RadarDa
           </div>
         ) : !list.length ? (
           <p className="card px-5 py-8 text-center text-sm text-subtle">Filtrelere uyan fırsat yok.</p>
+        ) : mode === 'hat' ? (
+          <PipelineBoard views={list} quoted={quoted} />
         ) : (
           <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2" data-testid="radar-list">
-            {list.map((v) => <OpportunityCard key={v.opp.id} v={v} />)}
+            {list.map((v) => <OpportunityCard key={v.opp.id} v={v} quoted={quoted.has(v.opp.id)} />)}
           </ul>
         )}
       </section>
@@ -148,8 +160,45 @@ export function RadarDashboard({ data, loading, error, reload }: { data: RadarDa
   )
 }
 
-function OpportunityCard({ v }: { v: OppView }) {
+/** CRM hattı: mevcut durum değerleri sütun olarak; "Teklif hazırlandı" bağlı teklif taslağından türetilir */
+function PipelineBoard({ views, quoted }: { views: OppView[]; quoted: ReadonlySet<string> }) {
+  const groups = groupPipeline(views, quoted)
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="radar-pipeline">
+      {PIPELINE.map((p) => {
+        const list = groups.get(p.key) ?? []
+        return (
+          <section key={p.key} aria-label={`${p.label} (${list.length})`} className="card min-w-0 p-3" data-testid={`pipeline-${p.key}`}>
+            <h3 className="flex items-center justify-between text-[12px] font-semibold text-muted">
+              <span>{p.label}</span><span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-ink-2" data-testid="pipeline-count">{list.length}</span>
+            </h3>
+            {list.length === 0 ? (
+              <p className="mt-2 text-[11.5px] text-subtle">Kayıt yok</p>
+            ) : (
+              <ul className="mt-2 flex flex-col gap-2">
+                {list.slice(0, 25).map((v) => {
+                  const a = adviceFor(v, quoted.has(v.opp.id))
+                  return (
+                    <li key={v.opp.id} className="rounded-lg border border-line bg-surface p-2.5">
+                      <Link to={`/leonx-ai/firsat/${v.opp.id}`} className="block text-[13px] font-semibold break-words text-ink hover:underline">{v.opp.title}</Link>
+                      <p className="mt-0.5 text-[11.5px] text-muted">{locationText(v.opp)} · puan {v.opp.score}</p>
+                      <p className="mt-1 text-[11.5px] text-ink-2" title={a.reason}>Öneri: {a.text}</p>
+                    </li>
+                  )
+                })}
+                {list.length > 25 && <li className="text-[11.5px] text-subtle">+{list.length - 25} kayıt (süzgeçleri daraltın)</li>}
+              </ul>
+            )}
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
+function OpportunityCard({ v, quoted }: { v: OppView; quoted: boolean }) {
   const o = v.opp
+  const advice = adviceFor(v, quoted)
   const today = localDate()
   const left = daysLeft(o.deadline, today)
   const firm = v.companies[0]?.company.name
@@ -182,8 +231,12 @@ function OpportunityCard({ v }: { v: OppView }) {
         <Meter label="Fırsat puanı" value={o.score} tone={o.verified_need ? 'ok' : 'warn'} testId="radar-card-score" />
         <Meter label="Güvenilirlik" value={o.reliability} tone="muted" testId="radar-card-reliability" />
       </div>
-      <div className="mt-3 flex flex-wrap justify-between gap-2 text-[11.5px] text-subtle">
-        <span>{STATUS_LABEL[o.status]} · güncelleme {fmtDateTime(o.last_updated_at)}</span>
+      <p className="mt-3 flex items-start gap-1.5 text-[12px] text-ink-2" data-testid="radar-card-advice">
+        <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
+        <span><b className="font-semibold">Öneri: {advice.text}</b> <span className="text-muted">— {advice.reason} (tavsiyedir, doğrulanmış bilgi değildir)</span></span>
+      </p>
+      <div className="mt-2 flex flex-wrap justify-between gap-2 text-[11.5px] text-subtle">
+        <span>{STATUS_LABEL[o.status]}{quoted ? ' · teklif taslağı var' : ''} · güncelleme {fmtDateTime(o.last_updated_at)}</span>
         <span className="text-ink-2">Sonraki aksiyon: {o.next_action ?? '—'}</span>
       </div>
     </li>

@@ -16,5 +16,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["supabase/functions/_shared/radar"]
+  "include": ["supabase/functions/_shared/radar", "supabase/functions/_shared/auth"]
 }

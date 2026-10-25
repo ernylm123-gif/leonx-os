@@ -49,6 +49,39 @@ export async function createQuote(db: SupabaseClient, input: QuoteInput): Promis
   return insertOnce<Quote>(db, 'quotes', input)
 }
 
+const MISSING_COLUMN = new Set(['PGRST204', '42703'])
+
+/** 017: fırsata bağlı teklif (revizyonlar bağı taşımaz; ilk taslak döner). Sütun yoksa (017 öncesi) null. */
+export async function findOpportunityQuote(db: SupabaseClient, opportunityId: string): Promise<Quote | null> {
+  const r = await db.from('quotes').select('*').eq('radar_opportunity_id', opportunityId).limit(1)
+  if (r.error) {
+    if (MISSING_COLUMN.has((r.error as { code?: string }).code ?? '')) return null
+    throw r.error
+  }
+  return ((r.data ?? []) as Quote[])[0] ?? null
+}
+
+/**
+ * Fırsattan teklif taslağı — fırsat başına tek teklif (veritabanında benzersiz; iki cihaz aynı anda
+ * bassa da ikinci taslak açılmaz, mevcut olan döner). Kalem/fiyat EKLENMEZ.
+ */
+export async function createQuoteForOpportunity(db: SupabaseClient, opportunityId: string, input: QuoteInput): Promise<{ quote: Quote; existing: boolean }> {
+  const found = await findOpportunityQuote(db, opportunityId)
+  if (found) return { quote: found, existing: true }
+  try {
+    return { quote: await insertOnce<Quote>(db, 'quotes', { ...input, radar_opportunity_id: opportunityId }), existing: false }
+  } catch (e) {
+    const code = (e as { code?: string }).code ?? ''
+    if (code === '23505') {
+      const q = await findOpportunityQuote(db, opportunityId)
+      if (q) return { quote: q, existing: true }
+    }
+    // 017 uygulanmamış veritabanı: bağ kurulmadan oluşturulur (eski davranış)
+    if (MISSING_COLUMN.has(code)) return { quote: await insertOnce<Quote>(db, 'quotes', input), existing: false }
+    throw e
+  }
+}
+
 export function updateQuote(db: SupabaseClient, q: Pick<Quote, 'id' | 'version'>, patch: Partial<QuoteInput> & { status?: QuoteStatus; project_id?: string | null }): Promise<Quote> {
   return versionedUpdate<Quote>(db, 'quotes', q.id, q.version, patch)
 }
