@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { INJECTION_ITEM, NEWS_COMPLETED_SCHOOL, NEWS_HOSPITAL_CONSTRUCTION, NOW, STREET_FALSE_POSITIVE, TENDER_FIRE_DOOR_ETIMESGUT } from './__fixtures__/synthetic_items.ts'
 import { ruleAnalyzer, selectAnalyzer, type Analyzer } from './analyzer.ts'
 import { classify, extractDeadline, extractIkn, extractOrganizations } from './classify.ts'
-import { ankaraProximity, ANKARA_DISTRICTS, detectLocation, PROVINCES } from './geo.ts'
+import { ankaraProximity, ANKARA_DISTRICTS, detectLocation, DISTRICTS, PROVINCES } from './geo.ts'
 import { htmlToText } from './sanitize.ts'
 import { CATEGORIES } from './taxonomy.ts'
 
@@ -31,7 +31,40 @@ describe('geo', () => {
   it('çok anlamlı adlar: küçük harfle sayılmaz; "Adıyaman Gölbaşı" Ankara değildir', () => {
     expect(detectLocation('ordu birlikleri tatbikat yaptı').city).toBeNull()
     expect(detectLocation('Ordu sahilinde proje').city).toBe('Ordu')
-    expect(detectLocation('Adıyaman Gölbaşı ilçesinde okul')).toMatchObject({ city: 'Adıyaman', district: null, isAnkara: false })
+    // 0.14.0: Adıyaman'ın da Gölbaşı ilçesi var → ilçe artık yazılır
+    expect(detectLocation('Adıyaman Gölbaşı ilçesinde okul')).toMatchObject({ city: 'Adıyaman', district: 'Gölbaşı', isAnkara: false })
+    expect(detectLocation('Gölbaşı ilçesinde okul')).toMatchObject({ city: 'Ankara', district: 'Gölbaşı', isAnkara: true })
+  })
+  it('81 ilin ilçeleri: il geçerse ilçe yazılır, aynı adlı ilçeler ile göre ayrılır', () => {
+    expect(Object.keys(DISTRICTS)).toHaveLength(81)
+    expect(Object.keys(DISTRICTS).every((p) => PROVINCES.includes(p))).toBe(true)
+    expect(Object.values(DISTRICTS).every((l) => l.length >= 2 && new Set(l).size === l.length)).toBe(true)
+    expect(DISTRICTS['İstanbul']).toHaveLength(39)
+    expect(DISTRICTS['İzmir']).toHaveLength(30)
+    expect(DISTRICTS['Konya']).toHaveLength(31)
+    expect(detectLocation("İzmir'in Bornova ilçesinde")).toMatchObject({ city: 'İzmir', district: 'Bornova' })
+    expect(detectLocation('Konya Ereğli Belediyesi hizmet binası')).toMatchObject({ city: 'Konya', district: 'Ereğli' })
+    expect(detectLocation("Zonguldak Ereğli'de liman binası")).toMatchObject({ city: 'Zonguldak', district: 'Ereğli' })
+    expect(detectLocation('Bursa Yenişehir OSB fabrika')).toMatchObject({ city: 'Bursa', district: 'Yenişehir' })
+    expect(detectLocation('Mersin Yenişehir hastanesi')).toMatchObject({ city: 'Mersin', district: 'Yenişehir' })
+    expect(detectLocation("Rize Pazar'da okul")).toMatchObject({ city: 'Rize', district: 'Pazar' })
+  })
+  it('il geçmeden ilçe: yalnız ayırt edici adlardan, düşük güvenle', () => {
+    expect(detectLocation("Gebze'de fabrika inşaatı")).toMatchObject({ city: 'Kocaeli', district: 'Gebze', isAnkara: false, confidence: 0.7 })
+    expect(detectLocation('Lüleburgaz sanayi sitesi')).toMatchObject({ city: 'Kırklareli', district: 'Lüleburgaz', confidence: 0.6 })
+    // Aynı adlı (Ereğli, Yenişehir) veya gündelik sözcük/kulüp adı olan ilçeler tek başına konum değildir
+    expect(detectLocation('Ereğli fabrikası genişleme').city).toBeNull()
+    expect(detectLocation('Pazar günü açılış yapıldı').city).toBeNull()
+    expect(detectLocation('Kale kapısı restorasyonu').city).toBeNull()
+    expect(detectLocation('Beşiktaş stadyumu çatı kaplaması').city).toBeNull()
+    expect(detectLocation('Akdeniz bölgesinde otel yatırımları').city).toBeNull()
+    expect(detectLocation('Of course this is English text').city).toBeNull()
+    // Küçük harfle yazılmış ilçe adı özel ad sayılmaz
+    expect(detectLocation('gebze yönünde trafik').city).toBeNull()
+    // Ankara semti olan ilçe adları Ankara bağlamında başka ile kaymaz
+    expect(detectLocation("Ankara Bahçelievler'de konut projesi")).toMatchObject({ city: 'Ankara', district: null })
+    expect(detectLocation('Kavaklıdere sitesi cephe yenileme').city).toBeNull()
+    expect(detectLocation('Gebze Caddesi üzerinde dükkan').city).toBeNull()
   })
   it('Ankara yakınlığı', () => {
     expect(ankaraProximity('Ankara')).toBe(1)
