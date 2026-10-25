@@ -46,7 +46,7 @@ Dağıtım (arayüzden **önce**):
 
 ```
 supabase functions deploy owner-login --no-verify-jwt
-supabase functions deploy radar-scan
+supabase functions deploy radar-scan --no-verify-jwt
 supabase functions deploy radar-contacts
 ```
 
