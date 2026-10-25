@@ -27,6 +27,9 @@ begin
   if not has_function_privilege('service_role', 'public.owner_login_record(text, boolean)', 'execute') then
     raise exception 'TEST BAŞARISIZ: owner_login_record service_role için kapalı';
   end if;
+  if not has_table_privilege('service_role', 'public.app_owner', 'select') then
+    raise exception 'TEST BAŞARISIZ: owner-login sahip kaydını okuyamıyor';
+  end if;
   if has_table_privilege('authenticated', 'leonx_private.owner_login_attempts', 'select')
      or has_table_privilege('anon', 'leonx_private.owner_login_attempts', 'select') then
     raise exception 'TEST BAŞARISIZ: giriş sayaçları istemciye açık';

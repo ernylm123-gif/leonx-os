@@ -109,6 +109,8 @@ begin
     execute 'grant execute on function public.owner_login_check(text) to service_role';
     execute 'grant execute on function public.owner_login_record(text, boolean) to service_role';
     execute 'grant usage on schema leonx_private to service_role';
+    -- owner-login: OWNER_EMAIL tanımlı değilse sahip kimliği buradan okunur (yalnız okuma, yalnız sunucu)
+    execute 'grant select on public.app_owner to service_role';
   end if;
 end;
 $$;
