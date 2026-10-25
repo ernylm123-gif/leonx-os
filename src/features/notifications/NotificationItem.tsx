@@ -1,4 +1,4 @@
-import { AlarmClock, Bell, CalendarClock, FileText, FolderKanban, ScanLine, Settings2 } from 'lucide-react'
+import { AlarmClock, Bell, CalendarClock, FileText, FolderKanban, Radar, ScanLine, Settings2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { AppNotification, NotificationCategory } from '@/data/types'
 import { cn } from '@/lib/cn'
@@ -10,6 +10,7 @@ export const CATEGORY_META: Record<NotificationCategory, { label: string; icon: 
   gorev: { label: 'Görev', icon: AlarmClock },
   termin: { label: 'Termin', icon: CalendarClock },
   sistem: { label: 'Sistem', icon: Settings2 },
+  firsat: { label: 'İş fırsatı', icon: Radar },
 }
 
 const rtf = new Intl.RelativeTimeFormat('tr', { numeric: 'auto' })

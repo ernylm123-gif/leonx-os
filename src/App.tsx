@@ -102,6 +102,10 @@ const router = createBrowserRouter([
             lazy: () => import('@/pages/AiPage').then((m) => ({ Component: m.AiPage })),
           },
           {
+            path: 'leonx-ai/firsat/:id',
+            lazy: () => import('@/pages/RadarOpportunityPage').then((m) => ({ Component: m.RadarOpportunityPage })),
+          },
+          {
             path: 'raporlar',
             lazy: () =>
               import('@/pages/ReportsPage').then((m) => ({

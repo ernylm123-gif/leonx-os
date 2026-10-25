@@ -18,6 +18,7 @@ const CATEGORY_TOGGLES: { key: keyof NotificationPrefsInput; label: string; desc
   { key: 'cat_cad', label: 'Metraj / CAD bildirimleri', description: 'CAD analizi, metraj hazırlandı / revize / onaylandı' },
   { key: 'cat_gorev', label: 'Görev hatırlatmaları', description: 'Hatırlatma zamanı gelen, bugün biten ve geciken görevler' },
   { key: 'cat_termin', label: 'Termin bildirimleri', description: 'Yaklaşan ve geçen proje teslim tarihleri' },
+  { key: 'cat_firsat', label: 'İş fırsatı bildirimleri (LEONX AI Radar)', description: 'Yeni doğrulanmış iş, potansiyel ihtiyaç ve öncelikli teklif fırsatları (puan, şehir ve kategori süzgeçleri radar ayarlarında)' },
   { key: 'cat_sistem', label: 'Sistem güncellemeleri', description: 'Yeni uygulama sürümü hazır' },
 ]
 
