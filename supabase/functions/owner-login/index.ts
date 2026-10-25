@@ -7,7 +7,7 @@
 // belirteçleri döner (istemci supabase.auth.setSession ile kurar). Kaba kuvvet sayaçları service_role ile
 // owner_login_check / owner_login_record (017) üzerinden tutulur. Şifre ve e-posta loglanmaz.
 //
-// Gizli değerler: OWNER_EMAIL (zorunlu), OWNER_LOGIN_SALT (isteğe bağlı), SUPABASE_SERVICE_ROLE_KEY
+// Gizli değerler: OWNER_EMAIL (isteğe bağlı; yoksa sahip e-postası app_owner kaydından service_role ile okunur), OWNER_LOGIN_SALT (isteğe bağlı), SUPABASE_SERVICE_ROLE_KEY
 // (Supabase sağlar). CORS: RADAR_ALLOWED_ORIGINS (varsayılan https://leonx-os.vercel.app).
 import { createClient } from 'npm:@supabase/supabase-js@2.117.3'
 import { clientIp, handleOwnerLogin, type OwnerSession, sessionIdOf, type SignInResult } from '../_shared/auth/ownerLogin.ts'
@@ -29,6 +29,19 @@ const json = (req: Request, status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cors(req) } })
 
 const service = createClient(URL_, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } })
+
+// OWNER_EMAIL yoksa tek doğruluk kaynağı app_owner: sahip kimliği → Auth kullanıcısının e-postası (5 dk önbellek)
+let ownerCache: { email: string; at: number } | null = null
+async function resolveOwnerEmail(): Promise<string> {
+  if (OWNER_EMAIL) return OWNER_EMAIL
+  if (ownerCache && Date.now() - ownerCache.at < 300_000) return ownerCache.email
+  const o = await service.from('app_owner').select('user_id').eq('singleton', true).maybeSingle()
+  if (o.error || !o.data?.user_id) return ''
+  const u = await service.auth.admin.getUserById(o.data.user_id as string)
+  const email = u.data?.user?.email?.trim() ?? ''
+  if (email) ownerCache = { email, at: Date.now() }
+  return email
+}
 
 async function rpcInt(fn: string, args: Record<string, unknown>): Promise<number> {
   const r = await service.rpc(fn, args)
@@ -83,7 +96,7 @@ Deno.serve(async (req: Request) => {
   const body = await req.json().catch(() => null)
   try {
     const r = await handleOwnerLogin(body, clientIp(req.headers), {
-      ownerEmail: OWNER_EMAIL,
+      ownerEmail: await resolveOwnerEmail(),
       salt: SALT,
       check: (h) => rpcInt('owner_login_check', { p_ip_hash: h }),
       record: (h, ok) => rpcInt('owner_login_record', { p_ip_hash: h, p_success: ok }),

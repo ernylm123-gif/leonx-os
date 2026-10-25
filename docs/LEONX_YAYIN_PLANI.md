@@ -37,7 +37,7 @@ Gizli değerler (Dashboard → Edge Functions → Secrets):
 
 | Ad | Değer |
 | --- | --- |
-| `OWNER_EMAIL` | sahip hesabının e-postası (Authentication → Users) |
+| `OWNER_EMAIL` | isteğe bağlı; tanımlı değilse sahip e-postası `app_owner` → Auth kullanıcısından okunur |
 | `OWNER_LOGIN_SALT` | uzun rastgele değer (isteğe bağlı, önerilir) |
 | `RADAR_ALLOWED_ORIGINS` | `https://leonx-os.vercel.app` |
 | `TAVILY_API_KEY` | **tanımlanmaz** (ücretli API kapalı kalır) |

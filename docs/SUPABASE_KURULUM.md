@@ -147,7 +147,7 @@ yalnızca SQL Editor'dan yapılabilir.
 Giriş ekranı yalnız şifre sorar; e-posta sunucuda tutulur:
 
 1. Migration 017'yi uygulayın (kaba kuvvet sayaçları).
-2. **Edge Functions → Secrets**: `OWNER_EMAIL` = 3. adımda oluşturduğunuz hesabın e-postası; `RADAR_ALLOWED_ORIGINS=https://leonx-os.vercel.app`.
+2. **Edge Functions → Secrets** (isteğe bağlı): `OWNER_EMAIL` = sahip hesabının e-postası — tanımlı değilse işlev e-postayı `app_owner` kaydından okur; `RADAR_ALLOWED_ORIGINS=https://leonx-os.vercel.app`.
    İsteğe bağlı `OWNER_LOGIN_SALT` (rastgele uzun bir değer).
 3. `supabase functions deploy owner-login --no-verify-jwt`
 4. Bu işlev dağıtılmadan yeni arayüz yayımlanırsa giriş ekranı "Giriş hizmeti henüz kurulmamış" der; önce işlevi dağıtın.
