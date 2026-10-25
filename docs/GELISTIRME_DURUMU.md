@@ -1,6 +1,6 @@
 # LEONX OS — Geliştirme durumu
 
-Son güncelleme: LEONX AI Radar zamanlanmış istihbarat (016) · uygulama sürümü 0.13.0 (0.10/0.11 numaraları bekleyen kasa ve BOM dallarına ayrıldı)
+Son güncelleme: LEONX AI Radar yayın hazırlığı (017) · uygulama sürümü 0.14.0 (0.10/0.11 numaraları bekleyen kasa ve BOM dallarına ayrıldı)
 
 0.8.2 (denetim düzeltmeleri): diyalog formları açılışta render sırasında sıfırlanır (hızlı yazılan değer/hata kaybı ve kararsız e2e giderildi);
 büyük listeler 1000 satırlık sayfalarla okunur (sessiz kesilme yok, 50 sayfa sınırında açık hata); bütçe formunda teklif kalemleri
@@ -25,12 +25,13 @@ Tek üretim adresi: <https://leonx-os.vercel.app> (yalnızca `main` dalından). 
 | 13 | CAD/BIM: **DXF mimari analiz** — model uzayı mimari motora (PDF ile aynı) sanal kâğıt olarak verilir: pafta türü, doğrama çizelgesi (metin tablosu), poz etiketi, kat tekrarı, teknik özellik, çelişki; blok geometrisiyle birleşik (yazılı ölçü yoksa ölçü bloktan, uyuşmazsa ölçü çelişkisi; duvarlar poz sayılmaz). **Metraj revizyon karşılaştırması** — eklenen/silinen/değişen pozlar, metraj farkı, katalog maliyet farkı ve teklif tutarı etkisi (fiyat yoksa tutar yok, para birimleri ayrı). Metraj özetinde brüt (boşluk) alan, çevre ve **malzeme/seri bazlı** tablo. DWG değerlendirmesi (`docs/DWG_DEGERLENDIRME.md`) |
 | LEONX AI | **Proje ve iş fırsatı radarı** (`docs/LEONX_AI_RADAR.md`): kural tabanlı Türkçe sınıflandırıcı (32 kategori, 81 il + 25 Ankara ilçesi, ihale/İKN/son tarih), doğrulanmış ↔ potansiyel ihtiyaç ayrımı, açıklanabilir fırsat puanı ve ayrı güvenilirlik, kaynaklı kanıt, Ankara öncelikli panel ve süzgeçler, A–F raporu (PDF/Excel), durum hattı ve geçmişi, CRM'e aktarma ve proje adayı, e-posta taslağı (gönderim yok), kaynak yönetimi ve "Kaynağı test et", elle bağlantı, asistan, `firsat` bildirim kategorisi; `radar-scan` / `radar-contacts` Edge Function'ları (SSRF koruması, robots.txt, Tavily bağlayıcısı + aylık bütçe; varsayılan kapalı). **Dağıtım sahip onayı bekliyor**; kaynaklar canlı doğrulanmadı |
 | LEONX AI 016 | **Zamanlanmış istihbarat**: sunucuda günlük öncelikli rapor ve haftalık hat/takip özeti (Raporlar bölümü, PDF/Excel), son tarih hatırlatmaları (7/3/1/0 gün), kaynakta önemli değişiklik kaydı ve bildirimi, tarama sağlığı izleme (art arda hata, duran tarama), yeni production sürümü bildirimi (cihaz kapalıyken de; istemciyle aynı tekilleştirme anahtarı, varsayılan kapalı), fırsattan görev ve teklif taslağı. **Migration 016 uygulanmadı** |
+| LEONX AI 017 | **Yayın hazırlığı (0.14.0)**: yalnız şifre ile giriş (`owner-login` Edge Function, sahip e-postası sunucu gizli değeri, IP özetli ilerlemeli kilit), 81 ilin tüm ilçeleri (aynı adlı ilçe ve gündelik sözcük kuralları), iletişim kanalı eklenince puanın yeniden hesaplanması, fırsat başına tek teklif taslağı, CRM hattı panosu ("Teklif hazırlandı" türetilir), tavsiye niteliğinde sonraki adım, asistanda 8 yeni soru türü, kaynak aday listesi (`docs/LEONX_RADAR_KAYNAK_ADAYLARI.md`). **Migration 015/016/017 uzak veritabanına uygulanmadı; dağıtım sahip onayı bekliyor** |
 | PR-2 | **DWG → DXF → PDF dönüştürme prototipi**: ayrı, yalıtılmış dönüştürme servisi (`services/cad-worker`: GNU LibreDWG + ezdxf, Supabase JWT, kaynak sınırları, dosya saklamaz), kalite raporu (kaybolan nesne/katman/blok, birim, layout, XREF, proxy), PDF önizleme; uygulamada açık onayla sunucuda dönüştürme, dönüştürülen DXF'in mevcut analize verilmesi, özgün DWG/DXF/PDF indirme. Barındırma onay bekliyor (`docs/DWG_DONUSTURME.md`) |
 
 ## Veritabanı
 
-Migration'lar `supabase/migrations/` altında, sırasıyla 001–009, 011 (Faz 8 finans), 012 (Faz 5.2 inceleme) 015 (LEONX AI Radar) ve 016 (Radar zamanlanmış istihbarat; 013/014 bekleyen kasa/BOM dallarına ayrıldı); 010 numarası kullanılmadı.
-015 henüz uzak veritabanına UYGULANMADI (yerel `npm run test:db` ile iki kez uygulanıp sınandı).
+Migration'lar `supabase/migrations/` altında, sırasıyla 001–009, 011 (Faz 8 finans), 012 (Faz 5.2 inceleme) 015 (LEONX AI Radar), 016 (Radar zamanlanmış istihbarat) ve 017 (Radar yayın hazırlığı; 013/014 bekleyen kasa/BOM dallarına ayrıldı); 010 numarası kullanılmadı.
+015, 016 ve 017 henüz uzak veritabanına UYGULANMADI (yerel `npm run test:db` ile iki kez uygulanıp sınandı).
 Hepsi gerçek Supabase projesine uygulandı (011 uzak test 14/14; 012 uzakta katalog doğrulaması: 5 sütun, tetikleyici, 3 kısıt, anon erişimi kapalı, mevcut satırlara dokunulmadı). Tümü
 tekrar çalıştırılabilir ve DROP/veri silme içermez.
 
@@ -41,7 +42,7 @@ tekrar çalıştırılabilir ve DROP/veri silme içermez.
 | `npm run test` | Doğruluk ölçümü (sentetik fikstürler: precision/recall, adet/ölçü/alan hatası), AutoCAD yazı-çizgi ve karma pafta için uçtan uca karo OCR, kart tipi liste, mimari PDF analizi (çok sayfalı proje, çizelge, ölçeksiz plan, yanlış ölçek, yazısız/taranmış/boş/bozuk PDF, OCR), hesap motorları (metraj, teklif), birim dönüşümleri, PDF/Excel içerik ve toplam eşitliği, sürüm, yeniden deneme |
 | `npm run bench:cad` | Doğruluk ölçümü; `CAD_REFERANS_DIR` ile gerçek referans projeler (depo dışında) |
 | `npm run test:db` | Migration'lar iki kez + RLS, kilit, numara, revizyon, silme ilişkileri; Faz 8: finans RLS, metraj çift aktarım engeli, kur seçimi, FIFO tahsilat, bütçe aşımı ve hatırlatma tekilleştirme; Faz 5.2: onay bilgisinin sunucuda yazılması, değiştirilemez ilk değer, belirsiz işareti, çelişki/doğrulama bildirimleri (yerel PostgreSQL) |
-| `npm run test:e2e` | Tarayıcı akışları (sahte Supabase): giriş, CRUD, çoklu cihaz, çevrimdışı, sürüm, CAD/metraj, teklif akışları, LEONX AI Radar (panel, rapor, CRM, taslak, kaynak testi, asistan, iPhone SE/iPad), 6 ekran × 2 tema |
+| `npm run test:e2e` | Tarayıcı akışları (sahte Supabase): giriş, CRUD, çoklu cihaz, çevrimdışı, sürüm, CAD/metraj, teklif akışları, LEONX AI Radar (panel, CRM hattı, rapor, CRM, taslak, kaynak testi, asistan, iPhone SE/iPad/Android), yalnız şifre girişi ve kilit, 6 ekran × 2 tema |
 | `supabase/tests/*.remote_safe.sql` | Gerçek Supabase'de silmesiz, geri alınan RLS/kural testleri |
 
 CI (GitHub Actions) her PR'da kalite, veritabanı ve tarayıcı testlerini çalıştırır; Vercel build'i birim testleri ve
@@ -56,6 +57,9 @@ Otomatik testler Chromium cihaz öykünmesiyle yapılır; aşağıdakiler gerçe
 - iPad'de teklif PDF'inin indirilmesi ve "Önizle" ile açılması
 - iPad Safari'de büyük çok sayfalı PDF'lerin bellek/performansı ve OCR süresi (Chromium'da ~3 sn/sayfa)
 - Uçak modu → kayıt → bağlantı geri gelince tek kayıt oluşması
+- Yalnız şifre girişinde iPhone/iPad Anahtar Zinciri ve Android parola yöneticisinin şifreyi doğru doldurması
+- LEONX AI Radar ekranlarının (liste, CRM hattı, fırsat sayfası, asistan) gerçek iPhone, iPad, Android ve Windows tarayıcılarında görünümü
+- İki cihazda aynı fırsattan aynı anda "Teklif taslağı" basıldığında tek teklif açılması
 
 ## PDF analizi — ne çalışır, ne sınırlıdır
 
@@ -114,7 +118,7 @@ ve tarayıcı testi; öznitelik ve kâğıt uzayı: `src/cad/dxfAttributes.test.
 - Teklifte kur çevrimi yapılmaz: teklif seçilen para biriminde hazırlanır. Finans modülünde çevrim yalnız
   kullanıcının girdiği kurla yapılır (otomatik TCMB çekimi yok); kur yoksa para birimi bazında gösterilir.
 - Otomatik PR birleştirme GitHub ayarı (Allow auto-merge + zorunlu kontroller) depo sahibince açılmalıdır.
-- LEONX AI henüz geliştirilmedi.
+- LEONX AI Radar kural tabanlıdır (dil modeli yok); gerçek kaynaklar canlı doğrulanmadı ve hiçbir kaynak "İzinli" değildir. Edge Function'lar Deno altında çalıştırılmadı.
 
 ## Faz 8 — finans kuralları
 

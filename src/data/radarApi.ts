@@ -36,7 +36,7 @@ function unwrap<T>(res: { data: T | null; error: unknown }): T {
 }
 
 export const RADAR_TABLES = [
-  'radar_settings', 'radar_categories', 'radar_sources', 'radar_source_runs', 'radar_opportunities', 'radar_opportunity_categories',
+  'quotes', 'radar_settings', 'radar_categories', 'radar_sources', 'radar_source_runs', 'radar_opportunities', 'radar_opportunity_categories',
   'radar_companies', 'radar_opportunity_companies', 'radar_contacts', 'radar_search_usage',
 ] as const
 
@@ -54,7 +54,18 @@ export async function loadRadar(db: SupabaseClient): Promise<RadarData> {
     db.from('radar_search_usage').select('*').order('month', { ascending: false }).range(0, 11).then((r) => unwrap(r) as RadarSearchUsage[]),
     fetchAllPages<RadarItemLink>((f, t) => db.from('radar_items').select('id, opportunity_id, source_id, canonical_url, published_at, first_seen_at, last_seen_at, pending').order('first_seen_at', { ascending: false }).order('id').range(f, t)),
   ])
-  return { items, settings, categories, sources, runs, opportunities, oppCategories, companies, oppCompanies, contacts, usage }
+  return { items, settings, categories, sources, runs, opportunities, oppCategories, companies, oppCompanies, contacts, usage, quotedOpportunityIds: await loadQuotedOpportunities(db) }
+}
+
+/** 017 öncesi veritabanında sütun yoktur; o durumda boş liste döner (hat yine çalışır) */
+async function loadQuotedOpportunities(db: SupabaseClient): Promise<string[]> {
+  try {
+    const rows = await fetchAllPages<{ radar_opportunity_id: string }>((f, t) =>
+      db.from('quotes').select('radar_opportunity_id').not('radar_opportunity_id', 'is', null).order('radar_opportunity_id').range(f, t))
+    return rows.map((r) => r.radar_opportunity_id)
+  } catch {
+    return []
+  }
 }
 
 export interface OpportunityDetail {

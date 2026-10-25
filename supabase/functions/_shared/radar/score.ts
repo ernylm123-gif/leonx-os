@@ -55,6 +55,9 @@ export interface ScorePart {
   factor: number
   points: number
   reason: string
+  /** Yalnız 'iletisim': kanal bulunmadan önceki (sınıflandırmadan gelen) etken; veritabanı kanal eklenince/silinince buna göre yeniden hesaplar (017) */
+  base_factor?: number
+  base_reason?: string
 }
 
 export type OpportunityLabel = 'dogrulanmis_firsat' | 'potansiyel_ihtiyac' | 'belirsiz'
@@ -139,13 +142,19 @@ export function scoreOpportunity(c: Classification, ctx: ScoreContext, weights: 
   const prox = ankaraProximity(c.geo.city)
   add('yakinlik', prox, c.geo.city ? (c.geo.isAnkara ? `Ankara${c.geo.district ? ` / ${c.geo.district}` : ''}` : prox >= 0.6 ? `${c.geo.city} (Ankara'ya komşu)` : c.geo.city) : 'konum bilinmiyor')
 
-  // 5) İletişim / teklif yolu
+  // 5) İletişim / teklif yolu. Taban etken kanal yokken geçerlidir; kanal sonradan bulunursa
+  //    veritabanı (radar_rescore_breakdown, 017) aynı kuralla etkeni yükseltir, kanal silinirse tabana döner.
   const vc = ctx.verifiedContacts ?? { strong: 0, any: 0 }
+  const base: [number, string] =
+    c.isProcurement && (c.tender.ikn || c.tender.deadline) ? [0.6, 'İlan teklif yolunu tanımlıyor (İKN / son tarih)']
+      : c.organizations.length ? [0.3, 'Kurum/firma adı biliniyor, iletişim doğrulanmadı']
+        : [0, 'Teklif yolu belirsiz']
   if (vc.strong > 0) add('iletisim', 1, 'Doğrulanmış tedarikçi portalı / satın alma kanalı var')
-  else if (vc.any > 0) add('iletisim', 0.7, 'Doğrulanmış genel iletişim kanalı var')
-  else if (c.isProcurement && (c.tender.ikn || c.tender.deadline)) add('iletisim', 0.6, 'İlan teklif yolunu tanımlıyor (İKN / son tarih)')
-  else if (c.organizations.length) add('iletisim', 0.3, 'Kurum/firma adı biliniyor, iletişim doğrulanmadı')
-  else add('iletisim', 0, 'Teklif yolu belirsiz')
+  else if (vc.any > 0) add('iletisim', Math.max(0.7, base[0]), 'Doğrulanmış genel iletişim kanalı var')
+  else add('iletisim', base[0], base[1])
+  const contactPart = parts[parts.length - 1]
+  contactPart.base_factor = base[0]
+  contactPart.base_reason = base[1]
 
   // 6) Ticari potansiyel
   const pt = c.projectType ? PROJECT_TYPE_BY_KEY[c.projectType.key] : null

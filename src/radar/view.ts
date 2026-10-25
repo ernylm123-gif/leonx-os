@@ -3,6 +3,7 @@
  * eksik bilgiler, riskler ve kural tabanlı ticari strateji ÖNERİSİ. Yalnız kayıtlı verilerden üretir;
  * hiçbir alan uydurulmaz (bilinmeyen değer "bilinmiyor" olarak gösterilir).
  */
+import { type Advice, advise } from '@radar/advice.ts'
 import type { AssistantOpportunity } from '@radar/assistant.ts'
 import { RISK_LABEL, type RiskCode } from '@radar/classify.ts'
 import { CONTACT_KIND_LABEL } from '@radar/contacts.ts'
@@ -72,6 +73,54 @@ export function buildViews(data: RadarData): OppView[] {
       sourceIds: sids,
     }
   })
+}
+
+// ------------------------------------------------------------------ CRM hattı ve öneri
+/** Hat sütunları (mevcut durum değerleri; "Teklif hazırlandı" bağlı teklif taslağından türetilir) */
+export type PipelineStage = 'kesfedildi' | 'arastiriliyor' | 'nitelikli' | 'iletisime_hazir' | 'iletisime_gecildi' | 'teklif_istendi' | 'teklif_hazirlandi' | 'teklif_verildi' | 'gorusme' | 'kazanildi' | 'kaybedildi'
+
+export const PIPELINE: { key: PipelineStage; label: string }[] = [
+  { key: 'kesfedildi', label: 'Keşfedildi' },
+  { key: 'arastiriliyor', label: 'Araştırılıyor' },
+  { key: 'nitelikli', label: 'Nitelikli' },
+  { key: 'iletisime_hazir', label: 'İletişime hazır' },
+  { key: 'iletisime_gecildi', label: 'İletişime geçildi' },
+  { key: 'teklif_istendi', label: 'Teklif istendi' },
+  { key: 'teklif_hazirlandi', label: 'Teklif hazırlandı' },
+  { key: 'teklif_verildi', label: 'Teklif verildi' },
+  { key: 'gorusme', label: 'Görüşme' },
+  { key: 'kazanildi', label: 'Kazanıldı' },
+  { key: 'kaybedildi', label: 'Kaybedildi' },
+]
+
+const STATUS_TO_STAGE: Record<OppStatus, PipelineStage | null> = {
+  yeni: 'kesfedildi', inceleniyor: 'arastiriliyor', firma_dogrulandi: 'nitelikli', iletisim_planlandi: 'iletisime_hazir', iletisime_gecildi: 'iletisime_gecildi',
+  teklif_istendi: 'teklif_istendi', teklif_verildi: 'teklif_verildi', gorusme: 'gorusme', kazanildi: 'kazanildi', kaybedildi: 'kaybedildi', ilgisiz: null,
+}
+
+/** Fırsatın hat sütunu; ilgisiz → null (hatta gösterilmez) */
+export function pipelineStage(o: Pick<RadarOpportunity, 'status'>, quoted: boolean): PipelineStage | null {
+  const s = STATUS_TO_STAGE[o.status]
+  if (!s) return null
+  // Teklif taslağı bağlı ama henüz verilmemişse: teklif hazırlandı
+  if (quoted && ['kesfedildi', 'arastiriliyor', 'nitelikli', 'iletisime_hazir', 'iletisime_gecildi', 'teklif_istendi'].includes(s)) return 'teklif_hazirlandi'
+  return s
+}
+
+export function groupPipeline(views: OppView[], quoted: ReadonlySet<string>): Map<PipelineStage, OppView[]> {
+  const m = new Map<PipelineStage, OppView[]>(PIPELINE.map((p) => [p.key, []]))
+  for (const v of views) {
+    const st = pipelineStage(v.opp, quoted.has(v.opp.id))
+    if (st) m.get(st)!.push(v)
+  }
+  for (const list of m.values()) list.sort((a, b) => b.opp.score - a.opp.score)
+  return m
+}
+
+/** Tavsiye niteliğinde sonraki adım (doğrulanmış bilgi değildir) */
+export function adviceFor(v: OppView, quoted: boolean, now: Date = new Date()): Advice {
+  const o = v.opp
+  return advise({ score: o.score, verified_need: o.verified_need, stage: o.stage, status: o.status, deadline: o.deadline, hasContact: v.companies.some((c) => c.contacts.length > 0), hasQuote: quoted, now })
 }
 
 // ------------------------------------------------------------------ Süzgeçler ve sıralama

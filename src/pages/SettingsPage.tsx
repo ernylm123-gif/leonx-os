@@ -16,6 +16,7 @@ import { formatDateTime } from '@/lib/stats'
 import { supabaseConfig } from '@/lib/supabase'
 import { QuoteSettingsPanel } from '@/features/quotes/QuoteSettingsPanel'
 import { VersionPanel } from '@/features/system/VersionPanel'
+import { DevicesPanel } from '@/features/system/DevicesPanel'
 import { NotificationSettings } from '@/features/notifications/NotificationSettings'
 
 const THEME_OPTIONS = [
@@ -79,6 +80,8 @@ export function SettingsPage() {
             </div>
           </div>
         </Panel>
+
+        <DevicesPanel />
 
         <Panel title="Görünüm" subtitle="Tema seçimi anında uygulanır" icon={Palette}>
           <SegmentedControl<ThemePreference>
