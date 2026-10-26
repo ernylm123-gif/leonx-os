@@ -766,7 +766,10 @@ await test('Süresi dolmuş erişim belirteci yenilenebiliyorsa sessizce yenilen
 await test('Açılışta kayıtlı oturum yenilenemezse giriş ekranı hedef adresi ve nedeni gösterir', async ({ page, mock }) => {
   await login(page, OWNER, '/ayarlar')
   await page.getByRole('heading', { name: 'Ayarlar', exact: true }).waitFor()
-  // Cihazda kalan oturumun erişim belirtecinin süresi dolmuş; yenileme belirteci başka cihazdan kapatılmış
+  // Cihazda kalan oturumun erişim belirtecinin süresi dolmuş; yenileme belirteci başka cihazdan kapatılmış.
+  // Depo, uygulama ÇALIŞMAZKEN değiştirilir (aynı kökendeki statik dosyada): açık uygulamanın otomatik
+  // yenileme zamanlayıcısı süresi dolmuş oturumu açılıştan önce kendisi temizleyip testi yarışa sokmasın.
+  await page.goto(`${BASE}/version.json`)
   await page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('leonx-os-auth'))
     s.expires_at = Math.floor(Date.now() / 1000) - 60
