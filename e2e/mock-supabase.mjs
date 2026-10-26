@@ -21,6 +21,7 @@ const fakeJwt = (user, sessionId = randomUUID()) =>
     role: 'authenticated',
     aud: 'authenticated',
     exp: Math.floor(Date.now() / 1000) + 3600,
+    iat_ms: Date.now(),
   })}.dGVzdC1pbXph`  // "test-imza" (base64url; setSession biçimi doğrular)
 
 const sessionOf = (headers) => {
@@ -158,6 +159,13 @@ export class MockSupabase {
     this.historySeq = 1
     this.requests = []
     this.failNext = null
+    /** Kalıcı arıza: { match: '/rest/v1/', status: 503 } veya { match, abort: 'timedout' } (null: yok) */
+    this.outage = null
+    /** Bu andan önce verilmiş erişim belirteçleri REST'te 401 "JWT expired" alır */
+    this.tokensRejectedBefore = 0
+    /** true: yenileme belirteçleri geçersiz (başka cihazdan kapatılmış / süresi dolmuş oturum) */
+    this.revokeRefresh = false
+    this.refreshTokens = new Map()
     this.loginFailures = 0
     this.loginCalls = []
     /** owner-login sunucusundaki OWNER_EMAIL hangi hesabı gösteriyor (yanlış yapılandırma testi için değiştirilir) */
@@ -793,6 +801,15 @@ export class MockSupabase {
 
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' } })
 
+    if (this.outage && p.startsWith(this.outage.match ?? '/rest/v1/')) {
+      if (this.outage.abort) return route.abort(this.outage.abort)
+      return route.fulfill({ status: this.outage.status ?? 503, contentType: 'text/plain', body: 'Service Unavailable', headers: { 'access-control-allow-origin': '*' } })
+    }
+    if (p.startsWith('/rest/v1/') && this.tokensRejectedBefore && user) {
+      const claims = JSON.parse(Buffer.from((headers['authorization'] || '').split('.')[1], 'base64url').toString())
+      if ((claims.iat_ms ?? 0) < this.tokensRejectedBefore) return json(401, { code: 'PGRST303', details: null, hint: null, message: 'JWT expired' })
+    }
+
     if (this.failNext && p.includes(this.failNext.match) && (!this.failNext.method || this.failNext.method === req.method())) {
       const f = this.failNext
       this.failNext = null
@@ -808,15 +825,28 @@ export class MockSupabase {
     // ---------------- Auth
     if (p === '/auth/v1/token') {
       const body = req.postDataJSON()
-      const u = [OWNER, INTRUDER].find((x) => x.email === body.email && x.password === body.password)
-      if (!u) return json(400, { code: 400, error_code: 'invalid_credentials', msg: 'Invalid login credentials' })
+      let u
+      let sid
+      if (url.searchParams.get('grant_type') === 'refresh_token') {
+        const r = this.revokeRefresh ? null : this.refreshTokens.get(body.refresh_token)
+        u = r?.u
+        sid = r?.sid
+        if (!u) return json(400, { code: 400, error_code: 'refresh_token_not_found', msg: 'Invalid Refresh Token: Refresh Token Not Found' })
+        this.refreshTokens.delete(body.refresh_token)
+      } else {
+        u = [OWNER, INTRUDER].find((x) => x.email === body.email && x.password === body.password)
+        if (!u) return json(400, { code: 400, error_code: 'invalid_credentials', msg: 'Invalid login credentials' })
+      }
       const now = Math.floor(Date.now() / 1000)
+      const refresh = randomUUID()
+      sid ??= randomUUID()
+      this.refreshTokens.set(refresh, { u, sid })
       return json(200, {
-        access_token: fakeJwt(u),
+        access_token: fakeJwt(u, sid),
         token_type: 'bearer',
         expires_in: 3600,
         expires_at: now + 3600,
-        refresh_token: randomUUID(),
+        refresh_token: refresh,
         user: { id: u.id, aud: 'authenticated', role: 'authenticated', email: u.email, last_sign_in_at: new Date().toISOString(), app_metadata: {}, user_metadata: {}, created_at: '2026-01-01T00:00:00Z' },
       })
     }
@@ -1037,7 +1067,9 @@ export class MockSupabase {
       const sid = randomUUID()
       const ts = this.now()
       this.db.owner_devices.push({ id: randomUUID(), session_id: sid, label: String(b.device ?? 'Cihaz'), method, created_at: ts, last_seen_at: ts, revoked_at: null })
-      return json(200, { access_token: fakeJwt(u, sid), refresh_token: randomUUID(), expires_in: 3600, expires_at: now + 3600, method })
+      const refresh = randomUUID()
+      this.refreshTokens.set(refresh, { u, sid })
+      return json(200, { access_token: fakeJwt(u, sid), refresh_token: refresh, expires_in: 3600, expires_at: now + 3600, method })
     }
 
     if (p.startsWith('/functions/v1/')) {

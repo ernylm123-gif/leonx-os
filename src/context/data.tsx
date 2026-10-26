@@ -1,7 +1,9 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { LIST_LIMIT, listCompanies, listProjects } from '@/data/api'
 import type { Company, Project } from '@/data/types'
-import { dataErrorMessage } from '@/lib/errors'
+import { useAuth } from '@/context/auth'
+import { serverRetryDelay } from '@/lib/connectionStatus'
+import { dataErrorMessage, isAuthExpiredError, isServerUnreachable } from '@/lib/errors'
 import { type ChangePayload, type RealtimeClientLike, RealtimeSync, type SyncState } from '@/lib/realtimeSync'
 import { requireSupabase } from '@/lib/supabase'
 
@@ -68,6 +70,8 @@ interface DataContextValue {
   truncated: boolean
   syncState: SyncState
   lastSyncedAt: Date | null
+  /** Cihaz çevrimiçi ama Supabase'e ulaşılamıyor (ağ hatası, zaman aşımı, 5xx); otomatik yeniden denenir */
+  serverUnreachable: boolean
   refresh: () => Promise<void>
   /** Kaydetme sonrası yerel depoyu hemen günceller (Realtime olayını beklemeden) */
   upsertCompany: (c: Company) => void
@@ -110,6 +114,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [truncated, setTruncated] = useState(false)
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null)
+  const [serverUnreachable, setServerUnreachable] = useState(false)
+  const [serverAttempt, setServerAttempt] = useState(0)
+  const { recoverSession } = useAuth()
   const listeners = useRef(new Map<DetailTable, Set<DetailListener>>())
   const inflight = useRef<Promise<void> | null>(null)
 
@@ -117,15 +124,29 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (inflight.current) return inflight.current
     const run = (async () => {
       const db = requireSupabase()
-      try {
+      const load = async () => {
         const [c, p] = await Promise.all([listCompanies(db), listProjects(db)])
         setCompanies((prev) => mergeServerList(c, prev))
         setProjects((prev) => mergeServerList(p, prev))
         setTruncated(c.length >= LIST_LIMIT || p.length >= LIST_LIMIT)
+      }
+      try {
+        try {
+          await load()
+        } catch (e) {
+          // Sunucu belirteci reddetti (süresi dolmuş / cihaz saati yanlış): bir kez yenile ve tekrar dene.
+          // Yenilenemezse oturum kapanır; RequireAuth giriş ekranını hedef adresle açar (donma yok).
+          if (!isAuthExpiredError(e) || (await recoverSession()) !== 'yenilendi') throw e
+          await load()
+        }
         setError(null)
+        setServerUnreachable(false)
+        setServerAttempt(0)
         setLastSyncedAt(new Date())
       } catch (e) {
         setError(dataErrorMessage(e, 'Veri yükleme'))
+        const online = typeof navigator === 'undefined' || navigator.onLine !== false
+        setServerUnreachable(online && isServerUnreachable(e))
       } finally {
         setLoading(false)
         inflight.current = null
@@ -133,7 +154,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
     })()
     inflight.current = run
     return run
-  }, [])
+  }, [recoverSession])
+
+  // Sunucuya ulaşılamıyorsa kademeli olarak yeniden denenir (3 sn → 30 sn); başarıda durur
+  useEffect(() => {
+    if (!serverUnreachable) return
+    const t = window.setTimeout(() => {
+      setServerAttempt((n) => n + 1)
+      void refresh()
+    }, serverRetryDelay(serverAttempt))
+    return () => window.clearTimeout(t)
+  }, [serverUnreachable, serverAttempt, refresh])
 
   const handleChange = useCallback((payload: ChangePayload) => {
     const { table, eventType } = payload
@@ -197,6 +228,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       truncated,
       syncState,
       lastSyncedAt,
+      serverUnreachable,
       refresh,
       upsertCompany: (c) => setCompanies((l) => upsertById(l, c).sort((a, b) => a.name.localeCompare(b.name, 'tr'))),
       removeCompany: (id) => setCompanies((l) => l.filter((x) => x.id !== id)),
@@ -204,7 +236,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       removeProject: (id) => setProjects((l) => l.filter((x) => x.id !== id)),
       subscribeDetail,
     }),
-    [companies, projects, loading, error, truncated, syncState, lastSyncedAt, refresh, subscribeDetail],
+    [companies, projects, loading, error, truncated, syncState, lastSyncedAt, serverUnreachable, refresh, subscribeDetail],
   )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

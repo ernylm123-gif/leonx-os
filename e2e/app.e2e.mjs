@@ -584,6 +584,204 @@ await test('Kanonik olmayan adres: tek üretim adresine yönlendiren uyarı', as
   expect((await page.getByTestId('env-banner').count()) === 0, 'yerel adreste ortam uyarısı çıktı')
 })
 
+await test('Yeni dağıtım: kaydedilmemiş formda önce uyarı, "Yine de güncelle" tek yenileme; yeni sürümle açılınca bildirim kalkar, döngü yok', async ({ page }) => {
+  let deployed = true
+  await page.route('**/version.json*', async (route) => {
+    const real = await (await route.fetch()).json()
+    // Yeni sürüm yayında; yenilemeden sonra bu sekme yeni sürümle açılmış gibi davranılır
+    const body = deployed ? { ...real, buildId: `${real.buildId}-yeni`, commit: 'f00dbab' } : real
+    await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(body) })
+  })
+  await login(page, OWNER, '/projeler')
+  await page.getByRole('button', { name: 'Yeni proje' }).first().click()
+  await page.getByRole('dialog', { name: 'Yeni proje' }).getByLabel('Proje adı').fill('Yarım kalan form')
+  await page.getByTestId('update-banner').waitFor({ timeout: 10000 })
+  let loads = 0
+  page.on('load', () => loads++)
+  await page.getByTestId('update-apply').click()
+  await page.getByTestId('update-unsaved').waitFor()
+  expect(loads === 0, 'uyarı gösterilmeden yenilendi')
+  deployed = false
+  await Promise.all([page.waitForEvent('load'), page.getByTestId('update-apply').click()])
+  await page.getByRole('heading', { name: 'Projeler', exact: true }).waitFor()
+  expect(!page.url().includes('_surum='), `sürüm parametresi kaldı: ${page.url()}`)
+  await page.waitForTimeout(5000) // açılıştan ~4 sn sonraki otomatik denetim de geçsin
+  expect((await page.getByTestId('update-banner').count()) === 0, 'yeni sürümle açıldıktan sonra bildirim kaldı')
+  expect(loads === 1, `yeniden yükleme sayısı ${loads} (beklenen 1)`)
+})
+
+// ================================================================== Açılış koruması ve bağlantı durumu
+const bootPanel = (page) => page.locator('#leonx-boot-fallback')
+
+await test('Açılış koruması: normal açılışta kurtarma paneli hiç görünmez (12 sn sınırı geçilene kadar izlenir)', async ({ page }) => {
+  const t0 = Date.now()
+  await login(page, OWNER, '/')
+  await page.getByRole('heading', { name: 'Dashboard', exact: true }).waitFor()
+  await page.waitForTimeout(Math.max(0, 12_800 - (Date.now() - t0)))
+  const st = await page.evaluate(() => ({ booted: window.__LEONX_BOOTED__ === true, ...window.__LEONX_BOOT_GUARD__.state() }))
+  expect(st.booted && st.booted === true, 'uygulama açıldı bilgisini vermedi')
+  expect(st.shownCount === 0 && st.shown === null && !st.pending, `panel durumu: ${JSON.stringify(st)}`)
+  expect((await bootPanel(page).count()) === 0, 'normal açılışta kurtarma paneli göründü')
+})
+
+await test('Açılış koruması: ana paket yüklenemezse bir kez otomatik yeniden açar, sonra panel; düğmeler gerçekten çalışır, oturum/taslak korunur', async ({ page }) => {
+  let blocked = true
+  let hits = 0
+  await page.route(/\/assets\/index-[^/]+\.js$/, (route) => {
+    if (!blocked) return route.continue()
+    hits++
+    return route.abort('failed')
+  })
+  const navs = []
+  page.on('request', (r) => r.isNavigationRequest() && r.frame() === page.mainFrame() && navs.push(r.url()))
+  await page.goto(`${BASE}/projeler`)
+  const dialog = page.getByRole('alertdialog', { name: 'LEONX OS açılamadı' })
+  await dialog.waitFor({ timeout: 8000 })
+  expect(hits === 2, `ana paket istek sayısı ${hits} (ilk açılış + bir otomatik deneme bekleniyordu)`)
+  expect(navs.length === 2 && /_surum=yeniden-/.test(navs[1]), `otomatik yeniden açma adresi: ${navs.join(' | ')}`)
+  expect((await bootPanel(page).getAttribute('data-reason')) === 'dosya', 'panel nedeni yanlış')
+  for (const name of ['Yeniden dene', 'Uygulamayı güncelle', 'Bağlantıyı kontrol et']) await dialog.getByRole('button', { name }).waitFor()
+
+  // Bağlantıyı kontrol et: çevrimiçi durum, version.json sonucu + gecikme, sürüm karşılaştırması
+  await dialog.getByRole('button', { name: 'Bağlantıyı kontrol et' }).click()
+  const result = page.locator('#leonx-boot-result')
+  await result.getByText(/Sunucu \(version\.json\): ulaşıldı · HTTP 200 · \d+ ms/).waitFor()
+  const txt = await result.innerText()
+  expect(/Cihaz bağlantısı: Çevrimiçi/.test(txt) && /Sürümler aynı/.test(txt), `denetim sonucu: ${txt}`)
+
+  // Oturum ve taslak verisi taklidi + uygulamanın kullanmadığı eski önbellek
+  await page.evaluate(async () => {
+    localStorage.setItem('leonx-os-auth', '{"taklit":"oturum"}')
+    localStorage.setItem('leonx-test-taslak', 'korunur')
+    sessionStorage.setItem('leonx-test-oturum-taslak', 'korunur')
+    await (await caches.open('eski-surum')).put('/eski.js', new Response('eski'))
+  })
+
+  // Yeniden dene: dosya hâlâ yüklenemiyor → otomatik deneme hakkı kullanıldı, döngü yok, panel geri gelir
+  await Promise.all([page.waitForEvent('load'), dialog.getByRole('button', { name: 'Yeniden dene' }).click()])
+  await dialog.waitFor({ timeout: 8000 })
+  await page.waitForTimeout(800)
+  expect(hits === 3, `yeniden dene sonrası istek sayısı ${hits}`)
+
+  // Uygulamayı güncelle: sunucu sürümüyle önbellek atlayan adres; Cache Storage silinir; depolar korunur
+  blocked = false
+  const v = await (await page.request.get(`${BASE}/version.json`)).json()
+  await Promise.all([page.waitForEvent('load'), dialog.getByRole('button', { name: 'Uygulamayı güncelle' }).click()])
+  await page.getByRole('heading', { name: 'Giriş yap' }).waitFor()
+  const last = new URL(navs.at(-1))
+  expect(last.pathname === '/projeler' && last.searchParams.get('_surum') === v.buildId, `güncelleme adresi: ${navs.at(-1)}`)
+  expect(!page.url().includes('_surum='), `sürüm parametresi adreste kaldı: ${page.url()}`)
+  expect((await bootPanel(page).count()) === 0, 'uygulama açıldıktan sonra panel kaldı')
+  const kept = await page.evaluate(async () => ({
+    caches: (await caches.keys()).length,
+    draft: localStorage.getItem('leonx-test-taslak'),
+    session: sessionStorage.getItem('leonx-test-oturum-taslak'),
+  }))
+  expect(kept.caches === 0, 'Cache Storage temizlenmedi')
+  expect(kept.draft === 'korunur' && kept.session === 'korunur', `taslak/oturum depoları silindi: ${JSON.stringify(kept)}`)
+})
+
+await test('Açılış koruması: yavaş açılışta "uzun sürüyor" paneli; uygulama açılınca kendiliğinden kalkar', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__LEONX_BOOT_TIMEOUT_MS__ = 700
+  })
+  let release
+  const gate = new Promise((r) => (release = r))
+  await page.route(/\/assets\/index-[^/]+\.js$/, async (route) => {
+    await gate
+    await route.continue()
+  })
+  await page.goto(`${BASE}/giris`, { waitUntil: 'commit' })
+  await page.getByRole('alertdialog', { name: 'LEONX OS beklenenden uzun sürede açılıyor' }).waitFor({ timeout: 5000 })
+  release()
+  await page.getByRole('heading', { name: 'Giriş yap' }).waitFor()
+  await eventually(async () => (await bootPanel(page).count()) === 0, 'uygulama açılınca panel kalkmadı')
+})
+
+await test('Sunucuya ulaşılamıyor (503): cihaz çevrimiçiyken açık uyarı, veri korunur, otomatik yeniden deneme ve "Şimdi dene"', async ({ page, mock }) => {
+  mock.externalInsert('companies', { name: 'Kesinti Öncesi Firma' })
+  await login(page, OWNER, '/firmalar')
+  await page.getByText('Kesinti Öncesi Firma').first().waitFor()
+  await page.getByRole('status', { name: /Senkronizasyon: Canlı/ }).waitFor()
+  mock.outage = { match: '/rest/v1/', status: 503 }
+  mock.dropSockets() // yeniden bağlanınca tam yenileme denenir → 503
+  const notice = page.getByTestId('server-notice')
+  await notice.getByText('Sunucuya (Supabase) ulaşılamıyor — yeniden deneniyor', { exact: false }).waitFor({ timeout: 20000 })
+  expect((await page.getByTestId('offline-notice').count()) === 0, 'cihaz çevrimiçiyken çevrimdışı uyarısı gösterildi')
+  expect((await page.getByTestId('sync-indicator').getAttribute('data-kind')) === 'sunucu', 'durum göstergesi sunucu arızasını göstermiyor')
+  expect((await page.getByText('Kesinti Öncesi Firma').count()) > 0, 'kesintide mevcut veri ekrandan silindi')
+  mock.externalInsert('companies', { name: 'Kesintide Eklenen Firma' })
+  mock.outage = null
+  await page.getByTestId('server-retry').click()
+  await eventually(async () => (await notice.count()) === 0, 'sunucu geri gelince uyarı kalkmadı', 10000)
+  await page.getByText('Kesintide Eklenen Firma').first().waitFor({ timeout: 6000 })
+  expect((await page.getByTestId('sync-indicator').getAttribute('data-kind')) !== 'sunucu', 'durum göstergesi düzelmedi')
+})
+
+await test('Sunucuya ulaşılamıyor (zaman aşımı/bağlantı reddi): uyarı ve sunucu dönünce kendiliğinden düzelme', async ({ page, mock }) => {
+  await login(page, OWNER, '/firmalar')
+  await page.getByRole('heading', { name: 'Henüz firma yok' }).waitFor()
+  await page.getByRole('status', { name: /Senkronizasyon: Canlı/ }).waitFor()
+  mock.outage = { match: '/rest/v1/', abort: 'timedout' }
+  mock.dropSockets()
+  await page.getByTestId('server-notice').waitFor({ timeout: 20000 })
+  mock.externalInsert('companies', { name: 'Otomatik Denemeyle Gelen' })
+  mock.outage = null
+  // "Şimdi dene"ye basmadan kademeli otomatik deneme düzeltir
+  await page.getByText('Otomatik Denemeyle Gelen').first().waitFor({ timeout: 25000 })
+  await eventually(async () => (await page.getByTestId('server-notice').count()) === 0, 'uyarı kalkmadı', 5000)
+})
+
+await test('Süresi dolmuş oturum: sunucu belirteci reddeder ve yenilenemezse giriş ekranı hedef adresle açılır (donma yok)', async ({ page, mock }) => {
+  await login(page, OWNER, '/firmalar')
+  await page.getByRole('heading', { name: 'Henüz firma yok' }).waitFor()
+  await page.getByRole('status', { name: /Senkronizasyon: Canlı/ }).waitFor()
+  mock.revokeRefresh = true
+  mock.tokensRejectedBefore = Date.now() + 1
+  mock.dropSockets() // yeniden bağlanınca tam yenileme → 401 JWT expired → yenileme başarısız
+  await page.getByRole('heading', { name: 'Giriş yap' }).waitFor({ timeout: 15000 })
+  expect(page.url().includes('/giris?next=%2Ffirmalar'), `hedef adres korunmadı: ${page.url()}`)
+  await page.getByText(/Oturumunuzun süresi doldu/).waitFor()
+  expect(!(await page.evaluate(() => localStorage.getItem('leonx-os-auth'))), 'geçersiz oturum cihazda kaldı')
+  mock.revokeRefresh = false
+  await page.locator('input[name="password"]').fill(OWNER.password)
+  await page.getByRole('button', { name: 'Giriş yap' }).click()
+  await page.getByRole('heading', { name: 'Henüz firma yok' }).waitFor()
+  expect(page.url().endsWith('/firmalar'), `girişten sonra hedef sayfa açılmadı: ${page.url()}`)
+})
+
+await test('Süresi dolmuş erişim belirteci yenilenebiliyorsa sessizce yenilenir; kullanıcı çıkarılmaz', async ({ page, mock }) => {
+  mock.externalInsert('companies', { name: 'Yenileme Firması' })
+  await login(page, OWNER, '/firmalar')
+  await page.getByText('Yenileme Firması').first().waitFor()
+  await page.getByRole('status', { name: /Senkronizasyon: Canlı/ }).waitFor()
+  mock.tokensRejectedBefore = Date.now() + 1
+  mock.dropSockets()
+  mock.externalInsert('companies', { name: 'Yenilemeden Sonra Gelen' }) // olay kaçırılır; tam yenilemeyle gelmeli
+  await page.getByText('Yenilemeden Sonra Gelen').first().waitFor({ timeout: 10000 })
+  expect(mock.requests.some((r) => r.kind === 'http' && r.path.startsWith('/auth/v1/token?grant_type=refresh_token')), 'oturum yenilenmedi')
+  expect((await page.getByRole('heading', { name: 'Giriş yap' }).count()) === 0, 'kullanıcı gereksiz yere çıkarıldı')
+})
+
+await test('Açılışta kayıtlı oturum yenilenemezse giriş ekranı hedef adresi ve nedeni gösterir', async ({ page, mock }) => {
+  await login(page, OWNER, '/ayarlar')
+  await page.getByRole('heading', { name: 'Ayarlar', exact: true }).waitFor()
+  // Cihazda kalan oturumun erişim belirtecinin süresi dolmuş; yenileme belirteci başka cihazdan kapatılmış.
+  // Depo, uygulama ÇALIŞMAZKEN değiştirilir (aynı kökendeki statik dosyada): açık uygulamanın otomatik
+  // yenileme zamanlayıcısı süresi dolmuş oturumu açılıştan önce kendisi temizleyip testi yarışa sokmasın.
+  await page.goto(`${BASE}/version.json`)
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('leonx-os-auth'))
+    s.expires_at = Math.floor(Date.now() / 1000) - 60
+    localStorage.setItem('leonx-os-auth', JSON.stringify(s))
+  })
+  mock.revokeRefresh = true
+  await page.goto(`${BASE}/projeler?durum=aktif`)
+  await page.getByRole('heading', { name: 'Giriş yap' }).waitFor({ timeout: 15000 })
+  expect(page.url().includes('/giris?next=%2Fprojeler%3Fdurum%3Daktif'), `hedef adres korunmadı: ${page.url()}`)
+  await page.getByText(/Oturumunuzun süresi doldu/).waitFor()
+})
+
 // ================================================================== Çoklu cihaz senkronizasyonu
 await test('Çoklu cihaz: Windows, iPad ve telefon değişiklikleri yenilemeden birbirine yansır', async ({ page: win, mock }) => {
   const ipad = await openDevice(mock, devices['iPad Pro 11'])

@@ -1,9 +1,18 @@
 import { Loader2, LogOut, RotateCw, ShieldX, WifiOff } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { AuthShell } from '@/components/layout/AuthShell'
 import { Button } from '@/components/ui/Button'
 import { useAuth } from '@/context/auth'
 
+/** Oturum/yetki kontrolü bu süreden uzun sürerse ekran donmuş gibi kalmaz: açıklama + yeniden dene */
+export const AUTH_SPLASH_SLOW_MS = 15_000
+
 export function AuthSplash({ label = 'Oturum kontrol ediliyor…' }: { label?: string }) {
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    const t = window.setTimeout(() => setSlow(true), AUTH_SPLASH_SLOW_MS)
+    return () => window.clearTimeout(t)
+  }, [])
   return (
     <div className="grid min-h-dvh place-items-center bg-canvas" role="status">
       <div className="flex flex-col items-center gap-4">
@@ -12,6 +21,16 @@ export function AuthSplash({ label = 'Oturum kontrol ediliyor…' }: { label?: s
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           {label}
         </span>
+        {slow && (
+          <div className="flex max-w-xs flex-col items-center gap-3 px-4 text-center" data-testid="auth-slow">
+            <p className="text-[13px] text-muted">
+              Beklenenden uzun sürüyor. Bağlantı yavaş olabilir veya sunucuya (Supabase) ulaşılamıyor olabilir. Oturumunuz bu cihazda korunur.
+            </p>
+            <Button variant="secondary" icon={RotateCw} onClick={() => window.location.reload()} className="h-11">
+              Yeniden dene
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )

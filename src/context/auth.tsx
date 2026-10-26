@@ -2,8 +2,8 @@ import type { Session } from '@supabase/supabase-js'
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { checkIsOwner } from '@/data/api'
 import { deviceLabel } from '@/lib/device'
-import { authErrorMessage, dataErrorMessage } from '@/lib/errors'
-import { supabase } from '@/lib/supabase'
+import { authErrorMessage, dataErrorMessage, isNetworkError } from '@/lib/errors'
+import { storedSessionAtBoot, supabase } from '@/lib/supabase'
 
 /**
  * Oturum durumu. Yetkilendirmenin asıl kaynağı veritabanıdır (RLS + is_owner());
@@ -30,6 +30,12 @@ interface AuthContextValue {
   signIn: (secret: string) => Promise<{ error: string | null }>
   signOut: (scope?: 'local' | 'global') => Promise<void>
   retryOwnerCheck: () => void
+  /**
+   * Sunucu belirteci reddettiğinde (401 / "JWT expired"): oturumu bir kez yenilemeyi dener.
+   * Yenilenemezse yerel oturum kapatılır ve giriş ekranı hedef adresi koruyarak açılır.
+   * "ag": sunucuya ulaşılamadı, oturum korunur (sonra yeniden denenir).
+   */
+  recoverSession: () => Promise<'yenilendi' | 'cikis' | 'ag'>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -66,7 +72,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [signOutReason, setSignOutReason] = useState<SignOutReason>(null)
   const manualSignOut = useRef(false)
   const revokedSignOut = useRef(false)
-  const hadSession = useRef(false)
+  // Açılışta kayıtlı oturum vardıysa ve istemci onu yenileyemeyip sildiyse neden "süresi doldu"dur
+  const hadSession = useRef(storedSessionAtBoot)
   const checkedFor = useRef<string | null>(null)
 
   const verifyOwner = useCallback(async (userId: string) => {
@@ -169,9 +176,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (session) void verifyOwner(session.user.id)
   }, [session, verifyOwner])
 
+  const recovering = useRef<Promise<'yenilendi' | 'cikis' | 'ag'> | null>(null)
+  const recoverSession = useCallback(() => {
+    if (!supabase) return Promise.resolve('ag' as const)
+    const db = supabase
+    // Aynı anda birden çok istek 401 alırsa tek yenileme yapılır
+    if (recovering.current) return recovering.current
+    const run = (async () => {
+      await Promise.resolve()
+      try {
+        const { data, error } = await db.auth.refreshSession()
+        if (!error && data.session) return 'yenilendi' as const
+        if (error && isNetworkError(error)) return 'ag' as const
+        // Yenileme belirteci geçersiz (süresi dolmuş, başka cihazdan kapatılmış): yerel çıkış.
+        // manualSignOut false kalır → giriş ekranında "oturumunuzun süresi doldu" iletisi.
+        await db.auth.signOut({ scope: 'local' })
+        return 'cikis' as const
+      } catch (e) {
+        if (isNetworkError(e)) return 'ag' as const
+        await db.auth.signOut({ scope: 'local' }).catch(() => undefined)
+        return 'cikis' as const
+      }
+    })()
+    recovering.current = run
+    void run.finally(() => {
+      if (recovering.current === run) recovering.current = null
+    })
+    return run
+  }, [])
+
   const value = useMemo(
-    () => ({ status, session, ownerError, signOutReason, signIn, signOut, retryOwnerCheck }),
-    [status, session, ownerError, signOutReason, signIn, signOut, retryOwnerCheck],
+    () => ({ status, session, ownerError, signOutReason, signIn, signOut, retryOwnerCheck, recoverSession }),
+    [status, session, ownerError, signOutReason, signIn, signOut, retryOwnerCheck, recoverSession],
   )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

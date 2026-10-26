@@ -13,7 +13,8 @@ self.addEventListener('push', (event) => {
   } catch {
     data = { title: 'LEONX OS', body: event.data ? event.data.text() : '' }
   }
-  const link = typeof data.link === 'string' && data.link.startsWith('/') ? data.link : '/bildirimler'
+  // Yalnız aynı kökene göreli bağlantı: "//başka-site" ve "/\başka-site" protokol-göreli adreslerdir
+  const link = typeof data.link === 'string' && /^\/(?![/\\])/.test(data.link) ? data.link : '/bildirimler'
   // iOS: her push görünür bildirim göstermek zorundadır
   event.waitUntil(
     self.registration.showNotification(String(data.title || 'LEONX OS').slice(0, 120), {

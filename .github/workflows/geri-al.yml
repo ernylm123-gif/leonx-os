@@ -1,0 +1,66 @@
+# LEONX OS — production ön yüz geri alma (yalnız Vercel; Supabase verisi, oturumlar, cihaz yetkileri,
+# bildirim abonelikleri ve radar ayarları DEĞİŞMEZ).
+#
+# Gerekli gizli değer: VERCEL_TOKEN (Vercel → Account Settings → Tokens; yalnız bu takım kapsamı).
+# Hedef verilmezse şu anki production'dan bir önceki READY production dağıtımına döner, sonra
+# kanonik adresin o sürümü sunduğunu sağlık kontrolüyle doğrular.
+# Not: Vercel'de geri alma sonrası yeni main birleştirmeleri production'a otomatik ALINMAZ; sorun
+# düzelince Vercel panosunda "Undo Rollback" veya yeni dağıtıma "Promote" gerekir.
+name: Production geri alma
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_id:
+        description: 'Dönülecek dağıtım kimliği (dpl_…). Boş: bir önceki production dağıtımı'
+        required: false
+      neden:
+        description: 'Geri alma nedeni'
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TEAM_ID: team_RcRhqHMIUpguQTeFUzBUqdT5
+  PROJECT_ID: prj_tozK4f7nmEfFFqseLGEvrlAEGPn6
+
+jobs:
+  geri-al:
+    name: Geri al ve doğrula
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/izleme
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Hedef dağıtımı seç ve geri al
+        id: hedef
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          HEDEF: ${{ inputs.deployment_id }}
+          NEDEN: ${{ inputs.neden }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then echo "::error::VERCEL_TOKEN gizli değeri tanımlı değil (docs/URETIM_IZLEME.md)."; exit 1; fi
+          API="https://api.vercel.com"
+          AUTH="Authorization: Bearer $VERCEL_TOKEN"
+          LIST=$(curl -fsS -H "$AUTH" "$API/v6/deployments?projectId=$PROJECT_ID&teamId=$TEAM_ID&target=production&state=READY&limit=10")
+          if [ -z "$HEDEF" ]; then
+            HEDEF=$(echo "$LIST" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const d=JSON.parse(s).deployments;console.log(d[1]?.uid??'')})")
+          fi
+          SATIR=$(echo "$LIST" | HEDEF="$HEDEF" node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const d=JSON.parse(s).deployments.find(x=>x.uid===process.env.HEDEF);if(d)console.log(d.meta?.githubCommitSha??'')})")
+          if [ -z "$HEDEF" ] || [ -z "$SATIR" ]; then echo "::error::Hedef bir READY production dağıtımı değil: '$HEDEF'"; exit 1; fi
+          echo "Geri alınan hedef: $HEDEF (commit ${SATIR:0:7}) — neden: $NEDEN"
+          curl -fsS -X POST -H "$AUTH" "$API/v1/projects/$PROJECT_ID/rollback/$HEDEF?teamId=$TEAM_ID&description=$(node -p 'encodeURIComponent(process.env.NEDEN)')"
+          echo "sha=$SATIR" >> "$GITHUB_OUTPUT"
+      - name: Doğrula (kanonik adres hedef sürümü sunuyor ve sağlıklı)
+        run: |
+          for i in $(seq 1 20); do
+            C=$(curl -fsS --max-time 10 "https://leonx-os.vercel.app/version.json" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{console.log(JSON.parse(s).commit)}catch{}})") || true
+            case "${{ steps.hedef.outputs.sha }}" in "$C"*) [ -n "$C" ] && break;; esac
+            sleep 15
+          done
+          node scripts/izleme/saglik.mjs --expect-commit "${{ steps.hedef.outputs.sha }}"

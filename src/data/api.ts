@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { contentTypeFor, STORAGE_BUCKET, storagePathFor } from '@/lib/files'
 import type { ProjectStage } from '@/lib/domain'
 import { withNetworkRetry } from '@/lib/retry'
+import { withHttpStatus } from '@/lib/errors'
 import { runBusy } from '@/lib/unsaved'
 import type {
   Company,
@@ -31,8 +32,9 @@ export class ConflictError extends Error {
   }
 }
 
-function unwrap<T>(res: { data: T | null; error: unknown }): T {
-  if (res.error) throw res.error
+function unwrap<T>(res: { data: T | null; error: unknown; status?: number }): T {
+  // HTTP durumu (0 = ağ hatası, 5xx = sunucu, 401 = oturum) bağlantı durumunu ayırt etmek için korunur
+  if (res.error) throw withHttpStatus(res.error, res.status)
   return res.data as T
 }
 
