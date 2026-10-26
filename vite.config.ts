@@ -89,10 +89,12 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // LEONX Radar: sunucu (Edge Function) ve arayüzün ortak, bağımlılıksız modülleri
+      '@radar': fileURLToPath(new URL('./supabase/functions/_shared/radar', import.meta.url)),
     },
   },
   test: {
-    include: ['src/**/*.test.ts', 'supabase/functions/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'supabase/functions/**/*.test.ts', 'scripts/**/*.test.mjs'],
     environment: 'node',
   },
   build: {

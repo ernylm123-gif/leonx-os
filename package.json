@@ -1,7 +1,7 @@
 {
   "name": "leonx-os",
   "private": true,
-  "version": "0.9.2",
+  "version": "0.14.1",
   "description": "LEONX OS — LEONX Metal iç kullanım proje, metraj ve teklif yönetim sistemi",
   "type": "module",
   "scripts": {

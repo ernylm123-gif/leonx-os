@@ -44,7 +44,7 @@ async function test(name, fn) {
   const errors = []
   page.on('pageerror', (e) => errors.push(e.message))
   try {
-    await fn({ page, mock, errors })
+    await fn({ page, ctx, mock, errors })
     results.push({ name, ok: true })
     console.log(`  ✓ ${name}`)
   } catch (e) {
@@ -56,7 +56,6 @@ async function test(name, fn) {
 }
 async function login(page, next) {
   await page.goto(`${BASE}/giris?next=${encodeURIComponent(next)}`)
-  await page.getByLabel('E-posta').fill(OWNER.email)
   await page.locator('input[name="password"]').fill(OWNER.password)
   await page.getByRole('button', { name: 'Giriş yap' }).click()
 }
@@ -71,7 +70,7 @@ await test('Giriş ekranı açılır, açılış koruması "açıldı" bilgisini
   const st = await page.evaluate(() => window.__LEONX_BOOT_GUARD__ && window.__LEONX_BOOT_GUARD__.state())
   expect(st && st.booted && st.shownCount === 0, `açılış koruması durumu: ${JSON.stringify(st)}`)
   expect(!(await overflow(page)), 'giriş ekranı yatay taşıyor')
-  const fs = await page.getByLabel('E-posta').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+  const fs = await page.locator('input[name="password"]').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
   expect(fs >= 16, `iOS yakınlaşmasını önlemek için giriş alanı ≥16px olmalı (${fs})`)
   expect(errors.length === 0, `sayfa hataları: ${errors.join(' | ')}`)
 })
@@ -105,6 +104,64 @@ await test('Form: firma ekle (doğrulama + kayıt) ve proje formu ekrana sığar
   const box = await p.getByRole('button', { name: 'Projeyi oluştur' }).boundingBox()
   expect(box && box.y + box.height <= device.viewport.height + 1, 'kaydet düğmesi ekran dışında')
   expect(!(await overflow(page)), 'form açıkken yatay taşma')
+})
+
+await test('Soğuk açılış: oturum yeniden açılışta korunur (yeni sekme, giriş istenmez)', async ({ page, ctx, mock }) => {
+  await login(page, '/')
+  await page.getByRole('heading', { name: 'Dashboard', exact: true }).waitFor()
+  await page.close()
+  const cold = await ctx.newPage()
+  await mock.attach(cold)
+  await cold.goto(`${BASE}/projeler`)
+  await cold.getByRole('button', { name: 'Yeni proje' }).first().waitFor()
+  expect(!cold.url().includes('/giris'), `oturum korunmadı: ${cold.url()}`)
+})
+
+await test('Derin bağlantı ve yenileme: yönlendirme döngüsü yok, adres korunur', async ({ page }) => {
+  await login(page, '/firmalar')
+  await page.getByRole('heading', { name: 'Henüz firma yok' }).waitFor()
+  const navs = []
+  page.on('framenavigated', (f) => f === page.mainFrame() && navs.push(f.url()))
+  await page.reload()
+  await page.getByRole('heading', { name: 'Henüz firma yok' }).waitFor()
+  await page.waitForTimeout(1500)
+  expect(navs.length <= 2, `yenilemede fazla yönlendirme: ${navs.join(' → ')}`)
+  expect(page.url().endsWith('/firmalar'), `adres değişti: ${page.url()}`)
+})
+
+await test('Bağlantı kopar ve geri gelir: uygulama açık kalır, oturum korunur, veri gelir', async ({ page, ctx, mock }) => {
+  await login(page, '/')
+  await page.getByRole('heading', { name: 'Dashboard', exact: true }).waitFor()
+  await ctx.setOffline(true)
+  await page.waitForTimeout(800)
+  mock.externalInsert('projects', { code: 'LX-2026-902', name: 'Bağlantı sonrası proje', category: 'diger' })
+  await ctx.setOffline(false)
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await page.getByText('Bağlantı sonrası proje').first().waitFor({ timeout: 20000 })
+  expect(!page.url().includes('/giris'), 'bağlantı dönüşünde oturum düştü')
+})
+
+await test('Yeni sürüm yayını: "Yeni sürüm hazır" görünür, tek yenilemeyle güncellenir, bildirim kalkar, oturum korunur', async ({ page }) => {
+  let yeni = false
+  await page.route('**/version.json*', async (route) => {
+    const r = await route.fetch()
+    const cur = await r.json()
+    await route.fulfill({ response: r, json: yeni ? { ...cur, version: '99.0.0', commit: 'fffffff', buildId: '99.0.0+fffffff.test' } : cur })
+  })
+  await login(page, '/ayarlar')
+  await page.getByTestId('version-panel').waitFor()
+  yeni = true
+  await page.getByTestId('version-check').click()
+  await page.getByTestId('update-banner').getByText('Yeni sürüm hazır').waitFor()
+  yeni = false
+  let loads = 0
+  page.on('load', () => loads++)
+  await Promise.all([page.waitForEvent('load'), page.getByTestId('update-apply').click()])
+  await page.getByTestId('version-panel').waitFor()
+  await page.waitForTimeout(2000)
+  expect(loads === 1, `güncelleme ${loads} yeniden yükleme yaptı (beklenen 1)`)
+  expect((await page.getByTestId('update-banner').count()) === 0, 'güncellemeden sonra bildirim hâlâ görünüyor')
+  expect(!page.url().includes('/giris'), 'güncelleme sonrası oturum düştü')
 })
 
 await browser.close()

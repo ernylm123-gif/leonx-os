@@ -127,7 +127,7 @@ export interface ProjectEvent {
   created_at: string
 }
 
-export type NotificationCategory = 'proje' | 'teklif' | 'cad' | 'gorev' | 'termin' | 'sistem'
+export type NotificationCategory = 'proje' | 'teklif' | 'cad' | 'gorev' | 'termin' | 'sistem' | 'firsat'
 
 export interface AppNotification {
   id: string
@@ -155,6 +155,8 @@ export interface NotificationPrefs {
   cat_gorev: boolean
   cat_termin: boolean
   cat_sistem: boolean
+  /** LEONX Radar iş fırsatı bildirimleri (015) */
+  cat_firsat: boolean
   own_actions: boolean
   version: number
 }
@@ -169,6 +171,7 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefsInput = {
   cat_gorev: true,
   cat_termin: true,
   cat_sistem: true,
+  cat_firsat: true,
   own_actions: true,
 }
 

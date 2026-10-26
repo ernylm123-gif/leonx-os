@@ -65,10 +65,17 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Chromium ve WebKit
+        run: npx playwright install --with-deps chromium webkit
       - name: Uçtan uca testler (sahte Supabase arka ucu)
         run: npm run test:e2e
+      - name: Mobil Safari motoru (WebKit, iPhone 15 emülasyonu — gerçek iOS değil)
+        env:
+          E2E_SKIP_BUILD: '1'
+        run: node e2e/webkit-smoke.e2e.mjs
+      - name: Production izleme kontrolleri (canlı adres, yalnız okur; ağ sorunu CI'ı kırmaz)
+        continue-on-error: true
+        run: node scripts/izleme/saglik.mjs --attempts 1
 
   cad_servis:
     name: CAD dönüştürme servisi (DWG → DXF → PDF)
