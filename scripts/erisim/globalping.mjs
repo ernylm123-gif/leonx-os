@@ -49,8 +49,22 @@ const TR = [
   { country: 'TR' },
 ]
 
+async function probes() {
+  const r = await fetch('https://api.globalping.io/v1/probes')
+  const all = await r.json()
+  const tr = all.filter((p) => p.location.country === 'TR')
+  console.log(`  Türkiye'de ${tr.length} prob`)
+  for (const p of tr) console.log(`  ${p.location.city} AS${p.location.asn} ${p.location.network} [${(p.tags ?? []).join(',')}]`)
+}
+
 let failed = false
 for (const [title, fn] of [
+  ['Türkiye prob listesi', probes],
+  [`HTTPS ${HOST} — Turkcell mobil (AS16135)`, () => http(HOST, [{ magic: 'AS16135' }], 10, '/')],
+  [`HTTPS ${HOST} — Vodafone TR (AS15897)`, () => http(HOST, [{ magic: 'AS15897' }], 10, '/')],
+  [`HTTPS ${HOST} — Türk Telekom (AS9121)`, () => http(HOST, [{ magic: 'AS9121' }], 10, '/')],
+  [`HTTPS ${HOST} — Superonline (AS34984)`, () => http(HOST, [{ magic: 'AS34984' }], 10, '/')],
+  [`HTTPS ${HOST} — Türkiye (tümü, 30)`, () => http(HOST, [{ country: 'TR' }], 30, '/')],
   [`DNS ${HOST} — Türkiye`, () => dns(HOST, TR, 8)],
   [`HTTPS ${HOST} — Türkiye`, () => http(HOST, TR, 8)],
   [`HTTPS vercel.com — Türkiye (karşılaştırma)`, () => http('vercel.com', TR, 6, '/')],
