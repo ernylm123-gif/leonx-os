@@ -65,13 +65,25 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Chromium ve WebKit
-        run: npx playwright install --with-deps chromium webkit
+      - name: Chromium
+        run: npx playwright install --with-deps chromium
       - name: Uçtan uca testler (sahte Supabase arka ucu)
         run: npm run test:e2e
-      - name: Mobil Safari motoru (WebKit, iPhone 15 emülasyonu — gerçek iOS değil)
-        env:
-          E2E_SKIP_BUILD: '1'
+
+  webkit:
+    name: Mobil Safari motoru (WebKit, iPhone 15 emülasyonu — gerçek iOS değil)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: WebKit
+        run: npx playwright install --with-deps webkit
+      - name: Duman testleri (soğuk açılış, derin bağlantı, bağlantı kopması, sürüm yükseltme)
         run: node e2e/webkit-smoke.e2e.mjs
       - name: Production izleme kontrolleri (canlı adres, yalnız okur; ağ sorunu CI'ı kırmaz)
         continue-on-error: true
