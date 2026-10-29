@@ -5,6 +5,8 @@ import type {
   RadarChange,
   RadarDigest,
   RadarHealth,
+  RadarOps,
+  SourceVerification,
   RadarCategory,
   RadarCompany,
   RadarContact,
@@ -108,6 +110,11 @@ export async function loadHealth(db: SupabaseClient): Promise<RadarHealth> {
   return unwrap(await db.rpc('radar_health')) as RadarHealth
 }
 
+/** 018: işletim özeti (son başarılı tarama, sonraki tarama, toplanan/elenen öğe, push durumu, hatalar) */
+export async function loadOps(db: SupabaseClient): Promise<RadarOps> {
+  return unwrap(await db.rpc('radar_ops')) as RadarOps
+}
+
 export async function importToCrm(db: SupabaseClient, opportunityId: string, companyId: string | null, createProject: boolean): Promise<{ company_id: string | null; project_id: string | null }> {
   return unwrap(await db.rpc('radar_import_to_crm', { p_opportunity: opportunityId, p_company: companyId, p_create_project: createProject }))
 }
@@ -187,6 +194,11 @@ export interface SourceTestResult {
 }
 export function testSourceRemote(db: SupabaseClient, sourceId: string) {
   return invoke<SourceTestResult>(db, 'radar-scan', { test_source_id: sourceId })
+}
+
+/** "Doğrula": erişim koşullarını sunucuda sınar ve sonucu kaynağa yazar (doğrulanmamış kaynak İzinli yapılamaz) */
+export function verifySourceRemote(db: SupabaseClient, sourceId: string) {
+  return invoke<SourceVerification & { saved: { ok: boolean; permission_status: string; active: boolean } }>(db, 'radar-scan', { verify_source_id: sourceId })
 }
 
 export interface ContactResearchResponse {

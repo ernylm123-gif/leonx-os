@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/Button'
 import { Panel } from '@/components/ui/Panel'
 import { SkeletonRows } from '@/components/ui/States'
 import { useToast } from '@/context/toast'
-import { listDigests, loadHealth } from '@/data/radarApi'
-import type { RadarDigest, RadarHealth } from '@/data/radarTypes'
+import { listDigests, loadOps } from '@/data/radarApi'
+import type { RadarDigest, RadarOps } from '@/data/radarTypes'
 import { buildDigestReport, DIGEST_KIND_LABEL } from '@/export/radarDigest'
 import { downloadBytes, loadPdfAssets } from '@/lib/download'
 import { dataErrorMessage } from '@/lib/errors'
@@ -20,13 +20,13 @@ import { Kpi, Notice } from './shared'
 export function ReportsPanel() {
   const { notify } = useToast()
   const q = useLiveQuery<RadarDigest[] | null>(['radar_reports'], () => listDigests(requireSupabase()).catch(() => null), [])
-  const [health, setHealth] = useState<RadarHealth | null | 'yok'>(null)
+  const [health, setHealth] = useState<RadarOps | null | 'yok'>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
   useEffect(() => {
     let live = true
-    loadHealth(requireSupabase()).then((h) => live && setHealth(h), () => live && setHealth('yok'))
+    loadOps(requireSupabase()).then((h) => live && setHealth(h), () => live && setHealth('yok'))
     return () => {
       live = false
     }
@@ -65,23 +65,9 @@ export function ReportsPanel() {
   const h = health && health !== 'yok' ? health : null
   return (
     <div className="flex flex-col gap-6" data-testid="radar-reports">
-      <Panel title="Tarama sağlığı" subtitle={h ? `Denetim: ${fmtDateTime(h.checked_at)}` : 'Sunucu durumu okunuyor…'} icon={Activity}>
-        {health === 'yok' && <Notice tone="warn">Sağlık özeti okunamadı (016 uygulanmamış olabilir).</Notice>}
-        {h && (
-          <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="radar-health">
-              <Kpi label="Zamanlayıcı" value={h.scan_configured ? 'Bağlı' : 'Bağlı değil'} tone={h.scan_configured ? 'ok' : 'warn'} />
-              <Kpi label="İzinli kaynak" value={h.active_sources} />
-              <Kpi label="Son tarama" value={h.last_run_at ? fmtDateTime(h.last_run_at) : '—'} />
-              <Kpi label="24 saat tarama / hata" value={`${h.runs_24h} / ${h.errors_24h}`} tone={h.errors_24h ? 'warn' : undefined} />
-            </div>
-            {h.failing_sources.length > 0 && (
-              <ul className="mt-3 text-[12.5px] text-danger" data-testid="radar-health-failing">
-                {h.failing_sources.map((s) => <li key={s.id}>{s.name}: {s.failures} ardışık hata — Kaynaklar bölümünden test edin.</li>)}
-              </ul>
-            )}
-          </>
-        )}
+      <Panel title="Radar işletim durumu" subtitle={h ? `Veritabanından okundu: ${fmtDateTime(h.checked_at)} · son 24 saat` : 'Sunucu durumu okunuyor…'} icon={Activity}>
+        {health === 'yok' && <Notice tone="warn">İşletim özeti okunamadı (018 uygulanmamış olabilir).</Notice>}
+        {h && <OpsView h={h} />}
       </Panel>
 
       <Panel
@@ -138,6 +124,54 @@ export function ReportsPanel() {
           </div>
         )}
       </Panel>
+    </div>
+  )
+}
+
+const REJECT_TEXT: Record<string, string> = {
+  urun_yok: 'LEONX ürünü / yapım işi yok',
+  insaat_disi: 'Satış, kiralama, hizmet ilanı',
+  tamamlanmis: 'Proje tamamlanmış',
+  kapsam_disi_alim: 'Kapsam dışı mal/hizmet/altyapı alımı',
+}
+const PUSH_TEXT: Record<string, string> = { gonderildi: 'Gönderildi', bekliyor: 'Bekliyor', basarisiz: 'Başarısız', yok: '—' }
+
+/** İşletim özeti: her sayı radar_ops() ile veritabanından gelir (tahmin yok) */
+function OpsView({ h }: { h: RadarOps }) {
+  const httpBad = h.last_dispatch_http && (h.last_dispatch_http.status_code == null || h.last_dispatch_http.status_code >= 300)
+  const remedies: string[] = []
+  if (!h.scan_configured || !h.cron_active) remedies.push('Zamanlayıcı bağlı değil: leonx-radar işi ve radar_config.scan_url kontrol edilmeli.')
+  if (!h.active_sources) remedies.push('İzinli ve etkin kaynak yok: Kaynaklar bölümünde bir kaynağı “Doğrula” ile sınayıp İzinli + Etkin yapın. Kaynak yokken tarama hiçbir şey bulamaz.')
+  if (httpBad) remedies.push(`radar-scan çağrısı başarısız (${h.last_dispatch_http?.status_code ?? h.last_dispatch_http?.error ?? 'yanıt yok'}): işlev günlüklerine bakın veya işlevi yeniden dağıtın.`)
+  if (h.push.subscriptions === 0) remedies.push('Bildirim aboneliği yok: Ayarlar › Bildirimler bölümünden bu cihazda bildirimleri açın.')
+  if (h.push.failed > 0) remedies.push(`${h.push.failed} bildirim son 7 günde cihaza iletilemedi: cihazda bildirimi kapatıp yeniden açın.`)
+  return (
+    <div className="flex flex-col gap-3" data-testid="radar-ops">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="radar-health">
+        <Kpi label="Etkin doğrulanmış kaynak" value={h.active_sources} hint={`${h.verified_sources} doğrulanmış · ${h.candidate_sources} aday`} tone={h.active_sources ? 'ok' : 'warn'} testId="ops-active" />
+        <Kpi label="Son başarılı tarama" value={h.last_success_at ? fmtDateTime(h.last_success_at) : 'Hiç'} tone={h.last_success_at ? undefined : 'warn'} testId="ops-last-success" />
+        <Kpi label="Sonraki tarama" value={h.next_scan_at ? fmtDateTime(h.next_scan_at) : 'Zamanlanmadı'} hint="Sunucuda saatte bir; cihaz açık olmasa da" tone={h.next_scan_at ? undefined : 'warn'} testId="ops-next" />
+        <Kpi label="Taranan kaynak" value={h.sources_checked_24h} hint={`${h.runs_24h} çalıştırma · ${h.errors_24h} hata`} tone={h.errors_24h ? 'warn' : undefined} testId="ops-checked" />
+        <Kpi label="Toplanan öğe" value={h.items_collected_24h} testId="ops-collected" />
+        <Kpi label="Elenen öğe" value={h.items_rejected_24h} hint="LEONX ile ilgisiz" testId="ops-rejected" />
+        <Kpi label="Yeni fırsat" value={h.opportunities_new_24h} hint={`${h.opportunities_verified_24h} doğrulanmış · toplam ${h.opportunities_total}`} testId="ops-new" />
+        <Kpi label="Son bildirim" value={h.push.last ? PUSH_TEXT[h.push.last.push_state] ?? h.push.last.push_state : '—'} hint={`${h.push.subscriptions} cihaz · son başarılı ${h.push.last_success_at ? fmtDateTime(h.push.last_success_at) : '—'}`} tone={h.push.failed ? 'warn' : undefined} testId="ops-push" />
+      </div>
+      {Object.keys(h.reject_reasons_24h).length > 0 && (
+        <p className="text-[12.5px] text-ink-2" data-testid="ops-reasons">
+          Elenme nedenleri: {Object.entries(h.reject_reasons_24h).map(([k, n]) => `${REJECT_TEXT[k] ?? k} ${n}`).join(' · ')}
+        </p>
+      )}
+      {h.errors.length > 0 && (
+        <ul className="text-[12.5px] text-danger" data-testid="radar-health-failing">
+          {h.errors.map((e, i) => <li key={i}>{fmtDateTime(e.at)} · {e.name}: {e.error ?? (e.http_status ? `HTTP ${e.http_status}` : e.status)}{e.failures > 0 ? ` (${e.failures} ardışık hata; geri çekilmeyle yeniden denenecek)` : ''}</li>)}
+        </ul>
+      )}
+      {remedies.length > 0 && (
+        <Notice tone="warn" testId="ops-remedies">
+          <ul className="list-disc pl-4">{remedies.map((r) => <li key={r}>{r}</li>)}</ul>
+        </Notice>
+      )}
     </div>
   )
 }

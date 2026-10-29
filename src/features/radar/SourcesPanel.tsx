@@ -1,4 +1,4 @@
-import { FlaskConical, Link2, Pencil, Plus, Rss, Trash2 } from 'lucide-react'
+import { FlaskConical, Link2, Pencil, Plus, Rss, ShieldCheck, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -7,12 +7,30 @@ import { Modal } from '@/components/ui/Modal'
 import { Panel } from '@/components/ui/Panel'
 import { Toggle } from '@/components/ui/Toggle'
 import { useToast } from '@/context/toast'
-import { addManualItem, createSource, deleteSource, FunctionUnavailableError, type SourceTestResult, testSourceRemote, updateSource } from '@/data/radarApi'
-import { KIND_LABEL, PERMISSION_LABEL, type Permission, type RadarData, type RadarSource, type RadarSourceInput, RUN_LABEL, type SourceKind } from '@/data/radarTypes'
+import { addManualItem, createSource, deleteSource, FunctionUnavailableError, type SourceTestResult, testSourceRemote, updateSource, verifySourceRemote } from '@/data/radarApi'
+import { KIND_LABEL, PERMISSION_LABEL, type Permission, type RadarData, type RadarSource, type RadarSourceInput, RUN_LABEL, type SourceKind, type SourceVerification } from '@/data/radarTypes'
 import { dataErrorMessage } from '@/lib/errors'
 import { requireSupabase } from '@/lib/supabase'
 import { fmtDateTime } from '@/radar/view'
 import { ExtLink, Notice } from './shared'
+
+/** Doğrulama engelleri (radar-scan verifySource kodları) */
+const BLOCKER_LABEL: Record<string, string> = {
+  robots_yasak: 'robots.txt bu sayfaya izin vermiyor',
+  giris_gerekli: 'İçerik giriş gerektiriyor',
+  captcha: 'İçerik CAPTCHA arkasında',
+  ucret_veya_uyelik: 'Ücret / üyelik duvarı',
+  ilan_basligi_yok: 'Sayfada ilan başlığı bulunamadı',
+  ilan_bulunamadi: 'Yalnız menü bağlantıları okunuyor; ilanlar bulunamadı (betikle yükleniyor olabilir)',
+  tur_dogrulanmaz: 'Bu kaynak türü doğrulanmaz',
+}
+const blockerText = (b: string) => BLOCKER_LABEL[b] ?? b
+
+export function verificationSummary(v: SourceVerification | null | undefined): string {
+  if (!v) return 'Doğrulanmadı'
+  if (v.ok) return `Doğrulandı · ${v.listings ?? v.items} ilan, ${v.relevant} LEONX ile ilgili`
+  return `Doğrulanamadı: ${v.blockers.map(blockerText).join('; ')}`
+}
 
 const BLOCKED_HOSTS = /(^|\.)(ekap\.kik\.gov\.tr|ilan\.gov\.tr)$/i
 
@@ -25,6 +43,7 @@ export function SourcesPanel({ data }: { data: RadarData }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [test, setTest] = useState<{ src: RadarSource; result: SourceTestResult | null; error: string | null } | null>(null)
+  const [verify, setVerify] = useState<{ src: RadarSource; result: SourceVerification | null; error: string | null } | null>(null)
   const [manual, setManual] = useState({ url: '', title: '', text: '' })
   const [manualBusy, setManualBusy] = useState(false)
   const pending = data.items.filter((i) => i.pending).length
@@ -69,6 +88,15 @@ export function SourcesPanel({ data }: { data: RadarData }) {
     }
   }
 
+  const runVerify = async (src: RadarSource) => {
+    setVerify({ src, result: null, error: null })
+    try {
+      setVerify({ src, result: await verifySourceRemote(requireSupabase(), src.id), error: null })
+    } catch (e) {
+      setVerify({ src, result: null, error: e instanceof FunctionUnavailableError ? e.message : dataErrorMessage(e, 'Kaynak doğrulama') })
+    }
+  }
+
   const addManual = async () => {
     setManualBusy(true)
     try {
@@ -90,7 +118,7 @@ export function SourcesPanel({ data }: { data: RadarData }) {
       <Notice>
         Yalnız <b>İzinli</b> ve <b>etkin</b> kaynaklar otomatik taranır (robots.txt ve kullanım koşullarına uyulur; giriş, CAPTCHA aşma veya izinsiz kazıma yapılmaz).
         EKAP ve ilan.gov.tr için resmî otomatik erişim izni olmadığından bu siteler yalnız elle eklenen bağlantı olarak kullanılabilir. Bir akışı izinli yapmadan önce
-        “Kaynağı test et” ile canlı olarak doğrulayın.
+        önce <b>Doğrula</b> çalıştırın: sunucu robots.txt, erişim (giriş/CAPTCHA/ücret duvarı) ve ilan çıkarımını sınar. Doğrulanmamış kaynak İzinli yapılamaz.
       </Notice>
 
       <Panel title="Kaynaklar" subtitle={`${data.sources.length} kaynak`} icon={Rss} actions={<Button variant="primary" icon={Plus} onClick={() => { setErr(null); setEdit({ src: null, form: blank }) }} data-testid="source-add">Kaynak ekle</Button>} bodyClassName="p-0">
@@ -108,11 +136,19 @@ export function SourcesPanel({ data }: { data: RadarData }) {
                     {s.last_status ? ` · son: ${RUN_LABEL[s.last_status]}` : ''}
                   </div>
                   {s.url && <div className="text-[12px]"><ExtLink href={s.url} /></div>}
+                  {(s.kind === 'rss' || s.kind === 'atom' || s.kind === 'site') && (
+                    <div className={`text-[12px] ${s.verification?.ok ? 'text-ok' : 'text-warn'}`} data-testid="source-verification">
+                      {verificationSummary(s.verification)}{s.verification?.checked_at ? ` (${fmtDateTime(s.verification.checked_at)})` : ''}
+                    </div>
+                  )}
                   {s.permission_note && <div className="text-[12px] text-subtle">Not: {s.permission_note}</div>}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {(s.kind === 'rss' || s.kind === 'atom' || s.kind === 'site') && (
-                    <Button variant="secondary" icon={FlaskConical} onClick={() => void runTest(s)} data-testid="source-test">Kaynağı test et</Button>
+                    <>
+                      <Button variant="secondary" icon={ShieldCheck} onClick={() => void runVerify(s)} data-testid="source-verify">Doğrula</Button>
+                      <Button variant="secondary" icon={FlaskConical} onClick={() => void runTest(s)} data-testid="source-test">Kaynağı test et</Button>
+                    </>
                   )}
                   <Button variant="ghost" icon={Pencil} onClick={() => { setErr(null); setEdit({ src: s, form: { name: s.name, kind: s.kind, url: s.url, allowed_hosts: s.allowed_hosts, sector_hint: s.sector_hint, region_hint: s.region_hint, permission_status: s.permission_status, permission_note: s.permission_note, permission_checked_at: s.permission_checked_at, interval_minutes: s.interval_minutes, max_items: s.max_items, active: s.active } }) }} aria-label={`${s.name} düzenle`}>Düzenle</Button>
                   <Button variant="ghost" icon={Trash2} onClick={() => setDel(s)} aria-label={`${s.name} sil`}>Sil</Button>
@@ -178,6 +214,29 @@ export function SourcesPanel({ data }: { data: RadarData }) {
                   </ol>
                 )}
                 {test.result.warnings.length > 0 && <ul className="list-disc pl-5 text-warn">{test.result.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>}
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!verify} onClose={() => setVerify(null)} title={verify ? `Kaynak doğrulama: ${verify.src.name}` : ''} description="Sunucu erişim koşullarını sınar; ilan yazılmaz. Sonuç kaynağa kaydedilir." footer={<Button variant="secondary" onClick={() => setVerify(null)}>Kapat</Button>}>
+        {verify && (
+          <div className="grid gap-2 text-[13px]" data-testid="source-verify-result">
+            {!verify.result && !verify.error && <p className="text-muted">Doğrulanıyor…</p>}
+            {verify.error && <FormAlert>{verify.error}</FormAlert>}
+            {verify.result && (
+              <>
+                <p>Sonuç: <b>{verify.result.ok ? 'Doğrulandı — İzinli + Etkin yapılabilir' : 'Doğrulanamadı'}</b></p>
+                <p>HTTP: {verify.result.http_status ?? '—'} · robots.txt: {verify.result.robots} · Okunan: {verify.result.items} · İlan: {verify.result.listings ?? '—'} · LEONX ile ilgili: <b>{verify.result.relevant}</b></p>
+                {verify.result.blockers.length > 0 && <ul className="list-disc pl-5 text-danger">{verify.result.blockers.map((b) => <li key={b}>{blockerText(b)}</li>)}</ul>}
+                {verify.result.sample.length > 0 && (
+                  <ol className="list-decimal pl-5">
+                    {verify.result.sample.map((i) => <li key={i.link}><span className={i.relevant ? 'text-ink' : 'text-subtle'}>{i.title}</span>{i.relevant ? ' · ilgili' : ''} — <ExtLink href={i.link} /></li>)}
+                  </ol>
+                )}
+                {verify.result.warnings.length > 0 && <ul className="list-disc pl-5 text-warn">{verify.result.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>}
+                <p className="text-[11.5px] text-subtle">Sitenin kullanım koşulları makineyle doğrulanamaz; şüphede kaynağı İzinsiz bırakın.</p>
               </>
             )}
           </div>

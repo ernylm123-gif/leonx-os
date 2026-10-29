@@ -991,6 +991,36 @@ export class MockSupabase {
         pending_notifications: this.db.radar_opportunities.filter((o) => !o.notified_at).length,
       })
     }
+    // 018: işletim özeti (supabase/migrations/20261029001800_leonx_radar_ops.sql radar_ops_snapshot ile aynı tanımlar)
+    if (p === '/rest/v1/rpc/radar_ops') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      const day = Date.now() - 86400000
+      const runs = this.db.radar_source_runs.filter((r) => Date.parse(r.started_at) > day)
+      const reasons = {}
+      for (const r of runs) for (const [k, n] of Object.entries(r.reject_reasons ?? {})) reasons[k] = (reasons[k] ?? 0) + n
+      const auto = this.db.radar_sources.filter((s) => s.kind !== 'manual')
+      const opps = this.db.radar_opportunities
+      return json(200, {
+        checked_at: this.now(), scan_configured: !!this.radarScanConfigured, cron_active: !!this.radarScanConfigured,
+        next_scan_at: this.radarScanConfigured ? new Date(Date.now() + 1800000).toISOString() : null,
+        last_dispatch_at: null, last_dispatch_http: null,
+        active_sources: auto.filter((s) => s.active && s.permission_status === 'izinli').length,
+        verified_sources: auto.filter((s) => s.verification?.ok).length,
+        candidate_sources: auto.filter((s) => s.permission_status !== 'izinli').length,
+        last_success_at: this.db.radar_source_runs.filter((r) => r.status === 'ok' || r.status === 'degismedi').map((r) => r.finished_at ?? r.started_at).sort().at(-1) ?? null,
+        last_run_at: this.db.radar_source_runs.map((r) => r.started_at).sort().at(-1) ?? null,
+        sources_checked_24h: new Set(runs.map((r) => r.source_id)).size, runs_24h: runs.length, errors_24h: runs.filter((r) => r.status === 'hata').length,
+        items_collected_24h: runs.reduce((n, r) => n + (r.items_seen ?? 0) + (r.items_rejected ?? 0), 0),
+        items_rejected_24h: runs.reduce((n, r) => n + (r.items_rejected ?? 0), 0), reject_reasons_24h: reasons,
+        opportunities_new_24h: opps.filter((o) => Date.parse(o.first_seen_at) > day).length,
+        opportunities_verified_24h: opps.filter((o) => Date.parse(o.first_seen_at) > day && o.verified_need).length,
+        opportunities_total: opps.length,
+        push: { subscriptions: this.db.push_subscriptions?.length ?? 0, last_success_at: null, last: null, pending: 0, failed: 0 },
+        errors: this.db.radar_source_runs.filter((r) => Date.parse(r.started_at) > Date.now() - 3 * 86400000 && (r.status === 'hata' || r.status === 'atlandi'))
+          .sort((x, y) => y.started_at.localeCompare(x.started_at)).slice(0, 10)
+          .map((r) => { const s = this.db.radar_sources.find((x) => x.id === r.source_id); return { source_id: r.source_id, name: s?.name ?? '?', status: r.status, http_status: r.http_status ?? null, error: r.error ?? null, at: r.started_at, failures: s?.consecutive_failures ?? 0 } }),
+      })
+    }
     if (p === '/rest/v1/rpc/radar_create_task') {
       if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
       const { p_opportunity, p_title, p_due } = req.postDataJSON()
@@ -1081,6 +1111,14 @@ export class MockSupabase {
       if (fn === 'radar-scan' && b.test_source_id) {
         // SENTETİK test yanıtı (gerçek kaynak indirilmedi)
         return json(200, { ok: true, error: null, http_status: 200, content_type: 'application/rss+xml', item_count: 2, items: [{ title: 'Sentetik ilan 1', link: 'https://akis.ornek.test/1' }, { title: 'Sentetik ilan 2', link: 'https://akis.ornek.test/2' }], warnings: ['Tarih okunamadı: "dün"'], robots: 'gerekmiyor' })
+      }
+      if (fn === 'radar-scan' && b.verify_source_id) {
+        // SENTETİK doğrulama yanıtı (gerçek kaynak indirilmedi); sonuç kaynağa yazılır (sunucu rolü)
+        const v = { ok: true, kind: 'rss', url: null, robots: 'gerekmiyor', http_status: 200, content_type: 'application/rss+xml', items: 2, listings: 2, relevant: 1, sample: [{ title: 'Sentetik ilan 1', link: 'https://akis.ornek.test/1', relevant: true }], blockers: [], warnings: [] }
+        const s = this.db.radar_sources.find((x) => x.id === b.verify_source_id)
+        if (!s) return json(404, { error: 'Kaynak bulunamadı' })
+        this.updateRow('radar_sources', s.id, { verification: { ...v, checked_at: this.now() }, verified_at: this.now(), permission_checked_at: this.now() }, null, true)
+        return json(200, { ...v, saved: { ok: true, permission_status: s.permission_status, active: s.active } })
       }
       if (fn === 'radar-contacts') {
         const rc = this.db.radar_companies.find((x) => x.id === b.company_id)

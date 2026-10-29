@@ -69,8 +69,24 @@ export interface RadarSource {
   consecutive_failures: number
   next_run_at: string | null
   last_test_at: string | null
+  /** 018: sunucu doğrulaması ("Doğrula"); yalnız sunucu yazar */
+  verification?: SourceVerification | null
+  verified_at?: string | null
   created_at: string
   version: number
+}
+
+export interface SourceVerification {
+  ok: boolean
+  robots: 'izinli' | 'yasak' | 'gerekmiyor'
+  http_status: number | null
+  items: number
+  listings?: number
+  relevant: number
+  sample: { title: string; link: string; relevant: boolean }[]
+  blockers: string[]
+  warnings: string[]
+  checked_at?: string
 }
 export type RadarSourceInput = Pick<RadarSource, 'name' | 'kind' | 'url' | 'allowed_hosts' | 'sector_hint' | 'region_hint' | 'permission_status' | 'permission_note' | 'permission_checked_at' | 'interval_minutes' | 'max_items' | 'active'>
 
@@ -289,6 +305,38 @@ export interface RadarHealth {
   runs_24h: number
   errors_24h: number
   pending_notifications: number
+}
+
+/** 018: işletim özeti (radar_ops) — sayılar doğrudan veritabanından */
+export interface RadarOps {
+  checked_at: string
+  scan_configured: boolean
+  cron_active: boolean
+  next_scan_at: string | null
+  last_dispatch_at: string | null
+  last_dispatch_http: { status_code: number | null; error: string | null; at: string; body: string | null } | null
+  active_sources: number
+  verified_sources: number
+  candidate_sources: number
+  last_success_at: string | null
+  last_run_at: string | null
+  sources_checked_24h: number
+  runs_24h: number
+  errors_24h: number
+  items_collected_24h: number
+  items_rejected_24h: number
+  reject_reasons_24h: Record<string, number>
+  opportunities_new_24h: number
+  opportunities_verified_24h: number
+  opportunities_total: number
+  push: {
+    subscriptions: number
+    last_success_at: string | null
+    last: { title: string; kind: string; push_state: string; push_attempts: number; created_at: string } | null
+    pending: number
+    failed: number
+  }
+  errors: { source_id: string; name: string; status: RunStatus; http_status: number | null; error: string | null; at: string; failures: number }[]
 }
 
 export const EMPTY_RADAR: RadarData ={ items: [], settings: null, categories: [], sources: [], runs: [], opportunities: [], oppCategories: [], companies: [], oppCompanies: [], contacts: [], usage: [], quotedOpportunityIds: [] }
