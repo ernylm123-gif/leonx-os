@@ -20,7 +20,7 @@ jobs:
   kontrol:
     name: Dağıtım sağlık kontrolü
     if: github.event.deployment_status.state == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       ENV_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
