@@ -8,6 +8,7 @@
  */
 import { type Analyzer, ruleAnalyzer } from './analyzer.ts'
 import type { Classification, SourceKind } from './classify.ts'
+import { analyzeConstruction, PRODUCT_LABEL, SALES_CLASS_LABEL, STAGE_LABEL } from './construction.ts'
 import { assignCluster, type ClusterRef, identify } from './dedupe.ts'
 import { htmlToText } from './sanitize.ts'
 import { reliability, type ReliabilityPart, type ScorePart, scoreOpportunity, type Weights } from './score.ts'
@@ -25,6 +26,8 @@ export interface PipelineSettings {
   weights: Weights
   activeCategories: string[] | null
   extraKeywords: Record<string, string[]>
+  /** Önerilmeyecek firmalar (ör. "Özçelik İnşaat") — eşleşen kayıt sınıf D olur */
+  excludedCompanies?: string[]
 }
 
 export interface RawInput {
@@ -115,6 +118,7 @@ export async function buildIngestItem(
     activeCategories: settings.activeCategories,
     extraKeywords: settings.extraKeywords,
   })
+  c.intel = analyzeConstruction({ title, summary, classification: c, excludedPatterns: settings.excludedCompanies ?? [] })
   const s = scoreOpportunity(c, { publishedAt: raw.publishedAt, now }, settings.weights)
   const rel = reliability({ sourceKind: source.kind, sectorHint: source.sectorHint, permission: source.permission, publishedAt: raw.publishedAt, now, distinctSources: 1 })
   const cl = await assignCluster(title, c.geo.city, clusters)
@@ -130,6 +134,11 @@ export async function buildIngestItem(
   if (c.tender.ikn) evidence.push({ field: 'ihale', claim: `İhale kayıt numarası (İKN): ${c.tender.ikn}`, excerpt: excerptAround(text, c.tender.ikn) })
   if (c.tender.deadline) evidence.push({ field: 'son_tarih', claim: `Son teklif / ihale tarihi: ${c.tender.deadline.split('-').reverse().join('.')}`, excerpt: excerptAround(text, c.tender.deadlineText ?? '') })
   if (c.stage !== 'bilinmiyor') evidence.push({ field: 'asama', claim: `Aşama: ${c.stage} (${c.stageTerms.join(', ')})`, excerpt: excerptAround(text, c.stageTerms[0] ?? '') })
+  const ci = c.intel
+  if (ci.stage) evidence.push({ field: 'insaat_asamasi', claim: `İnşaat aşaması: ${STAGE_LABEL[ci.stage]} (metinde: ${ci.stageTerms.join(', ')})`, excerpt: excerptAround(text, ci.stageTerms[0] ?? '') })
+  if (ci.supplierInvite.length) evidence.push({ field: 'tedarikci_daveti', claim: `Tedarikçi daveti / teklif talebi ifadesi: ${ci.supplierInvite.join(', ')}`, excerpt: excerptAround(text, ci.supplierInvite[0]) })
+  if (ci.outlook) evidence.push({ field: 'tahmin', claim: `TAHMİN (kaynakta yazmaz): satın alma penceresi ${ci.outlook.pencere.replace('_', ' ')} — ${ci.outlook.gerekce}; ürünler: ${ci.outlook.urunler.map((g) => PRODUCT_LABEL[g]).join(', ') || '—'}`, excerpt: excerptAround(text, ci.stageTerms[0] ?? '') })
+  evidence.push({ field: 'satis_sinifi', claim: `Satış sınıfı ${ci.salesClass} — ${SALES_CLASS_LABEL[ci.salesClass]}: ${ci.reasons.join('; ')}`, excerpt: clip(title, 500) })
   for (const o of c.organizations) evidence.push({ field: 'kurum', claim: `Kurum/firma adı geçiyor: ${o.name} (rol tahmini: ${o.roleGuess}, doğrulanmadı)`, excerpt: clip(o.context, 500) })
 
   return {

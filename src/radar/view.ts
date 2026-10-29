@@ -6,6 +6,7 @@
 import { type Advice, advise } from '@radar/advice.ts'
 import type { AssistantOpportunity } from '@radar/assistant.ts'
 import { RISK_LABEL, type RiskCode } from '@radar/classify.ts'
+import { regionPriority } from '@radar/construction.ts'
 import { CONTACT_KIND_LABEL } from '@radar/contacts.ts'
 import { categoryName, CATEGORY_BY_KEY, PROJECT_TYPE_BY_KEY } from '@radar/taxonomy.ts'
 import type {
@@ -137,9 +138,11 @@ export interface RadarFilters {
   deadlineTo: string
   sourceKind: '' | SourceKind
   status: '' | 'aktif' | OppStatus
+  /** 019: satış sınıfı ('' tümü; 'ABC' D hariç) */
+  salesClass: '' | 'ABC' | 'A' | 'B' | 'C' | 'D'
 }
 
-export const DEFAULT_FILTERS: RadarFilters = { q: '', city: '', district: '', category: '', sector: '', stage: '', minScore: 0, verification: '', deadlineFrom: '', deadlineTo: '', sourceKind: '', status: 'aktif' }
+export const DEFAULT_FILTERS: RadarFilters = { q: '', city: '', district: '', category: '', sector: '', stage: '', minScore: 0, verification: '', deadlineFrom: '', deadlineTo: '', sourceKind: '', status: 'aktif', salesClass: '' }
 
 const CLOSED: OppStatus[] = ['ilgisiz', 'kaybedildi']
 
@@ -160,15 +163,25 @@ export function applyFilters(views: OppView[], f: RadarFilters): OppView[] {
     if (f.sourceKind && !sourceKinds.includes(f.sourceKind)) return false
     if (f.status === 'aktif' && CLOSED.includes(opp.status)) return false
     if (f.status && f.status !== 'aktif' && opp.status !== f.status) return false
+    if (f.salesClass === 'ABC' && opp.sales_class === 'D') return false
+    if (f.salesClass && f.salesClass !== 'ABC' && opp.sales_class !== f.salesClass) return false
     return true
   })
 }
 
-/** Ankara önce; sonra doğrulanmış ihtiyaç, puan, güncellik */
+/** Bölge önceliği (1 Ankara, 2 Hatay, 3 Kahramanmaraş, 4 komşu, 5 diğer, bilinmeyen sonda) */
+export function regionRank(o: Pick<RadarOpportunity, 'region_priority' | 'city' | 'is_ankara'>): number {
+  return o.region_priority ?? regionPriority(o.city) ?? (o.is_ankara ? 1 : 6)
+}
+const CLASS_RANK: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 }
+
+/** Bölge önceliği önce (Ankara ilk); sonra satış sınıfı, doğrulanmış ihtiyaç, puan, güncellik */
 export function sortAnkaraFirst(views: OppView[]): OppView[] {
   return [...views].sort(
     (a, b) =>
+      regionRank(a.opp) - regionRank(b.opp) ||
       Number(b.opp.is_ankara) - Number(a.opp.is_ankara) ||
+      (CLASS_RANK[a.opp.sales_class ?? ''] ?? 2) - (CLASS_RANK[b.opp.sales_class ?? ''] ?? 2) ||
       Number(b.opp.verified_need) - Number(a.opp.verified_need) ||
       b.opp.score - a.opp.score ||
       b.opp.last_updated_at.localeCompare(a.opp.last_updated_at),

@@ -223,11 +223,11 @@ begin
   perform public.radar_ingest(v_s2, jsonb_build_object('id', '00000000-0000-4000-8000-0000000000b2', 'status', 'ok'),
     jsonb_build_array(pg_temp.item('https://baska.ornek.test/haber/10', 'Sentetik otel inşaatı', 'ankara:sentetik2', 70, false, 'Ankara', null, null,
       '[{"key":"oda_kapisi","need_status":"potansiyel","matched_terms":["proje türü"]}]'::jsonb, '[]'::jsonb, 'x', 'yapim')));
-  if (select count(*) from public.notifications n join public.radar_opportunities o on n.entity_id = o.id
-      where o.cluster_key = 'ankara:sentetik2' and n.kind = 'radar_potansiyel' and n.title like 'Potansiyel ihtiyaç (doğrulanmadı):%') <> 1 then
-    raise exception 'TEST BAŞARISIZ: potansiyel bildirim metni';
+  -- 019: satış sınıfı olmayan, doğrulanmamış potansiyel kayıt bildirilmez (yalnız A/B veya doğrulanmış ihtiyaç; radar_sales.test.sql)
+  if exists (select 1 from public.notifications n join public.radar_opportunities o on n.entity_id = o.id where o.cluster_key = 'ankara:sentetik2') then
+    raise exception 'TEST BAŞARISIZ: doğrulanmamış, sınıfsız potansiyel kayıt bildirildi';
   end if;
-  raise notice 'PASS C: potansiyel ihtiyaç bildirimi "Potansiyel ihtiyaç (doğrulanmadı)" olarak ayrışır';
+  raise notice 'PASS C: sınıfsız potansiyel ihtiyaç bildirim üretmez (019: yalnız anlamlı kayıtlar)';
 
   -- En düşük puan altı bildirilmez
   perform public.radar_ingest(v_s2, jsonb_build_object('id', '00000000-0000-4000-8000-0000000000b3', 'status', 'ok'),

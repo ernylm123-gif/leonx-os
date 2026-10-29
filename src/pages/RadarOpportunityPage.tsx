@@ -23,7 +23,7 @@ import {
   updateOpportunity,
   updateRadarCompany,
 } from '@/data/radarApi'
-import { ROLE_LABEL, SECTOR_LABEL, STAGE_LABEL, STATUS_LABEL, STATUS_ORDER, type OppStatus, type RadarCompany, type RadarDraft } from '@/data/radarTypes'
+import { OUTLOOK_LABEL, ROLE_LABEL, SECTOR_LABEL, STAGE_LABEL, STATUS_LABEL, STATUS_ORDER, type OppStatus, type RadarCompany, type RadarDraft } from '@/data/radarTypes'
 import { useQuoteSettings } from '@/features/quotes/shared'
 import { AssistantPanel } from '@/features/radar/AssistantPanel'
 import { NeedBadge, ExtLink, Meter, Notice, useRadarData } from '@/features/radar/shared'
@@ -35,11 +35,14 @@ import type { QuoteInput } from '@/quote/types'
 import { addDays, adviceFor, buildViews, capabilitiesFrom, fmtDateTime, fmtDay, locationText, missingInfo, projectTypeLabel, risks, strategy, toAssistant, localDate } from '@/radar/view'
 import { draftEmail } from '@radar/assistant.ts'
 import { CONTACT_KIND_LABEL } from '@radar/contacts.ts'
+import { type ConstructionStage, PRODUCT_LABEL, type ProductGroup, SALES_CLASS_LABEL, STAGE_LABEL as CONSTRUCTION_STAGE_LABEL, STAGES } from '@radar/construction.ts'
 import { LABEL_TEXT } from '@radar/score.ts'
 import { categoryName } from '@radar/taxonomy.ts'
 
 const EMPTY_DETAIL: OpportunityDetail = { evidence: [], actions: [], drafts: [], changes: [] }
-const CHANGE_LABEL = { stage: 'Aşama', deadline: 'Son tarih', verified_need: 'Doğrulanmış ihtiyaç', label: 'Etiket' } as const
+const CHANGE_LABEL = { stage: 'Aşama', deadline: 'Son tarih', verified_need: 'Doğrulanmış ihtiyaç', label: 'Etiket', insaat_asamasi: 'İnşaat aşaması', satis_sinifi: 'Satış sınıfı' } as const
+const changeValue = (field: string, v: string | null) =>
+  v == null ? '—' : field === 'insaat_asamasi' ? CONSTRUCTION_STAGE_LABEL[v as ConstructionStage] ?? v : v
 const FN_KEY = 'leonx-radar-fn-unavailable'
 
 function fnUnavailable(): boolean {
@@ -201,6 +204,44 @@ export function RadarOpportunityPage() {
             </dl>
           </Panel>
 
+          {o.sales_class && (
+            <Panel title="Satış istihbaratı" subtitle="Sınıf, aşama ve ürünler kaynaklardan kuralla türetilir; satın alma zamanı yalnız TAHMİNDİR." icon={Target}>
+              <div className="flex flex-wrap items-center gap-2" data-testid="opp-sales">
+                <span className="rounded-md border border-line bg-surface-2 px-2 py-0.5 text-[12px] font-semibold text-ink" data-testid="opp-sales-class">{o.sales_class} · {SALES_CLASS_LABEL[o.sales_class]}</span>
+                {o.region_priority && <span className="text-[12px] text-muted">Bölge önceliği {o.region_priority}</span>}
+              </div>
+              {(o.sales_class === 'B' || o.sales_class === 'C') && (
+                <div className="mt-3"><Notice tone="warn">Bu kayıt doğrulanmış bir satın alma talebi DEĞİLDİR; açık ilan veya teklif talebi kaynakta bulunmadı.</Notice></div>
+              )}
+              {o.excluded_company && <div className="mt-3"><Notice tone="warn">Önerilmeyen firma listesinde: {o.excluded_company}. Satış önerisi yapılmaz.</Notice></div>}
+              <h3 className="mt-4 text-[12px] font-semibold text-muted uppercase">İnşaat zaman çizelgesi</h3>
+              <ol className="mt-2 flex flex-wrap gap-1.5" data-testid="opp-timeline">
+                {STAGES.map((s) => {
+                  const idx = STAGES.findIndex((x) => x.key === o.construction_stage)
+                  const mine = STAGES.findIndex((x) => x.key === s.key)
+                  return (
+                    <li key={s.key} aria-current={s.key === o.construction_stage ? 'step' : undefined}
+                      className={'rounded-md border px-2 py-0.5 text-[11.5px] ' + (s.key === o.construction_stage ? 'border-ink bg-ink text-surface font-semibold' : idx >= 0 && mine < idx ? 'border-line bg-surface-2 text-ink-2' : 'border-line text-subtle')}>
+                      {s.label}
+                    </li>
+                  )
+                })}
+              </ol>
+              <p className="mt-2 text-[12.5px] text-ink-2">
+                {o.construction_stage ? <>Kaynaktaki son aşama: <b>{CONSTRUCTION_STAGE_LABEL[o.construction_stage]}</b>{o.stage_terms?.length ? <span className="text-muted"> (metinde: {o.stage_terms.join(', ')})</span> : null}</> : 'Kaynakta inşaat aşaması bilgisi yok.'}
+              </p>
+              {o.procurement_outlook && (
+                <p className="mt-1 text-[12.5px] text-ink-2" data-testid="opp-outlook">
+                  <b>TAHMİN</b> (kaynakta yazmaz): satın alma penceresi {OUTLOOK_LABEL[o.procurement_outlook.pencere]} — {o.procurement_outlook.gerekce}
+                </p>
+              )}
+              {o.product_groups && o.product_groups.length > 0 && (
+                <p className="mt-2 text-[12.5px] text-ink-2">Önerilen ürün kategorileri: {o.product_groups.map((g) => PRODUCT_LABEL[g as ProductGroup] ?? g).join(', ')}</p>
+              )}
+              {o.recommended_action && <p className="mt-2 text-[12.5px] text-ink"><b>Önerilen satış aksiyonu:</b> {o.recommended_action}</p>}
+            </Panel>
+          )}
+
           <Panel title="B. İş fırsatı" icon={Sparkles}>
             <div className="grid grid-cols-2 gap-4">
               <Meter label="Fırsat puanı" value={o.score} tone={o.verified_need ? 'ok' : 'warn'} testId="opp-score" />
@@ -339,7 +380,7 @@ export function RadarOpportunityPage() {
                 <ul className="mt-1 text-[12.5px]" data-testid="opp-changes">
                   {d.data.changes.map((c) => (
                     <li key={c.id} className="border-b border-line py-1.5 last:border-0">
-                      <span className="text-ink">{CHANGE_LABEL[c.field]}: {c.field === 'verified_need' ? 'kaynakla doğrulandı' : `${c.old_value ?? '—'} → ${c.new_value ?? '—'}`}</span>
+                      <span className="text-ink">{CHANGE_LABEL[c.field]}: {c.field === 'verified_need' ? 'kaynakla doğrulandı' : `${changeValue(c.field, c.old_value)} → ${changeValue(c.field, c.new_value)}`}</span>
                       <span className="block text-[11.5px] text-subtle">{fmtDateTime(c.created_at)}</span>
                     </li>
                   ))}

@@ -6,6 +6,7 @@ import type {
   RadarDigest,
   RadarHealth,
   RadarOps,
+  RadarSalesOverview,
   SourceVerification,
   RadarCategory,
   RadarCompany,
@@ -111,6 +112,13 @@ export async function loadHealth(db: SupabaseClient): Promise<RadarHealth> {
 }
 
 /** 018: işletim özeti (son başarılı tarama, sonraki tarama, toplanan/elenen öğe, push durumu, hatalar) */
+/** 019: satış istihbaratı özeti (migration uygulanmamışsa null) */
+export async function loadSalesOverview(db: SupabaseClient): Promise<RadarSalesOverview | null> {
+  const r = await db.rpc('radar_sales_overview')
+  if (r.error) return null
+  return r.data as RadarSalesOverview
+}
+
 export async function loadOps(db: SupabaseClient): Promise<RadarOps> {
   return unwrap(await db.rpc('radar_ops')) as RadarOps
 }
@@ -120,7 +128,7 @@ export async function importToCrm(db: SupabaseClient, opportunityId: string, com
 }
 
 // ------------------------------------------------------------------ Firma
-export function updateRadarCompany(db: SupabaseClient, c: Pick<RadarCompany, 'id' | 'version'>, patch: Partial<Pick<RadarCompany, 'website' | 'website_verified' | 'website_source' | 'notes'>>) {
+export function updateRadarCompany(db: SupabaseClient, c: Pick<RadarCompany, 'id' | 'version'>, patch: Partial<Pick<RadarCompany, 'website' | 'website_verified' | 'website_source' | 'notes' | 'company_kind' | 'supplier_portal_url' | 'supplier_portal_source' | 'procurement_url' | 'excluded' | 'exclusion_reason' | 'last_outreach_at' | 'next_action' | 'next_action_at'>>) {
   return versionedUpdate<RadarCompany>(db, 'radar_companies', c.id, c.version, patch)
 }
 

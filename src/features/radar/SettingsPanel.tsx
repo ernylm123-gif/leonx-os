@@ -23,6 +23,7 @@ export function SettingsPanel({ data }: { data: RadarData }) {
   const { notify } = useToast()
   const [form, setForm] = useState<RadarSettingsInput | null>(null)
   const [cities, setCities] = useState('')
+  const [excluded, setExcluded] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   useEffect(() => {
@@ -31,6 +32,7 @@ export function SettingsPanel({ data }: { data: RadarData }) {
     const rest = Object.fromEntries(SETTINGS_KEYS.map((k) => [k, s[k]])) as unknown as RadarSettingsInput
     setForm(rest)
     setCities(s.notify_cities.join(', '))
+    setExcluded((s.excluded_companies ?? []).join('\n'))
   }, [s])
 
   const norm = useMemo(() => normalizeWeights(form?.weights ?? DEFAULT_WEIGHTS), [form?.weights])
@@ -49,7 +51,13 @@ export function SettingsPanel({ data }: { data: RadarData }) {
     setErr(null)
     try {
       const patch = Object.fromEntries(SETTINGS_KEYS.map((k) => [k, form[k]])) as Partial<RadarSettingsInput>
-      await saveRadarSettings(requireSupabase(), s, { ...patch, notify_cities: cities.split(',').map((c) => c.trim()).filter(Boolean).slice(0, 120) })
+      const ex = excluded.split('\n').map((c) => c.trim()).filter(Boolean).slice(0, 50)
+      await saveRadarSettings(requireSupabase(), s, {
+        ...patch,
+        notify_cities: cities.split(',').map((c) => c.trim()).filter(Boolean).slice(0, 120),
+        // 019 uygulanmadıysa sütun yoktur: yalnız ayar yüklendiyse gönderilir
+        ...(s.excluded_companies !== undefined ? { excluded_companies: ex } : {}),
+      })
       notify('Radar ayarları kaydedildi.', 'success')
     } catch (e) {
       setErr(dataErrorMessage(e, 'Ayarlar'))
@@ -110,6 +118,16 @@ export function SettingsPanel({ data }: { data: RadarData }) {
           placeholder={COMPANY.capabilities.join('\n')}
           onChange={(e) => set({ capability_text: e.target.value || null })}
         />
+        {s.excluded_companies !== undefined && (
+          <TextAreaField
+            className="mt-3"
+            label="Önerilmeyecek firmalar (satır başına bir firma)"
+            hint="Bu firmalara bağlı kayıtlar “Düşük ilgi” (D) sınıfına alınır; bildirim ve satış önerisi yapılmaz."
+            value={excluded}
+            onChange={(e) => setExcluded(e.target.value)}
+            data-testid="radar-excluded"
+          />
+        )}
       </Panel>
 
       <Panel title="Arama API (Tavily)" subtitle="Varsayılan kapalı. Anahtar yalnız sunucu gizli değişkenindedir (TAVILY_API_KEY); arayüzde veya depoda tutulmaz." icon={Search}>

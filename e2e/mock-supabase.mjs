@@ -92,17 +92,19 @@ const RADAR_DEFAULTS = {
   radar_items: { pending: false, opportunity_id: null, published_at: null },
 }
 const RADAR_UPDATABLE = {
-  radar_settings: ['weights', 'home_city', 'min_score', 'high_priority_score', 'notify_categories', 'notify_cities', 'digest_hour', 'quiet_start', 'quiet_end', 'critical_enabled', 'capability_text', 'search_api_enabled', 'search_monthly_limit', 'search_daily_limit', 'search_queries_per_run'],
+  radar_settings: ['weights', 'home_city', 'min_score', 'high_priority_score', 'notify_categories', 'notify_cities', 'digest_hour', 'quiet_start', 'quiet_end', 'critical_enabled', 'capability_text', 'search_api_enabled', 'search_monthly_limit', 'search_daily_limit', 'search_queries_per_run', 'excluded_companies'],
   radar_categories: ['active', 'extra_keywords'],
   radar_sources: ['name', 'kind', 'url', 'allowed_hosts', 'sector_hint', 'region_hint', 'permission_status', 'permission_note', 'permission_checked_at', 'interval_minutes', 'max_items', 'active'],
   radar_opportunities: ['status', 'status_note', 'next_action', 'notes'],
-  radar_companies: ['website', 'website_verified', 'website_source', 'notes'],
+  radar_companies: ['website', 'website_verified', 'website_source', 'notes', 'company_kind', 'supplier_portal_url', 'supplier_portal_source', 'procurement_url', 'excluded', 'exclusion_reason', 'last_outreach_at', 'next_action', 'next_action_at'],
   radar_opportunity_companies: ['role', 'verified'],
 }
 const RADAR_SETTINGS_DEFAULT = {
   singleton: true, weights: { kategori: 25, dogrulama: 25, asama: 15, yakinlik: 15, iletisim: 10, ticari: 10 }, home_city: 'Ankara', min_score: 60, high_priority_score: 75,
   notify_categories: [], notify_cities: [], digest_hour: null, quiet_start: null, quiet_end: null, critical_enabled: true, capability_text: null,
   search_api_enabled: false, search_monthly_limit: 900, search_daily_limit: 30, search_queries_per_run: 2,
+  // 019: önerilmeyecek firmalar (migration başlangıç değeri)
+  excluded_companies: ['Özçelik İnşaat'],
 }
 const RADAR_CATEGORIES = [
   ['celik_kapi', 'Çelik kapı', 'kapi'], ['yangin_kapisi', 'Yangın kapısı', 'kapi'], ['oda_kapisi', 'Oda kapısı', 'kapi'], ['teknik_kapi', 'Teknik kapı', 'kapi'],
@@ -989,6 +991,40 @@ export class MockSupabase {
         last_run_at: this.db.radar_source_runs.map((r) => r.started_at).sort().at(-1) ?? null,
         runs_24h: runs.length, errors_24h: runs.filter((r) => r.status === 'hata').length,
         pending_notifications: this.db.radar_opportunities.filter((o) => !o.notified_at).length,
+      })
+    }
+    // 019: satış istihbaratı özeti (supabase/migrations/20261029001900_leonx_radar_sales.sql radar_sales_overview ile aynı tanımlar)
+    if (p === '/rest/v1/rpc/radar_sales_overview') {
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Istanbul' }).split(',')[0]).getTime()
+      const open = this.db.radar_opportunities.filter((o) => !['ilgisiz', 'kaybedildi'].includes(o.status ?? 'yeni'))
+      const by_class = {}
+      for (const o of open) by_class[o.sales_class ?? '-'] = (by_class[o.sales_class ?? '-'] ?? 0) + 1
+      const notD = (o) => (o.sales_class ?? 'C') !== 'D'
+      const cities = [...new Set(open.filter((o) => o.city && notD(o)).map((o) => o.city))]
+      const by_province = cities.map((city) => {
+        const rows = open.filter((o) => o.city === city && notD(o))
+        const dist = {}
+        for (const o of rows) if (o.district) dist[o.district] = (dist[o.district] ?? 0) + 1
+        const pr = rows.map((o) => o.region_priority).filter((x) => x != null)
+        return { city, priority: pr.length ? Math.min(...pr) : null, n: rows.length, a: rows.filter((o) => o.sales_class === 'A').length, b: rows.filter((o) => o.sales_class === 'B').length, c: rows.filter((o) => o.sales_class === 'C').length,
+          districts: Object.entries(dist).map(([district, n]) => ({ district, n })).sort((x, y) => y.n - x.n) }
+      }).sort((x, y) => (x.priority ?? 99) - (y.priority ?? 99) || y.n - x.n)
+      const contractors = []
+      for (const c of this.db.radar_companies.filter((c) => !c.excluded)) {
+        const opps = this.db.radar_opportunity_companies.filter((l) => l.company_id === c.id).map((l) => this.db.radar_opportunities.find((o) => o.id === l.opportunity_id))
+          .filter((o) => o && !o.excluded_company && ['A', 'B'].includes(o.sales_class) && !['ilgisiz', 'kaybedildi', 'kazanildi'].includes(o.status ?? 'yeni'))
+        if (!opps.length || (c.last_outreach_at && Date.parse(c.last_outreach_at) > Date.now() - 14 * 86400000)) continue
+        contractors.push({ id: c.id, name: c.name, company_kind: c.company_kind ?? null, website: c.website ?? null, supplier_portal_url: c.supplier_portal_url ?? null, next_action: c.next_action ?? null,
+          next_action_at: c.next_action_at ?? null, last_outreach_at: c.last_outreach_at ?? null, best: opps.map((o) => o.sales_class).sort()[0], priority: Math.min(...opps.map((o) => o.region_priority ?? 99)), projects: opps.length })
+      }
+      return json(200, {
+        checked_at: this.now(), by_class,
+        new_today: this.db.radar_opportunities.filter((o) => Date.parse(o.first_seen_at) >= today && notD(o)).length,
+        updated_today: this.db.radar_opportunities.filter((o) => Date.parse(o.last_updated_at) >= today && Date.parse(o.first_seen_at) < today && notD(o)).length,
+        approaching: open.filter((o) => o.sales_class === 'B' && ['simdi', '0-3_ay'].includes(o.procurement_outlook?.pencere)).length,
+        by_province, contractors_to_contact: contractors,
+        excluded_companies: this.db.radar_settings[0]?.excluded_companies ?? [],
       })
     }
     // 018: işletim özeti (supabase/migrations/20261029001800_leonx_radar_ops.sql radar_ops_snapshot ile aynı tanımlar)

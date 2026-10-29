@@ -13,13 +13,14 @@
 import type { Classification } from './classify.ts'
 import { fold } from './text.ts'
 
-export type RejectReason = 'urun_yok' | 'insaat_disi' | 'tamamlanmis' | 'kapsam_disi_alim'
+export type RejectReason = 'urun_yok' | 'insaat_disi' | 'tamamlanmis' | 'kapsam_disi_alim' | 'haric_firma'
 
 export const REJECT_LABEL: Record<RejectReason, string> = {
   urun_yok: 'LEONX ürünü veya yapım işi geçmiyor',
   insaat_disi: 'Satış / kiralama / hizmet ilanı (yapım değil)',
   tamamlanmis: 'Proje tamamlanmış',
   kapsam_disi_alim: 'Mal/hizmet alımı, LEONX ürünü yok',
+  haric_firma: 'Önerilmeyecek firma listesinde',
 }
 
 /** Yapım/onarım işi işaretleri (katlanmış önek) */
@@ -52,9 +53,13 @@ export interface RelevanceResult {
 
 export function relevance(c: Classification, title: string, summary: string): RelevanceResult {
   const text = ` ${fold(`${title} ${summary}`).replace(/[^a-z0-9]+/g, ' ')} `
+  if (c.intel?.excluded) return { keep: false, reason: 'haric_firma' }
   const direct = c.categories.some((x) => x.reason === 'ihale_urun' || x.reason === 'haber_urun')
   if (direct) return { keep: true, reason: null }
-  if (c.stage === 'tamamlandi') return { keep: false, reason: 'tamamlanmis' }
+  // İnşaat istihbaratı: ilgili proje türünde aktif/erken aşama inşaat işareti (A/B/C) kabul edilir.
+  // Ayrıntılı aşama "kaba inşaat tamamlandı" ile "proje tamamlandı"yı ayırır.
+  if (c.intel && c.intel.salesClass !== 'D' && c.intel.stage) return { keep: true, reason: null }
+  if (c.intel?.stage === 'tamamlandi' || (!c.intel?.stage && c.stage === 'tamamlandi')) return { keep: false, reason: 'tamamlanmis' }
   const nonConstruction = hasAny(text, NON_CONSTRUCTION)
   const construction = hasAny(text, CONSTRUCTION)
   if (nonConstruction && !construction) return { keep: false, reason: 'insaat_disi' }

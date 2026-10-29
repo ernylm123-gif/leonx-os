@@ -13,6 +13,7 @@
  */
 import { ruleAnalyzer } from './analyzer.ts'
 import type { SourceKind } from './classify.ts'
+import { analyzeConstruction, type ConstructionIntel } from './construction.ts'
 import type { ClusterRef } from './dedupe.ts'
 import { parseFeed } from './feed.ts'
 import { buildIngestItem, type IngestItem, type PipelineSettings, type RawInput, type SourceContext } from './pipeline.ts'
@@ -44,6 +45,7 @@ export interface SettingsRow {
   weights: Record<string, number> | null
   search_api_enabled: boolean
   search_queries_per_run: number
+  excluded_companies?: string[] | null
 }
 
 export interface CategoryRow {
@@ -96,6 +98,40 @@ export interface RadarDb {
   claimSourceTest(sourceId: string): Promise<boolean>
   /** İlgisiz bulunup yazılmayan öğelerin sayısı ve nedenleri (çalıştırma kaydına eklenir) */
   recordRejects?(runId: string, rejected: number, reasons: Partial<Record<RejectReason, number>>): Promise<void>
+  /** 019: yeniden değerlendirme — son öğeler (başlık + özet + kaynak türü) */
+  recentItems?(limit: number): Promise<StoredItem[]>
+  /** 019: öğe istihbaratını yazar (radar_service_set_intel); değişen öğe sayısı */
+  setIntel?(rows: { id: string; intel: ConstructionIntel }[]): Promise<number>
+}
+
+export interface StoredItem {
+  id: string
+  title: string
+  summary: string | null
+  published_at: string | null
+  source_kind: SourceKind
+  sector_hint: 'kamu' | 'ozel' | null
+}
+
+/**
+ * 019: Günlük yeniden değerlendirme. Saklanan öğeler güncel kurallarla (inşaat aşaması, satış sınıfı,
+ * hariç tutulan firmalar) yeniden sınıflandırılır; ağ isteği yapılmaz, ham içerik ve kanıt değişmez.
+ */
+export async function reclassifyIntel(deps: RunnerDeps, limit = 300): Promise<{ checked: number; changed: number }> {
+  if (!deps.db.recentItems || !deps.db.setIntel) return { checked: 0, changed: 0 }
+  const { p } = await loadSettings(deps.db)
+  const items = await deps.db.recentItems(limit)
+  const rows: { id: string; intel: ConstructionIntel }[] = []
+  for (const it of items) {
+    const c = await ruleAnalyzer.analyze({
+      title: it.title, summary: it.summary ?? '', sourceKind: it.source_kind, sectorHint: it.sector_hint, publishedAt: it.published_at,
+      now: deps.now(), activeCategories: p.activeCategories, extraKeywords: p.extraKeywords,
+    })
+    rows.push({ id: it.id, intel: analyzeConstruction({ title: it.title, summary: it.summary ?? '', classification: c, excludedPatterns: p.excludedCompanies ?? [] }) })
+  }
+  let changed = 0
+  for (let i = 0; i < rows.length; i += 200) changed += await deps.db.setIntel(rows.slice(i, i + 200))
+  return { checked: rows.length, changed }
 }
 
 export interface RunnerDeps extends SafeFetchDeps {
@@ -294,7 +330,7 @@ async function loadSettings(db: RadarDb): Promise<{ s: SettingsRow; p: PipelineS
   const [s, cats] = await Promise.all([db.settings(), db.categories()])
   const extra: Record<string, string[]> = {}
   for (const c of cats) if (c.extra_keywords?.length) extra[c.key] = c.extra_keywords
-  return { s, p: { weights: normalizeWeights(s.weights), activeCategories: cats.length ? cats.filter((c) => c.active).map((c) => c.key) : null, extraKeywords: extra } }
+  return { s, p: { weights: normalizeWeights(s.weights), activeCategories: cats.length ? cats.filter((c) => c.active).map((c) => c.key) : null, extraKeywords: extra, excludedCompanies: s.excluded_companies ?? [] } }
 }
 
 /** Ana tarama */
@@ -515,7 +551,7 @@ export async function verifySource(deps: RunnerDeps, src: SourceRow): Promise<So
     const it = await buildIngestItem(raw, { id: src.id, kind: src.kind, sectorHint: src.sector_hint, permission: src.permission_status }, p, [], deps.now(), ruleAnalyzer)
     if (!it) continue
     const keep = relevance(it.classification, it.title, it.summary).keep
-    if (it.classification.isProcurement || it.classification.stage !== 'bilinmiyor') res.listings++
+    if (it.classification.isProcurement || it.classification.stage !== 'bilinmiyor' || it.classification.intel?.stage) res.listings++
     if (keep) res.relevant++
     if (res.sample.length < 8 && (keep || res.sample.length < 4)) res.sample.push({ title: it.title.slice(0, 200), link: it.canonical_url, relevant: keep })
   }
