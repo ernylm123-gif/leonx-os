@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { NOW } from './__fixtures__/synthetic_items.ts'
 import type { IngestItem } from './pipeline.ts'
-import { type RadarDb, type RunRecord, runScan, type SourceRow, testSource } from './runner.ts'
+import { type RadarDb, type RunRecord, runScan, type SourceRow, testSource, verifySource } from './runner.ts'
 
 const fx = (name: string) => readFileSync(new URL(`./__fixtures__/${name}`, import.meta.url), 'utf-8')
 
@@ -15,7 +15,11 @@ function fakeDb(sources: SourceRow[], opts: { searchEnabled?: boolean; budget?: 
   let budget = opts.budget ?? 0
   let cursor = 0
   const tested = new Set<string>()
+  const rejects: { runId: string; rejected: number; reasons: Record<string, number> }[] = []
   const db: RadarDb = {
+    recordRejects: async (runId, rejected, reasons) => {
+      rejects.push({ runId, rejected, reasons: reasons as Record<string, number> })
+    },
     claimDueSources: async () => sources,
     getSource: async (id) => sources.find((s) => s.id === id) ?? null,
     settings: async () => ({ weights: null, search_api_enabled: opts.searchEnabled ?? false, search_queries_per_run: 2 }),
@@ -37,7 +41,7 @@ function fakeDb(sources: SourceRow[], opts: { searchEnabled?: boolean; budget?: 
       return true
     },
   }
-  return { db, ingests }
+  return { db, ingests, rejects }
 }
 
 function deps(db: RadarDb, routes: Record<string, (init: RequestInit) => Response>, tavilyKey: string | null = null) {
@@ -64,10 +68,12 @@ const rssOk = () => new Response(fx('synthetic_feed.rss.xml'), { status: 200, he
 
 describe('runner (sahte veritabanı, sentetik akış)', () => {
   it('izinli RSS: indirilir, sınıflandırılır, toplu yazılır; ETag kaydedilir', async () => {
-    const { db, ingests } = fakeDb([src({})])
+    const { db, ingests, rejects } = fakeDb([src({})])
     const { d } = deps(db, { 'https://akis.ornek.test/rss': rssOk })
     const s = await runScan(d)
-    expect(s.runs[0]).toMatchObject({ status: 'ok', items: 4 })
+    // 4 geçerli öğeden 2'si LEONX ile ilgisiz (ürün/yapım işi yok) → yazılmaz, ret nedeniyle sayılır
+    expect(s.runs[0]).toMatchObject({ status: 'ok', items: 2, rejected: 2 })
+    expect(rejects).toEqual([{ runId: ingests[0].run.id, rejected: 2, reasons: { urun_yok: 2 } }])
     expect(ingests).toHaveLength(1)
     expect(ingests[0].run.etag).toBe('"e1"')
     expect(ingests[0].items[0].verified_need).toBe(true)
@@ -154,5 +160,54 @@ describe('runner (sahte veritabanı, sentetik akış)', () => {
     expect(r.warnings.length).toBeGreaterThan(0)
     expect(ingests).toHaveLength(0)
     expect((await testSource(d, 's1')).error).toContain('5 dakika')
+  })
+  it('site: genel "İhale Detayı" bağlantısında başlık karttan alınır; ilk taramada sonraki sayfa okunur; ilgisiz ilan reddedilir', async () => {
+    const card = (id: number, title: string) => `<div class="tender-list-item"><div class="info"><strong>${title}</strong><div class="attribute"><label>İhale Tarihi:</label><span>04.12.2026 15:00</span></div></div><div class="button"><a href="/ihaleler/detay/${id}" class="btn">İhale Detayı <i></i></a></div></div>`
+    const p1 = card(1, 'Keçiören Hizmet Binası Alüminyum Doğrama ve Yangın Kapısı Yapım İşi') + card(2, 'Ekonomik Ömrünü Doldurmuş Araçların Satış İhalesi') + '<a href="/ihaleler?page=2">Sonraki</a>'
+    const p2 = card(3, 'Mamak 24 Derslikli Okul Binası İnşaatı Yapım İşi')
+    const html = (b: string) => () => new Response(b, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } })
+    const { db, ingests, rejects } = fakeDb([src({ kind: 'site', url: 'https://ihale.ornek.test/ihaleler', last_run_at: null })])
+    const { d, calls } = deps(db, {
+      'https://ihale.ornek.test/robots.txt': () => new Response('User-agent: *', { status: 200, headers: { 'content-type': 'text/plain' } }),
+      'https://ihale.ornek.test/ihaleler': html(p1),
+      'https://ihale.ornek.test/ihaleler?page=2': html(p2),
+    })
+    const s = await runScan(d)
+    expect(calls.map((c) => c.url)).toEqual(['https://ihale.ornek.test/robots.txt', 'https://ihale.ornek.test/ihaleler', 'https://ihale.ornek.test/ihaleler?page=2'])
+    expect(ingests[0].items.map((i) => i.title)).toEqual(['Keçiören Hizmet Binası Alüminyum Doğrama ve Yangın Kapısı Yapım İşi', 'Mamak 24 Derslikli Okul Binası İnşaatı Yapım İşi'])
+    expect(ingests[0].items[0].verified_need).toBe(true)
+    expect(ingests[0].items[1].verified_need).toBe(false)
+    expect(ingests[0].items[0].deadline).toBe('2026-12-04')
+    expect(rejects[0]).toMatchObject({ rejected: 1, reasons: { insaat_disi: 1 } })
+    expect(s.runs[0]).toMatchObject({ seen: 3, rejected: 1 })
+  })
+  it('site: daha önce taranmış kaynakta yalnız ilk sayfa okunur', async () => {
+    const { db } = fakeDb([src({ kind: 'site', url: 'https://ihale.ornek.test/ihaleler', last_run_at: '2026-10-28T10:00:00Z' })])
+    const { d, calls } = deps(db, {
+      'https://ihale.ornek.test/robots.txt': () => new Response('', { status: 404, headers: { 'content-type': 'text/plain' } }),
+      'https://ihale.ornek.test/ihaleler': () => new Response('<a href="/ihaleler?page=2">Sonraki</a>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    })
+    await runScan(d)
+    expect(calls).toHaveLength(2)
+  })
+})
+
+describe('kaynak doğrulama (etkinleştirmeden önce)', () => {
+  const site = src({ kind: 'site', url: 'https://ihale.ornek.test/ihaleler', permission_status: 'inceleniyor', active: false })
+  const html = (b: string, status = 200) => () => new Response(b, { status, headers: { 'content-type': 'text/html' } })
+  const robots = (b: string) => () => new Response(b, { status: 200, headers: { 'content-type': 'text/plain' } })
+  it('robots izinli, 200, ilan başlıkları var → ok; ilgili ilan sayılır', async () => {
+    const { db, ingests } = fakeDb([site])
+    const { d } = deps(db, { 'https://ihale.ornek.test/robots.txt': robots('User-agent: *\nDisallow:'), 'https://ihale.ornek.test/ihaleler': html('<a href="/i/1">Hizmet Binası PVC Doğrama Yapım İşi İhalesi</a><a href="/i/2">Kantin Kiralama İhalesi Duyurusu</a>') })
+    const v = await verifySource(d, site)
+    expect(v).toMatchObject({ ok: true, robots: 'izinli', http_status: 200, items: 2, relevant: 1, blockers: [] })
+    expect(ingests).toHaveLength(0)
+  })
+  it('robots yasak, HTTP hata veya girişle gizli içerik → doğrulanmaz', async () => {
+    const { db } = fakeDb([site])
+    expect((await verifySource(deps(db, { 'https://ihale.ornek.test/robots.txt': robots('User-agent: *\nDisallow: /ihaleler') }).d, site)).blockers).toEqual(['robots_yasak'])
+    expect((await verifySource(deps(db, { 'https://ihale.ornek.test/robots.txt': robots(''), 'https://ihale.ornek.test/ihaleler': html('yasak', 403) }).d, site)).blockers).toEqual(['http_403'])
+    const login = await verifySource(deps(db, { 'https://ihale.ornek.test/robots.txt': robots(''), 'https://ihale.ornek.test/ihaleler': html('<form><input type="password" name="p"></form>') }).d, site)
+    expect(login).toMatchObject({ ok: false, blockers: ['giris_gerekli'] })
   })
 })

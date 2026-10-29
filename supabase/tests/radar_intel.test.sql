@@ -162,8 +162,7 @@ declare
   v_s uuid;
   v_n integer;
 begin
-  insert into public.radar_sources (name, kind, url, permission_status, active, consecutive_failures)
-  values ('Sentetik akış', 'rss', 'https://ornek.test/akis.xml', 'izinli', true, 4) returning id into v_s;
+  insert into public.radar_sources (name, kind, url, permission_status, active, consecutive_failures, verification, verified_at) values ('Sentetik akış', 'rss', 'https://ornek.test/akis.xml', 'izinli', true, 4, '{"ok": true}', now()) returning id into v_s;
   update leonx_private.radar_config set scan_url = 'https://ornek.test/functions/v1/radar-scan' where singleton;
   perform public.radar_health_check();
   perform public.radar_health_check();

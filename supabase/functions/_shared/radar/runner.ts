@@ -16,8 +16,10 @@ import type { SourceKind } from './classify.ts'
 import type { ClusterRef } from './dedupe.ts'
 import { parseFeed } from './feed.ts'
 import { buildIngestItem, type IngestItem, type PipelineSettings, type RawInput, type SourceContext } from './pipeline.ts'
+import { type RejectReason, relevance } from './relevance.ts'
 import { isAllowed, policyForStatus } from './robots.ts'
 import { htmlToText } from './sanitize.ts'
+import { fold } from './text.ts'
 import { normalizeWeights } from './score.ts'
 import { buildQueries, tavilySearch } from './tavily.ts'
 import { FEED_TYPES, GuardError, HTML_TYPES, policyFor, safeFetch, type SafeFetchDeps, TEXT_TYPES } from './urlGuard.ts'
@@ -34,6 +36,8 @@ export interface SourceRow {
   etag: string | null
   last_modified: string | null
   active: boolean
+  /** Hiç taranmadıysa null: ilk taramada birkaç liste sayfası okunur */
+  last_run_at?: string | null
 }
 
 export interface SettingsRow {
@@ -90,6 +94,8 @@ export interface RadarDb {
   reserveSearch(): Promise<{ granted: boolean; reason: string | null; cursor: number }>
   /** Kaynak testi hız sınırı (kaynak başına 5 dk'da bir). true: izin verildi ve kaydedildi */
   claimSourceTest(sourceId: string): Promise<boolean>
+  /** İlgisiz bulunup yazılmayan öğelerin sayısı ve nedenleri (çalıştırma kaydına eklenir) */
+  recordRejects?(runId: string, rejected: number, reasons: Partial<Record<RejectReason, number>>): Promise<void>
 }
 
 export interface RunnerDeps extends SafeFetchDeps {
@@ -106,7 +112,7 @@ export interface RunnerDeps extends SafeFetchDeps {
 export interface ScanSummary {
   sources: number
   manual: number
-  runs: { source: string; status: RunStatus; items: number; error: string | null }[]
+  runs: { source: string; status: RunStatus; items: number; error: string | null; seen?: number; rejected?: number }[]
   stoppedForBudget: boolean
 }
 
@@ -120,11 +126,32 @@ interface FetchOutcome {
   robots: 'izinli' | 'yasak' | 'gerekmiyor'
   etag: string | null
   lastModified: string | null
+  /** Sayfada görülen giriş/CAPTCHA/ücret duvarı işaretleri */
+  walls: string[]
 }
 
-const blank = (o: Partial<FetchOutcome>): FetchOutcome => ({ status: 'ok', httpStatus: null, contentType: null, items: [], warnings: [], error: null, robots: 'gerekmiyor', etag: null, lastModified: null, ...o })
+const blank = (o: Partial<FetchOutcome>): FetchOutcome => ({ status: 'ok', httpStatus: null, contentType: null, items: [], warnings: [], error: null, robots: 'gerekmiyor', etag: null, lastModified: null, walls: [], ...o })
 
-/** Liste sayfasındaki başlık benzeri bağlantılar (yalnız aynı ana makine; bağlantılar İNDİRİLMEZ) */
+/** "İhale Detayı", "Görüntüle" gibi başlık taşımayan bağlantı metinleri */
+const GENERIC_LINK = /^(ihale detayi?|detay(lar)?|detaylari gor|goruntule|incele|devami( ?ni oku)?|tiklayiniz|oku|daha fazla|ilani gor|ilan detayi?)\W*$/
+
+/** Genel bağlantının hemen öncesindeki kart başlığı (strong/b/h2–h6) ve kart metni */
+function cardContext(html: string, end: number): { title: string; body: string } | null {
+  const start = Math.max(0, end - 2500)
+  let seg = html.slice(start, end)
+  const prevA = seg.lastIndexOf('</a')
+  if (prevA !== -1) seg = seg.slice(prevA)
+  let title = ''
+  for (const m of seg.matchAll(/<(strong|b|h[2-6])\b[^>]*>([\s\S]*?)<\/\1\s*>/gi)) {
+    const t = htmlToText(m[2], 400)
+    if (t.length >= 20) title = t
+  }
+  if (!title) return null
+  return { title, body: htmlToText(seg, 1500) }
+}
+
+/** Liste sayfasındaki başlık benzeri bağlantılar (yalnız aynı ana makine; bağlantılar İNDİRİLMEZ).
+ *  Bağlantı metni genelse ("İhale Detayı") başlık, aynı karttaki kalın/başlık metninden alınır. */
 export function headlineLinks(html: string, pageUrl: string, allowedHosts: string[], max: number): RawInput[] {
   const out: RawInput[] = []
   for (const m of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)) {
@@ -137,23 +164,72 @@ export function headlineLinks(html: string, pageUrl: string, allowedHosts: strin
       continue
     }
     if (u.protocol !== 'https:' || !allowedHosts.includes(u.hostname.toLowerCase())) continue
-    const text = htmlToText(m[2], 400)
+    let text = htmlToText(m[2], 400)
+    let body = ''
+    if (GENERIC_LINK.test(fold(text).trim())) {
+      const ctx = cardContext(html, m.index ?? 0)
+      if (!ctx) continue
+      text = ctx.title
+      body = ctx.body
+    }
     if (text.length < 20) continue
     u.hash = ''
     if (out.some((x) => x.url === u.toString())) continue
-    out.push({ url: u.toString(), title: text, body: '', publishedAt: null })
+    out.push({ url: u.toString(), title: text, body, publishedAt: null })
     if (out.length >= max) break
   }
   return out
 }
 
+/** Liste sayfasının "Sonraki" sayfası (rel=next veya "Sonraki"/"İleri"/"»"); yalnız aynı yol, izinli ana makine */
+export function nextPageUrl(html: string, pageUrl: string, allowedHosts: string[]): string | null {
+  const base = new URL(pageUrl)
+  for (const m of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)) {
+    const attrs = ` ${m[1]}`
+    const text = htmlToText(m[2], 60)
+    if (!/\srel\s*=\s*["']?next/i.test(attrs) && !/^(sonraki|ileri|»|›|next)\b/i.test(text)) continue
+    const hm = /\shref\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs)
+    if (!hm) continue
+    try {
+      const u = new URL((hm[2] ?? hm[3] ?? '').trim(), pageUrl)
+      if (u.protocol !== 'https:' || !allowedHosts.includes(u.hostname.toLowerCase()) || u.pathname !== base.pathname) continue
+      u.hash = ''
+      if (u.toString() === base.toString()) continue
+      return u.toString()
+    } catch {
+      continue
+    }
+  }
+  return null
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** Geçici hatada (ağ, zaman aşımı, 429/5xx) bir kez yeniden dener (geri çekilme 1,5 sn) */
+async function fetchWithRetry(url: string, opts: Parameters<typeof safeFetch>[1], deps: SafeFetchDeps, retries = 1): Promise<Awaited<ReturnType<typeof safeFetch>>> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const r = await safeFetch(url, opts, deps)
+      if ((r.status === 429 || r.status >= 500) && attempt < retries) {
+        await sleep(1500 * (attempt + 1))
+        continue
+      }
+      return r
+    } catch (e) {
+      const transient = e instanceof GuardError ? e.code === 'zaman_asimi' || e.code === 'ag' : true
+      if (!transient || attempt >= retries) throw e
+      await sleep(1500 * (attempt + 1))
+    }
+  }
+}
+
 /** Bir kaynağı indirip ayrıştırır (yazmadan). Tarama ve "Kaynağı test et" ortak kullanır. */
-export async function fetchSource(src: SourceRow, deps: SafeFetchDeps, opts: { conditional: boolean }): Promise<FetchOutcome> {
+export async function fetchSource(src: SourceRow, deps: SafeFetchDeps, opts: { conditional: boolean; pages?: number }): Promise<FetchOutcome> {
   if (!src.url) return blank({ status: 'atlandi', error: 'Kaynak adresi yok' })
   const policy = policyFor(src.url, src.allowed_hosts)
   try {
     if (src.kind === 'rss' || src.kind === 'atom') {
-      const r = await safeFetch(src.url, { policy, accept: [...FEED_TYPES, ...TEXT_TYPES], etag: opts.conditional ? src.etag : null, lastModified: opts.conditional ? src.last_modified : null }, deps)
+      const r = await fetchWithRetry(src.url, { policy, accept: [...FEED_TYPES, ...TEXT_TYPES], etag: opts.conditional ? src.etag : null, lastModified: opts.conditional ? src.last_modified : null }, deps)
       if (r.notModified) return blank({ status: 'degismedi', httpStatus: 304, etag: r.etag, lastModified: r.lastModified })
       if (r.status < 200 || r.status >= 300) return blank({ status: 'hata', httpStatus: r.status, contentType: r.contentType, error: `HTTP ${r.status}` })
       const feed = parseFeed(r.body, Math.max(1, Math.min(200, src.max_items)))
@@ -171,11 +247,33 @@ export async function fetchSource(src: SourceRow, deps: SafeFetchDeps, opts: { c
       })
       const robots = policyForStatus(rb.status, rb.body)
       if (!isAllowed(robots, page.pathname + page.search)) return blank({ status: 'atlandi', robots: 'yasak', error: 'robots.txt bu sayfaya izin vermiyor' })
-      const r = await safeFetch(src.url, { policy, accept: HTML_TYPES, etag: opts.conditional ? src.etag : null, lastModified: opts.conditional ? src.last_modified : null }, deps)
+      const r = await fetchWithRetry(src.url, { policy, accept: HTML_TYPES, etag: opts.conditional ? src.etag : null, lastModified: opts.conditional ? src.last_modified : null }, deps)
       if (r.notModified) return blank({ status: 'degismedi', httpStatus: 304, robots: 'izinli', etag: r.etag, lastModified: r.lastModified })
       if (r.status < 200 || r.status >= 300) return blank({ status: 'hata', httpStatus: r.status, robots: 'izinli', error: `HTTP ${r.status}` })
-      const items = headlineLinks(r.body, r.finalUrl, policy.allowedHosts, Math.max(1, Math.min(100, src.max_items)))
-      return blank({ status: 'ok', httpStatus: r.status, contentType: r.contentType, robots: 'izinli', items, etag: r.etag, lastModified: r.lastModified, warnings: items.length ? [] : ['Sayfada başlık bağlantısı bulunamadı'] })
+      const max = Math.max(1, Math.min(100, src.max_items))
+      const items = headlineLinks(r.body, r.finalUrl, policy.allowedHosts, max)
+      const warnings: string[] = []
+      // İlk taramada geriye dönük birkaç sayfa (robots her sayfa için ayrıca denetlenir); sonraki taramalarda yalnız ilk sayfa
+      let next = (opts.pages ?? 1) > 1 ? nextPageUrl(r.body, r.finalUrl, policy.allowedHosts) : null
+      for (let p = 2; next && p <= (opts.pages ?? 1) && items.length < max; p++) {
+        const nu = new URL(next)
+        if (!isAllowed(robots, nu.pathname + nu.search)) break
+        try {
+          const rp = await fetchWithRetry(next, { policy, accept: HTML_TYPES }, deps)
+          if (rp.status < 200 || rp.status >= 300) {
+            warnings.push(`Sayfa ${p}: HTTP ${rp.status}`)
+            break
+          }
+          for (const it of headlineLinks(rp.body, rp.finalUrl, policy.allowedHosts, max)) if (items.length < max && !items.some((x) => x.url === it.url)) items.push(it)
+          next = nextPageUrl(rp.body, rp.finalUrl, policy.allowedHosts)
+        } catch (e) {
+          warnings.push(`Sayfa ${p}: ${e instanceof Error ? e.message.slice(0, 120) : 'hata'}`)
+          break
+        }
+      }
+      if (!items.length) warnings.push('Sayfada başlık bağlantısı bulunamadı')
+      const walls = ACCESS_WALL.filter(([re]) => re.test(r.body)).map(([, code]) => code)
+      return blank({ status: 'ok', httpStatus: r.status, contentType: r.contentType, robots: 'izinli', items, etag: r.etag, lastModified: r.lastModified, warnings, walls })
     }
     return blank({ status: 'atlandi', error: src.kind === 'manual' ? 'Elle eklenen kaynak indirilmez' : 'Bu kaynak türü test edilmez' })
   } catch (e) {
@@ -201,25 +299,39 @@ export async function runScan(deps: RunnerDeps): Promise<ScanSummary> {
   const clusters = await deps.db.clusters()
   const overBudget = () => deps.now().getTime() - t0 > budget
 
+  let lastRejected = 0
   const ingestAll = async (src: SourceRow, ctx: SourceContext, raws: (RawInput & { pendingId?: string })[], base: Omit<RunRecord, 'items_seen' | 'finished_at' | 'duration_ms'>) => {
     const items: IngestItem[] = []
+    const reasons: Partial<Record<RejectReason, number>> = {}
+    let rejected = 0
     for (const raw of raws) {
       const it = await buildIngestItem(raw, ctx, p, clusters, deps.now(), ruleAnalyzer)
       if (!it) continue
       if (raw.pendingId) it.pending_item_id = raw.pendingId
+      else {
+        // Otomatik kaynak: LEONX ile ilgisiz ilan fırsat olarak yazılmaz, yalnız ret nedeniyle sayılır
+        const rel = relevance(it.classification, it.title, it.summary)
+        if (!rel.keep) {
+          rejected++
+          reasons[rel.reason!] = (reasons[rel.reason!] ?? 0) + 1
+          continue
+        }
+      }
       if (!clusters.some((c) => c.clusterKey === it.cluster_key)) clusters.push({ clusterKey: it.cluster_key, tokens: it.cluster_tokens, city: it.city })
       items.push(it)
     }
+    lastRejected = rejected
     let total = 0
     const finish = () => ({ ...base, finished_at: deps.now().toISOString(), duration_ms: deps.now().getTime() - Date.parse(base.started_at), items_seen: raws.length })
     if (!items.length) {
       await deps.db.ingest(src.id, finish(), [])
-      return 0
+    } else {
+      for (let i = 0; i < items.length; i += batch) {
+        const r = await deps.db.ingest(src.id, finish(), items.slice(i, i + batch))
+        total += r.items_new
+      }
     }
-    for (let i = 0; i < items.length; i += batch) {
-      const r = await deps.db.ingest(src.id, finish(), items.slice(i, i + batch))
-      total += r.items_new
-    }
+    if (rejected && deps.db.recordRejects) await deps.db.recordRejects(base.id, rejected, reasons)
     return total
   }
 
@@ -294,14 +406,14 @@ export async function runScan(deps: RunnerDeps): Promise<ScanSummary> {
       continue
     }
 
-    const out = await fetchSource(src, deps, { conditional: true })
+    const out = await fetchSource(src, deps, { conditional: true, pages: src.last_run_at ? 1 : 3 })
     if (out.status !== 'ok') {
       await deps.db.ingest(src.id, { id: runId, started_at: started, finished_at: deps.now().toISOString(), status: out.status, http_status: out.httpStatus, items_seen: 0, error: out.error, duration_ms: deps.now().getTime() - Date.parse(started), etag: out.etag, last_modified: out.lastModified }, [])
       summary.runs.push({ source: src.name, status: out.status, items: 0, error: out.error })
       continue
     }
     const n = await ingestAll(src, ctx, out.items, { id: runId, started_at: started, status: 'ok', http_status: out.httpStatus, error: out.warnings.length ? out.warnings.slice(0, 5).join(' · ').slice(0, 500) : null, etag: out.etag, last_modified: out.lastModified })
-    summary.runs.push({ source: src.name, status: 'ok', items: n, error: null })
+    summary.runs.push({ source: src.name, status: 'ok', items: n, error: null, seen: out.items.length, rejected: lastRejected })
   }
   deps.log?.(`radar: ${summary.sources} kaynak, ${summary.manual} elle öğe`)
   return summary
@@ -336,4 +448,66 @@ export async function testSource(deps: RunnerDeps, sourceId: string): Promise<So
     warnings: out.warnings.slice(0, 10),
     robots: out.robots,
   }
+}
+
+export interface SourceVerification {
+  ok: boolean
+  kind: string
+  url: string | null
+  robots: 'izinli' | 'yasak' | 'gerekmiyor'
+  http_status: number | null
+  content_type: string | null
+  items: number
+  relevant: number
+  sample: { title: string; link: string; relevant: boolean }[]
+  /** Etkinleştirmeyi engelleyen nedenler (boşsa ok) */
+  blockers: string[]
+  warnings: string[]
+}
+
+/** Giriş, CAPTCHA veya ücret duvarı işaretleri (bunlar aşılmaz; kaynak doğrulanmaz) */
+const ACCESS_WALL: [RegExp, string][] = [
+  [/<input[^>]+type\s*=\s*["']?password/i, 'giris_gerekli'],
+  [/g-recaptcha|hcaptcha|cf-turnstile|captcha|challenge-platform|cf_chl_/i, 'captcha'],
+  [/abonelik gerekli|üye girişi yapınız|paywall|subscription required/i, 'ucret_veya_uyelik'],
+]
+
+/**
+ * Kaynak doğrulama ("Doğrula"): etkinleştirmeden ÖNCE erişim koşullarını sınar. Tarama ile aynı güvenlik
+ * hattını kullanır, hiçbir öğe YAZMAZ. ok yalnız şu durumda: robots.txt izin veriyor, sayfa/akış 2xx,
+ * giriş/CAPTCHA/ücret duvarı yok ve en az bir ilan başlığı çıkarılabiliyor. Kullanım koşulları makineyle
+ * doğrulanamaz; bu karar ve notu sahibe/izin notuna aittir.
+ */
+export async function verifySource(deps: RunnerDeps, src: SourceRow): Promise<SourceVerification> {
+  const res: SourceVerification = { ok: false, kind: src.kind, url: src.url, robots: 'gerekmiyor', http_status: null, content_type: null, items: 0, relevant: 0, sample: [], blockers: [], warnings: [] }
+  if (src.kind !== 'site' && src.kind !== 'rss' && src.kind !== 'atom') {
+    res.blockers.push('tur_dogrulanmaz')
+    return res
+  }
+  const out = await fetchSource(src, deps, { conditional: false })
+  res.robots = out.robots
+  res.http_status = out.httpStatus
+  res.content_type = out.contentType
+  res.warnings = out.warnings.slice(0, 10)
+  if (out.robots === 'yasak') res.blockers.push('robots_yasak')
+  if (out.status === 'hata') res.blockers.push(out.httpStatus ? `http_${out.httpStatus}` : `erisim: ${(out.error ?? 'hata').slice(0, 120)}`)
+  if (out.status === 'atlandi' && out.robots !== 'yasak') res.blockers.push((out.error ?? 'atlandi').slice(0, 120))
+  res.items = out.items.length
+  // Duvar işareti varken içerik çıkarılamıyorsa erişim engellidir (aşılmaz). İçerik açıksa yalnız uyarı
+  // (ör. sayfa altındaki iletişim formunun CAPTCHA'sı ilanlara erişimi engellemez).
+  if (out.status === 'ok' && out.walls.length) {
+    if (!out.items.length) res.blockers.push(...out.walls)
+    else res.warnings.push(`Sayfada ${out.walls.join(', ')} işareti var; ilan başlıkları girişsiz okunabiliyor`)
+  }
+  if (out.status === 'ok' && !out.items.length && !out.walls.length) res.blockers.push('ilan_basligi_yok')
+  const { p } = await loadSettings(deps.db)
+  for (const raw of out.items.slice(0, 50)) {
+    const it = await buildIngestItem(raw, { id: src.id, kind: src.kind, sectorHint: src.sector_hint, permission: src.permission_status }, p, [], deps.now(), ruleAnalyzer)
+    if (!it) continue
+    const keep = relevance(it.classification, it.title, it.summary).keep
+    if (keep) res.relevant++
+    if (res.sample.length < 8 && (keep || res.sample.length < 4)) res.sample.push({ title: it.title.slice(0, 200), link: it.canonical_url, relevant: keep })
+  }
+  res.ok = res.blockers.length === 0
+  return res
 }
