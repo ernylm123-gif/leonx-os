@@ -142,12 +142,17 @@ function cardContext(html: string, end: number): { title: string; body: string }
   const prevA = seg.lastIndexOf('</a')
   if (prevA !== -1) seg = seg.slice(prevA)
   let title = ''
+  let at = -1
   for (const m of seg.matchAll(/<(strong|b|h[2-6])\b[^>]*>([\s\S]*?)<\/\1\s*>/gi)) {
     const t = htmlToText(m[2], 400)
-    if (t.length >= 20) title = t
+    if (t.length >= 20) {
+      title = t
+      at = (m.index ?? 0) + m[0].length
+    }
   }
   if (!title) return null
-  return { title, body: htmlToText(seg, 1500) }
+  // Gövde yalnız başlıktan bağlantıya kadarki kart metni (önceki kart veya arama formu karışmaz)
+  return { title, body: htmlToText(seg.slice(at), 1500) }
 }
 
 /** Liste sayfasındaki başlık benzeri bağlantılar (yalnız aynı ana makine; bağlantılar İNDİRİLMEZ).
@@ -176,9 +181,12 @@ export function headlineLinks(html: string, pageUrl: string, allowedHosts: strin
     u.hash = ''
     if (out.some((x) => x.url === u.toString())) continue
     out.push({ url: u.toString(), title: text, body, publishedAt: null })
-    if (out.length >= max) break
+    if (out.length >= max * 4) break
   }
-  return out
+  // Kayıtlı sayfanın alt yolundaki bağlantılar (ör. /ihaleler/detay/…) yeterliyse menü/altbilgi bağlantıları atılır
+  const base = new URL(pageUrl).pathname.replace(/\/+$/, '')
+  const under = base ? out.filter((x) => new URL(x.url).pathname.startsWith(`${base}/`)) : []
+  return (under.length >= 3 ? under : out).slice(0, max)
 }
 
 /** Liste sayfasının "Sonraki" sayfası (rel=next veya "Sonraki"/"İleri"/"»"); yalnız aynı yol, izinli ana makine */

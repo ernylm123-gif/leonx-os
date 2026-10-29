@@ -37,7 +37,7 @@ const NON_CONSTRUCTION = [
 ]
 
 /** Bina işareti (yol/asfalt/kanalizasyon gibi altyapı yapım işlerini ayırmak için) */
-const BUILDING = ['bina', 'blok', 'konut', 'daire', 'tesis', 'merkez', 'salon', 'derslik', 'lojman', 'yurt', 'kres', 'cephe', 'pencere', 'kapi', 'dograma']
+const BUILDING = ['bina', 'blok', 'konut', 'daireli', 'derslik', 'lojman', 'yurt', 'kres', 'cephe', 'pencere', 'kapi', 'dograma']
 
 function hasAny(text: string, list: string[]): string | null {
   // Sözcük başı eşleşmesi (önek): "sut" → "sut", "sutu"; "kosut" değil

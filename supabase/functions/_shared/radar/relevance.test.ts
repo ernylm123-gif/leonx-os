@@ -19,5 +19,8 @@ describe('ilgililik kapısı (gerçek belediye ilan başlıkları biçiminde)', 
     expect(check('Kantin Kiralama İhalesi')).toEqual({ keep: false, reason: 'insaat_disi' })
     expect(check('Selektör, Yem Ezme, Eğimli Helezon Konveyör ve Lavanta Hasat Makineleri Mal Alımı İşi').keep).toBe(false)
     expect(check('Bilgisayar ve Yazıcı Mal Alımı İşi')).toEqual({ keep: false, reason: 'kapsam_disi_alim' })
+    // Ankara BB ilan kartı biçimi: birim adı ("… Dairesi", "Bakım Onarım Şube Müdürlüğü") yapım/bina sayılmaz
+    expect(check('Beynam Arazi Tipi 50 MW Güneş Enerji Santrali Yapım İşi', 'İhale Tarihi: 04.12.2026 15:00 İhale Türü: Yapım İlgili Birim: Kırsal Hizmetler Dairesi Başkanlığı').keep).toBe(false)
+    expect(check('Ankara Çevre İlçelerinde Kilit Parke Taşı ile Yol ve Meydan Yapım İşi', 'İlgili Birim: Kaldırım Yapım ve Bakım Onarım Şube Müdürlüğü').keep).toBe(false)
   })
 })
