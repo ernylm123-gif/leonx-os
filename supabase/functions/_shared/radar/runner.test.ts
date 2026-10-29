@@ -200,7 +200,7 @@ describe('kaynak doğrulama (etkinleştirmeden önce)', () => {
     const { db, ingests } = fakeDb([site])
     const { d } = deps(db, { 'https://ihale.ornek.test/robots.txt': robots('User-agent: *\nDisallow:'), 'https://ihale.ornek.test/ihaleler': html('<a href="/i/1">Hizmet Binası PVC Doğrama Yapım İşi İhalesi</a><a href="/i/2">Kantin Kiralama İhalesi Duyurusu</a>') })
     const v = await verifySource(d, site)
-    expect(v).toMatchObject({ ok: true, robots: 'izinli', http_status: 200, items: 2, relevant: 1, blockers: [] })
+    expect(v).toMatchObject({ ok: true, robots: 'izinli', http_status: 200, items: 2, listings: 2, relevant: 1, blockers: [] })
     expect(ingests).toHaveLength(0)
   })
   it('robots yasak, HTTP hata veya girişle gizli içerik → doğrulanmaz', async () => {
@@ -209,5 +209,7 @@ describe('kaynak doğrulama (etkinleştirmeden önce)', () => {
     expect((await verifySource(deps(db, { 'https://ihale.ornek.test/robots.txt': robots(''), 'https://ihale.ornek.test/ihaleler': html('yasak', 403) }).d, site)).blockers).toEqual(['http_403'])
     const login = await verifySource(deps(db, { 'https://ihale.ornek.test/robots.txt': robots(''), 'https://ihale.ornek.test/ihaleler': html('<form><input type="password" name="p"></form>') }).d, site)
     expect(login).toMatchObject({ ok: false, blockers: ['giris_gerekli'] })
+    const menu = await verifySource(deps(db, { 'https://ihale.ornek.test/robots.txt': robots(''), 'https://ihale.ornek.test/ihaleler': html('<a href="/kurumsal">Kurumsal Kimlik Kılavuzu ve Logolar</a><a href="/iletisim">İletişim Bilgilerimiz ve Adreslerimiz</a>') }).d, site)
+    expect(menu).toMatchObject({ ok: false, items: 2, listings: 0, blockers: ['ilan_bulunamadi'] })
   })
 })

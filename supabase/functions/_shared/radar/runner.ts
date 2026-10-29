@@ -186,7 +186,7 @@ export function headlineLinks(html: string, pageUrl: string, allowedHosts: strin
   // Kayıtlı sayfanın alt yolundaki bağlantılar (ör. /ihaleler/detay/…) yeterliyse menü/altbilgi bağlantıları atılır
   const base = new URL(pageUrl).pathname.replace(/\/+$/, '')
   const under = base ? out.filter((x) => new URL(x.url).pathname.startsWith(`${base}/`)) : []
-  return (under.length >= 3 ? under : out).slice(0, max)
+  return (under.length ? under : out).slice(0, max)
 }
 
 /** Liste sayfasının "Sonraki" sayfası (rel=next veya "Sonraki"/"İleri"/"»"); yalnız aynı yol, izinli ana makine */
@@ -466,6 +466,8 @@ export interface SourceVerification {
   http_status: number | null
   content_type: string | null
   items: number
+  /** İlan/ihale işareti taşıyan öğe sayısı (menü bağlantıları sayılmaz) */
+  listings: number
   relevant: number
   sample: { title: string; link: string; relevant: boolean }[]
   /** Etkinleştirmeyi engelleyen nedenler (boşsa ok) */
@@ -487,7 +489,7 @@ const ACCESS_WALL: [RegExp, string][] = [
  * doğrulanamaz; bu karar ve notu sahibe/izin notuna aittir.
  */
 export async function verifySource(deps: RunnerDeps, src: SourceRow): Promise<SourceVerification> {
-  const res: SourceVerification = { ok: false, kind: src.kind, url: src.url, robots: 'gerekmiyor', http_status: null, content_type: null, items: 0, relevant: 0, sample: [], blockers: [], warnings: [] }
+  const res: SourceVerification = { ok: false, kind: src.kind, url: src.url, robots: 'gerekmiyor', http_status: null, content_type: null, items: 0, listings: 0, relevant: 0, sample: [], blockers: [], warnings: [] }
   if (src.kind !== 'site' && src.kind !== 'rss' && src.kind !== 'atom') {
     res.blockers.push('tur_dogrulanmaz')
     return res
@@ -513,9 +515,12 @@ export async function verifySource(deps: RunnerDeps, src: SourceRow): Promise<So
     const it = await buildIngestItem(raw, { id: src.id, kind: src.kind, sectorHint: src.sector_hint, permission: src.permission_status }, p, [], deps.now(), ruleAnalyzer)
     if (!it) continue
     const keep = relevance(it.classification, it.title, it.summary).keep
+    if (it.classification.isProcurement || it.classification.stage !== 'bilinmiyor') res.listings++
     if (keep) res.relevant++
     if (res.sample.length < 8 && (keep || res.sample.length < 4)) res.sample.push({ title: it.title.slice(0, 200), link: it.canonical_url, relevant: keep })
   }
+  // Yalnız menü/altbilgi bağlantısı okunuyorsa (ilanlar betikle yükleniyor vb.) kaynak işe yaramaz
+  if (out.status === 'ok' && out.items.length && !res.listings) res.blockers.push('ilan_bulunamadi')
   res.ok = res.blockers.length === 0
   return res
 }
