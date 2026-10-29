@@ -10,12 +10,14 @@
 //  3) "Doğrula": { "verify_source_id": "<uuid>" } — sahip JWT'si VEYA zamanlayıcı gizli başlığı. Erişim koşullarını
 //     (robots.txt, HTTP, giriş/CAPTCHA/ücret duvarı, ilan çıkarımı) sınar ve sonucu yalnız radar_sources.verification
 //     alanına yazar (radar_service_save_verification). Doğrulanmamış kaynak veritabanında İzinli yapılamaz (018).
+//  4) "Yeniden değerlendir": { "reclassify": true } — yalnız zamanlayıcı gizli başlığı. Son 120 günün öğelerini
+//     güncel inşaat istihbaratı kurallarıyla yeniden sınıflandırır (ağ isteği yok; 019 radar_service_set_intel).
 //
 // Gizli değerler: SUPABASE_SERVICE_ROLE_KEY (yalnız zamanlayıcı yolu), TAVILY_API_KEY (isteğe bağlı; ayarlarda
 // search_api_enabled açık değilse kullanılmaz). Hiçbiri yanıta veya loglara yazılmaz.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.117.3'
 import type { IngestItem } from '../_shared/radar/pipeline.ts'
-import { type RadarDb, type RunRecord, runScan, type SourceRow, testSource, verifySource } from '../_shared/radar/runner.ts'
+import { type RadarDb, reclassifyIntel, type RunRecord, runScan, type SourceRow, type StoredItem, testSource, verifySource } from '../_shared/radar/runner.ts'
 
 const URL_ = Deno.env.get('SUPABASE_URL')!
 const ANON = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
@@ -60,7 +62,7 @@ function dbFor(db: SupabaseClient): RadarDb {
   return {
     claimDueSources: async (limit) => unwrap(await db.rpc('radar_service_claim_sources', { p_limit: limit }), 'kiralama') as SourceRow[],
     getSource: async (id) => unwrap(await db.from('radar_sources').select('*').eq('id', id).maybeSingle(), 'kaynak') as SourceRow | null,
-    settings: async () => unwrap(await db.from('radar_settings').select('weights, search_api_enabled, search_queries_per_run').single(), 'ayarlar'),
+    settings: async () => unwrap(await db.from('radar_settings').select('weights, search_api_enabled, search_queries_per_run, excluded_companies').single(), 'ayarlar'),
     categories: async () => unwrap(await db.from('radar_categories').select('key, active, extra_keywords'), 'kategoriler'),
     clusters: async () => {
       const since = new Date(Date.now() - 180 * 86400000).toISOString()
@@ -77,6 +79,14 @@ function dbFor(db: SupabaseClient): RadarDb {
     recordRejects: async (runId, rejected, reasons) => {
       unwrap(await db.rpc('radar_service_record_rejects', { p_run: runId, p_rejected: rejected, p_reasons: reasons }), 'ret kaydı')
     },
+    recentItems: async (limit) => {
+      const since = new Date(Date.now() - 120 * 86400000).toISOString()
+      const rows = unwrap(await db.from('radar_items').select('id, title, summary, published_at, source:radar_sources(kind, sector_hint)')
+        .eq('pending', false).gte('last_seen_at', since).order('last_seen_at', { ascending: false }).limit(limit), 'öğeler') as
+        { id: string; title: string; summary: string | null; published_at: string | null; source: { kind: StoredItem['source_kind']; sector_hint: StoredItem['sector_hint'] } | null }[]
+      return rows.map((r) => ({ id: r.id, title: r.title, summary: r.summary, published_at: r.published_at, source_kind: r.source?.kind ?? 'manual', sector_hint: r.source?.sector_hint ?? null }))
+    },
+    setIntel: async (rows) => unwrap(await db.rpc('radar_service_set_intel', { p_items: rows }), 'istihbarat') as number,
   }
 }
 
@@ -146,6 +156,16 @@ Deno.serve(async (req: Request) => {
 
   // ---------------------------------------------------------------- Zamanlayıcı
   if (!cronOk) return json(req, 401, { error: 'Yetkisiz' })
+  // 019: günlük yeniden değerlendirme (ağ isteği yok; saklanan öğeler güncel kurallarla)
+  if (body.reclassify === true) {
+    try {
+      const r = await reclassifyIntel({ db: dbFor(db), now: () => new Date(), uuid: () => crypto.randomUUID(), tavilyKey: null, fetch: (u, i) => fetch(u, i), resolve })
+      return json(req, 200, r)
+    } catch (e) {
+      console.error('radar-scan yeniden değerlendirme hata:', e instanceof Error ? e.message : String(e))
+      return json(req, 500, { error: 'Yeniden değerlendirme hatası' })
+    }
+  }
   try {
     const summary = await runScan({
       db: dbFor(db),

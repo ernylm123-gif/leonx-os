@@ -1848,6 +1848,43 @@ await test('LEONX AI Radar: boş durum gerçek — örnek/sahte fırsat yok, tar
   expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
 })
 
+await test('LEONX AI Radar 019: inşaat satış istihbaratı — A/B/C sınıfları, bölge önceliği (Hatay), tahmin etiketi, zaman çizelgesi, hariç firma', async ({ page, mock }) => {
+  const outlook = { tahmin: true, pencere: '0-3_ay', urunler: ['pvc', 'celik_kapi'], gerekce: 'Kaba inşaat tamamlandı: doğrama alımı yaklaşmış olabilir' }
+  const a = mock.serverInsert('radar_opportunities', { title: 'Sentetik Etimesgut okul alüminyum doğrama ihalesi', city: 'Ankara', district: 'Etimesgut', is_ankara: true, sector: 'kamu', project_type: 'okul', stage: 'ihale', score: 80, verified_need: true, label: 'dogrulanmis_firsat', cluster_key: 'ankara:s-a', sales_class: 'A', region_priority: 1, product_groups: ['aluminyum_cephe'], recommended_action: 'Teklif hazırla' })
+  const b = mock.serverInsert('radar_opportunities', { title: 'Sentetik Antakya 240 konutluk proje', city: 'Hatay', district: 'Antakya', is_ankara: false, sector: 'ozel', project_type: 'konut', stage: 'yapim', score: 70, verified_need: false, label: 'potansiyel_ihtiyac', cluster_key: 'hatay:s-b', sales_class: 'B', region_priority: 2, construction_stage: 'kaba_tamam', stage_terms: ['kaba insaat tamamlan'], procurement_outlook: outlook, product_groups: ['pvc', 'celik_kapi'], recommended_action: 'Yükleniciyi belirle' })
+  mock.serverInsert('radar_opportunities', { title: 'Sentetik İzmir otel temeli atıldı', city: 'İzmir', is_ankara: false, sector: 'ozel', project_type: 'otel', stage: 'yapim', score: 90, verified_need: false, label: 'potansiyel_ihtiyac', cluster_key: 'izmir:s-c', sales_class: 'C', region_priority: 5, construction_stage: 'temel_atma' })
+  const x = mock.serverInsert('radar_opportunities', { title: 'Sentetik Özçelik İnşaat rezidans', city: 'Ankara', is_ankara: true, sector: 'ozel', project_type: 'konut', stage: 'yapim', score: 75, verified_need: false, label: 'potansiyel_ihtiyac', cluster_key: 'ankara:s-x', sales_class: 'D', region_priority: 1, excluded_company: 'Özçelik İnşaat' })
+  const co = mock.serverInsert('radar_companies', { name: 'Sentetik Konut Yapı', normalized_name: 'sentetik konut yapi' })
+  mock.serverInsert('radar_opportunity_companies', { opportunity_id: b.id, company_id: co.id, role: 'ana_yuklenici', verified: false })
+  const oz = mock.serverInsert('radar_companies', { name: 'Özçelik İnşaat', normalized_name: 'ozcelik insaat' })
+  mock.serverInsert('radar_opportunity_companies', { opportunity_id: x.id, company_id: oz.id, role: 'ana_yuklenici', verified: false })
+
+  await login(page, OWNER, '/leonx-ai')
+  await page.getByTestId('sales-kpis').waitFor()
+  expect((await page.getByTestId('kpi-class-a').innerText()).includes('1'), 'A sayısı')
+  expect((await page.getByTestId('kpi-approaching').innerText()).includes('1'), 'satın almaya yaklaşan (tahmin) sayısı')
+  await page.getByTestId('sales-contractors').getByText('Sentetik Konut Yapı').waitFor()
+  expect((await page.getByTestId('sales-contractors').getByText('Özçelik İnşaat', { exact: true }).count()) === 0, 'hariç tutulan firma iletişim listesinde')
+  await page.getByTestId('sales-excluded').getByText(/Özçelik İnşaat/).waitFor()
+  // Sıralama: Ankara (A) → Hatay (B) → İzmir (C, daha yüksek puanlı olsa da)
+  await page.getByTestId('radar-card').first().waitFor()
+  const titles = await page.getByTestId('radar-card-title').allInnerTexts()
+  expect(titles.indexOf(a.title) < titles.indexOf(b.title) && titles.indexOf(b.title) < titles.indexOf('Sentetik İzmir otel temeli atıldı'), `bölge önceliği: ${titles.join(' | ')}`)
+  const card = page.getByTestId('radar-card').filter({ hasText: b.title })
+  await card.getByTestId('radar-card-class').getByText('B · Yüksek öncelikli proje').waitFor()
+  await card.getByTestId('radar-card-stage').getByText(/TAHMİNİ: 0–3 ay içinde \(kaynakta yazmaz\)/).waitFor()
+  // Süzgeç: düşük ilgi hariç
+  await page.getByRole('combobox', { name: 'Satış sınıfı' }).selectOption('ABC')
+  await page.waitForTimeout(200)
+  expect(!(await page.getByTestId('radar-card-title').allInnerTexts()).includes(x.title), 'D sınıfı süzgeçte kaldı')
+  // Detay: zaman çizelgesi ve "doğrulanmış talep değildir" uyarısı
+  await card.getByTestId('radar-card-title').click()
+  await page.getByTestId('opp-sales-class').getByText('B · Yüksek öncelikli proje').waitFor()
+  await page.getByText('Bu kayıt doğrulanmış bir satın alma talebi DEĞİLDİR', { exact: false }).waitFor()
+  expect((await page.getByTestId('opp-timeline').locator('[aria-current="step"]').innerText()) === 'Kaba inşaat tamamlandı', 'zaman çizelgesi aşaması')
+  await page.getByTestId('opp-outlook').getByText(/TAHMİN/).waitFor()
+})
+
 await test('LEONX AI Radar: Ankara önce sıralama, süzgeçler, doğrulanmış / potansiyel rozetleri, puan ve güvenilirlik ayrı', async ({ page, mock }) => {
   const { a } = seedRadar(mock)
   await login(page, OWNER, '/leonx-ai')

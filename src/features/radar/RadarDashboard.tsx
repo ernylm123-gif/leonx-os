@@ -7,9 +7,12 @@ import { FilterSelect, SearchInput } from '@/components/ui/Toolbar'
 import { ANKARA_DISTRICTS, DISTRICTS } from '@radar/geo.ts'
 import { LABEL_TEXT } from '@radar/score.ts'
 import { categoryName } from '@radar/taxonomy.ts'
+import { OUTLOOK_LABEL } from '@/data/radarTypes'
+import { PRODUCT_LABEL, SALES_CLASS_LABEL, STAGE_LABEL as CONSTRUCTION_STAGE_LABEL, type ProductGroup } from '@radar/construction.ts'
 import { KIND_LABEL, RUN_LABEL, type RadarData, SECTOR_LABEL, STAGE_LABEL, STATUS_LABEL, STATUS_ORDER, PERMISSION_LABEL } from '@/data/radarTypes'
 import { cn } from '@/lib/cn'
 import { adviceFor, applyFilters, buildViews, daysLeft, DEFAULT_FILTERS, fmtDateTime, fmtDay, groupPipeline, kpis, localDate, locationText, type OppView, PIPELINE, type RadarFilters, sortAnkaraFirst } from '@/radar/view'
+import { SalesIntelPanel } from './SalesIntelPanel'
 import { Kpi, Meter, NeedBadge, Notice } from './shared'
 
 export function RadarDashboard({ data, loading, error, reload }: { data: RadarData; loading: boolean; error: string | null; reload: () => void }) {
@@ -30,6 +33,7 @@ export function RadarDashboard({ data, loading, error, reload }: { data: RadarDa
 
   return (
     <div className="flex flex-col gap-6" data-testid="radar-dashboard">
+      <SalesIntelPanel data={data} refreshKey={data.runs.length + data.opportunities.length} />
       <section aria-label="Radar göstergeleri" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label="Bugün yeni" value={k.todayNew} testId="kpi-today" />
         <Kpi label="Ankara" value={k.ankara} hint="İl ve ilçeleri" testId="kpi-ankara" />
@@ -102,6 +106,11 @@ export function RadarDashboard({ data, loading, error, reload }: { data: RadarDa
               <option value="">Tüm kaynak türleri</option>
               {Object.entries(KIND_LABEL).map(([s, l]) => <option key={s} value={s}>{l}</option>)}
             </FilterSelect>
+            <FilterSelect value={f.salesClass} onChange={(v) => set('salesClass', v as RadarFilters['salesClass'])} label="Satış sınıfı">
+              <option value="">Tüm sınıflar</option>
+              <option value="ABC">A, B ve C (düşük ilgi hariç)</option>
+              {(['A', 'B', 'C', 'D'] as const).map((c) => <option key={c} value={c}>{c} · {SALES_CLASS_LABEL[c]}</option>)}
+            </FilterSelect>
             <FilterSelect value={f.status} onChange={(v) => set('status', v as RadarFilters['status'])} label="Durum">
               <option value="aktif">Aktif (ilgisiz/kaybedilen hariç)</option>
               <option value="">Tüm durumlar</option>
@@ -118,7 +127,7 @@ export function RadarDashboard({ data, loading, error, reload }: { data: RadarDa
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
             <span>
-              <b className="font-semibold text-ink" data-testid="radar-count">{list.length}</b> fırsat · Ankara öncelikli sıralama
+              <b className="font-semibold text-ink" data-testid="radar-count">{list.length}</b> kayıt · sıralama: Ankara → Hatay → Kahramanmaraş → komşu iller → diğer
             </span>
             <div role="radiogroup" aria-label="Görünüm" className="inline-flex rounded-lg border border-line bg-surface-2 p-0.5">
               {([['liste', 'Liste', List], ['hat', 'CRM hattı', Columns3]] as const).map(([k, label, Icon]) => (
@@ -220,10 +229,26 @@ function OpportunityCard({ v, quoted }: { v: OppView; quoted: boolean }) {
             )}
           </div>
         </div>
-        <span className={cn('shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-semibold', o.verified_need ? 'border-ok/25 bg-ok-soft text-ok' : 'border-warn-line bg-warn-soft text-warn')} data-testid="radar-card-label">
-          {LABEL_TEXT[o.label]}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {o.sales_class && (
+            <span className={cn('rounded-md border px-2 py-0.5 text-[11px] font-semibold', o.sales_class === 'A' ? 'border-ok/25 bg-ok-soft text-ok' : o.sales_class === 'B' ? 'border-line bg-surface-2 text-ink' : 'border-line bg-surface-2 text-muted')} data-testid="radar-card-class">
+              {o.sales_class} · {SALES_CLASS_LABEL[o.sales_class]}
+            </span>
+          )}
+          <span className={cn('rounded-md border px-2 py-0.5 text-[11px] font-semibold', o.verified_need ? 'border-ok/25 bg-ok-soft text-ok' : 'border-warn-line bg-warn-soft text-warn')} data-testid="radar-card-label">
+            {LABEL_TEXT[o.label]}
+          </span>
+        </div>
       </div>
+      {(o.construction_stage || o.procurement_outlook) && (
+        <p className="mt-2 text-[12px] text-ink-2" data-testid="radar-card-stage">
+          {o.construction_stage && <>İnşaat aşaması: <b className="font-semibold">{CONSTRUCTION_STAGE_LABEL[o.construction_stage]}</b></>}
+          {o.procurement_outlook && <span className="text-muted"> · Satın alma TAHMİNİ: {OUTLOOK_LABEL[o.procurement_outlook.pencere]} (kaynakta yazmaz)</span>}
+        </p>
+      )}
+      {o.product_groups && o.product_groups.length > 0 && (
+        <p className="mt-1 text-[11.5px] text-muted">Olası ürünler: {o.product_groups.map((g) => PRODUCT_LABEL[g as ProductGroup] ?? g).join(', ')}</p>
+      )}
       <div className="mt-3 flex flex-wrap gap-1.5">
         {v.categories.slice(0, 5).map((c) => <NeedBadge key={c.id} need={c.need_status}>{categoryName(c.category_key)}</NeedBadge>)}
         {v.categories.length > 5 && <span className="text-[11px] text-subtle">+{v.categories.length - 5}</span>}

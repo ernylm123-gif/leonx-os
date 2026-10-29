@@ -69,6 +69,8 @@ export interface Classification {
   organizations: OrganizationCandidate[]
   risks: RiskCode[]
   explanation: string[]
+  /** İnşaat satış istihbaratı (construction.ts) — boru hattında eklenir */
+  intel?: import('./construction.ts').ConstructionIntel
 }
 
 export interface ClassifyInput {

@@ -282,3 +282,27 @@ lazer/delikli sac → `lazer_kesim`, `boru_profil_lazer`, `delikli_sac`, `cnc_ab
 **Testler**: `supabase/tests/radar_release.test.sql` (giriş koruması, yeniden puanlama, tekil teklif), `_shared/auth/ownerLogin.test.ts`,
 `_shared/radar/release.test.ts` (8 örnek soru, öneri, taban etken), il/ilçe testleri (`classify.test.ts`), tarayıcıda yalnız şifre girişi,
 kilit iletisi, hizmet kurulmamış iletisi, CRM hattı, Android (Pixel 7) ekranı.
+
+## 16. İnşaat satış istihbaratı (0.16.0, 019 `20261029001900_leonx_radar_sales.sql`)
+
+Radar yalnız ihale ilanlarını değil, inşaat projelerinin kendisini izler (`supabase/functions/_shared/radar/construction.ts`):
+
+- **İnşaat aşaması:** ruhsat → temel atma → hafriyat → temel → kaba inşaat → kaba inşaat tamamlandı → duvar → cephe →
+  doğrama montajı → ince işler → tamamlandı. Metinde birden çok aşama geçerse en ileri aşama alınır.
+- **Satın alma zamanı yalnız TAHMİNDİR** (`procurement_outlook.tahmin = true`); arayüzde "kaynakta yazmaz" diye gösterilir.
+- **Satış sınıfı:** A doğrulanmış aktif fırsat (ilan / RFQ / tedarikçi daveti + LEONX ürünü), B yüksek öncelikli aktif
+  proje (kaba inşaat ve sonrası; açık talep doğrulanmadı), C erken aşama (izlenir), D düşük ilgi. B ve C asla satın alma
+  fırsatı olarak sunulmaz; bildirim yalnız A ve B için yapılır.
+- **Bölge önceliği:** 1 Ankara, 2 Hatay, 3 Kahramanmaraş, 4 komşu iller, 5 diğer; listeler bu sırayla dizilir.
+- **Ürün grupları:** alüminyum doğrama/cephe, PVC, cam, korkuluk, yangın kapısı, çelik kapı, iç kapı, metal/çelik konstrüksiyon.
+  Kaynakta geçenler "kaynak", proje türünden çıkarılanlar "olası" işaretlidir.
+- **Önerilmeyen firmalar:** `radar_settings.excluded_companies` (başlangıçta "Özçelik İnşaat"); eşleşen kayıt D olur,
+  bildirim ve satış önerisi yapılmaz. Yüklenici dizininde (`radar_companies`) firma türü, tedarikçi başvuru adresi (yalnız
+  https ve kaynağıyla), son temas ve sonraki işlem tutulur.
+- **Yeniden değerlendirme:** her gün 07:20 TR `leonx-radar-yeniden` saklanan öğeleri güncel kurallarla yeniden sınıflandırır
+  (ağ isteği yok). Aşama ve sınıf değişimi `radar_changes` ile kaydedilir ve A/B kayıtlarda tek bildirimle iletilir.
+- **Panel:** `radar_sales_overview()` — sınıf sayıları, bugün keşfedilen/güncellenen, satın almaya yaklaşan (tahmin), il/ilçe
+  dağılımı, iletişime geçilecek yükleniciler, sıfır kayıt açıklaması.
+- **Bağımsız erişim izleme:** `leonx-surum` (10 dk) her version.json yanıtını `leonx_private.uptime_checks`'e yazar;
+  3 ardışık hata → `uretim_erisim` sistem bildirimi. GitHub zamanlayıcısı yoğunlukta saatlerce gecikebildiği için
+  (gözlenen: 10 dk yerine 4–6 saatte bir) asıl sıklık bu sunucu işidir; `uptime_summary()` özet verir.

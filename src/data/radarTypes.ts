@@ -33,6 +33,8 @@ export interface RadarSettings {
   search_monthly_limit: number
   search_daily_limit: number
   search_queries_per_run: number
+  /** 019: önerilmeyecek firmalar */
+  excluded_companies?: string[]
   updated_at: string
   version: number
 }
@@ -100,6 +102,8 @@ export interface RadarRun {
   items_seen: number
   items_new: number
   items_updated: number
+  /** 018: ilgisiz bulunup yazılmayan öğe sayısı */
+  items_rejected?: number
   error: string | null
   duration_ms: number | null
 }
@@ -133,6 +137,38 @@ export interface RadarOpportunity {
   project_id: string | null
   notes: string | null
   version: number
+  /** 019: satış istihbaratı (sunucuda türetilir; eski kayıtlarda boş olabilir) */
+  sales_class?: SalesClass | null
+  construction_stage?: ConstructionStageKey | null
+  stage_terms?: string[]
+  procurement_outlook?: { tahmin: true; pencere: OutlookWindow; urunler: string[]; gerekce: string } | null
+  region_priority?: number | null
+  product_groups?: string[]
+  recommended_action?: string | null
+  excluded_company?: string | null
+}
+
+export type SalesClass = 'A' | 'B' | 'C' | 'D'
+export type ConstructionStageKey = 'ruhsat' | 'temel_atma' | 'hafriyat' | 'temel' | 'kaba_insaat' | 'kaba_tamam' | 'duvar' | 'cephe' | 'dograma' | 'ince_isler' | 'tamamlandi'
+export type OutlookWindow = 'gecmis_olabilir' | 'simdi' | '0-3_ay' | '3-6_ay' | '6-18_ay'
+export const OUTLOOK_LABEL: Record<OutlookWindow, string> = {
+  gecmis_olabilir: 'Geçmiş olabilir',
+  simdi: 'Şimdi',
+  '0-3_ay': '0–3 ay içinde',
+  '3-6_ay': '3–6 ay içinde',
+  '6-18_ay': '6–18 ay içinde',
+}
+
+/** 019: radar_sales_overview() — sayılar doğrudan veritabanından */
+export interface RadarSalesOverview {
+  checked_at: string
+  by_class: Partial<Record<SalesClass | '-', number>>
+  new_today: number
+  updated_today: number
+  approaching: number
+  by_province: { city: string; priority: number | null; n: number; a: number; b: number; c: number; districts: { district: string; n: number }[] }[]
+  contractors_to_contact: { id: string; name: string; company_kind: string | null; website: string | null; supplier_portal_url: string | null; next_action: string | null; next_action_at: string | null; last_outreach_at: string | null; best: SalesClass; priority: number | null; projects: number }[]
+  excluded_companies: string[]
 }
 
 export interface RadarOppCategory {
@@ -166,6 +202,16 @@ export interface RadarCompany {
   crm_company_id: string | null
   notes: string | null
   version: number
+  /** 019: yüklenici dizini */
+  company_kind?: 'yuklenici' | 'gelistirici' | 'yatirimci' | 'kamu' | 'mimar' | 'diger' | null
+  supplier_portal_url?: string | null
+  supplier_portal_source?: string | null
+  procurement_url?: string | null
+  excluded?: boolean
+  exclusion_reason?: string | null
+  last_outreach_at?: string | null
+  next_action?: string | null
+  next_action_at?: string | null
 }
 
 export interface RadarOppCompany {
@@ -249,7 +295,7 @@ export interface RadarData {
 export interface RadarChange {
   id: string
   opportunity_id: string
-  field: 'stage' | 'deadline' | 'verified_need' | 'label'
+  field: 'stage' | 'deadline' | 'verified_need' | 'label' | 'insaat_asamasi' | 'satis_sinifi'
   old_value: string | null
   new_value: string | null
   created_at: string
