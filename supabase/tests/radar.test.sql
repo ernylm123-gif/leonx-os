@@ -92,6 +92,20 @@ begin
 end;
 $$;
 
+-- İzinli kaynaklar yalnız sunucu doğrulamasından sonra (018): doğrulama kaydını sunucu rolü yazar
+do $$
+declare v_s uuid; v_s2 uuid;
+begin
+  insert into public.radar_sources (name, kind, url, sector_hint, permission_status, active, interval_minutes) values ('Sentetik kamu akışı', 'rss', 'https://akis.ornek.test/rss', 'kamu', 'inceleniyor', false, 60) returning id into v_s;
+  insert into public.radar_sources (name, kind, url, permission_status, active) values ('Sentetik ikinci akış', 'rss', 'https://baska.ornek.test/rss', 'inceleniyor', false) returning id into v_s2;
+  perform public.radar_service_save_verification(v_s, '{"ok": true}');
+  perform public.radar_service_save_verification(v_s2, '{"ok": true}');
+  update public.radar_sources set permission_status = 'izinli', active = true where id in (v_s, v_s2);
+  perform set_config('leonx.s1', v_s::text, true);
+  perform set_config('leonx.s2', v_s2::text, true);
+end;
+$$;
+
 -- =====================================================================
 -- B) SAHİP: kaynaklar ve izin kuralları
 -- =====================================================================
@@ -100,14 +114,8 @@ select pg_temp.act_as(current_setting('leonx.owner'));
 do $$
 declare v_s uuid; v_s2 uuid; v_m uuid;
 begin
-  insert into public.radar_sources (name, kind, url, sector_hint, permission_status, active, interval_minutes)
-  values ('Sentetik kamu akışı', 'rss', 'https://akis.ornek.test/rss', 'kamu', 'izinli', true, 60) returning id into v_s;
-  insert into public.radar_sources (name, kind, url, permission_status, active)
-  values ('Sentetik ikinci akış', 'rss', 'https://baska.ornek.test/rss', 'izinli', true) returning id into v_s2;
   insert into public.radar_sources (name, kind, url, permission_status, active)
   values ('İnceleniyor akış', 'rss', 'https://inceleme.ornek.test/rss', 'inceleniyor', true) returning id into v_m;
-  perform set_config('leonx.s1', v_s::text, true);
-  perform set_config('leonx.s2', v_s2::text, true);
   perform set_config('leonx.s3', v_m::text, true);
   begin
     insert into public.radar_sources (name, kind, url, permission_status) values ('EKAP', 'rss', 'https://ekap.kik.gov.tr/x', 'inceleniyor');
@@ -131,7 +139,7 @@ begin
   exception when check_violation then raise notice 'PASS B: kaynak adresi yalnız https';
   end;
   begin
-    perform public.radar_ingest(v_s, '{}'::jsonb, '[]'::jsonb);
+    perform public.radar_ingest(current_setting('leonx.s1')::uuid, '{}'::jsonb, '[]'::jsonb);
     raise exception 'TEST BAŞARISIZ: sahip radar_ingest çağırdı';
   exception when insufficient_privilege then raise notice 'PASS B: sahip bile radar_ingest çağıramaz (yalnız sunucu)';
   end;

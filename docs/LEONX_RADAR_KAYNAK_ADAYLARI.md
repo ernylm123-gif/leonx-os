@@ -1,6 +1,23 @@
 # LEONX AI Radar — kaynak aday listesi (sahip onayı için)
 
-Durum: **TASLAK — hiçbir kaynak "İzinli" yapılmadı.** Bu liste 25 Ekim 2026'da hazırlandı. Hazırlandığı ortamdan bu
+## 29 Ekim 2026 — sunucu doğrulaması (radar-scan "Doğrula", migration 018)
+
+018'den beri bir rss/atom/site kaynağı yalnız son 30 gün içinde sunucuda **başarıyla doğrulandıysa** İzinli yapılabilir
+(veritabanı tetikleyicisi). Doğrulama: robots.txt, HTTP 2xx, giriş/CAPTCHA/ücret duvarı yok, menü dışında en az bir ilan.
+Kullanım koşulları metni makineyle doğrulanamaz; izin notunda belirtilir.
+
+| Kaynak | Sonuç | Not |
+| --- | --- | --- |
+| Ankara BB — İhaleler (`ankara.bel.tr/ihaleler`) | Doğrulandı, 20 ilan | Kart başlığı "İhale Detayı" bağlantısının kartından okunur |
+| Ankara BB — Duyurular | Doğrulandı, 2 ilan işareti | Çoğu personel/işletme duyurusu; ilgililik kapısı eler |
+| Kahramanmaraş BB — İhale İlanları | Doğrulandı, 11 ilan | |
+| Osmaniye Belediyesi — İhaleler (`osmaniye-bld.gov.tr`) | Doğrulandı, 1 ilan işareti | Zayıf; çoğu bağlantı menü |
+| Çankaya — İhaleler | Doğrulanamadı | Şu an tek ilan (araç satışı); ihale işareti yok |
+| Altındağ, Kırıkkale, Hatay BB (`/ilanlar`) | Doğrulanamadı | Yalnız menü bağlantıları okunuyor (ilanlar betikle yükleniyor) |
+| Antakya Belediyesi | Doğrulanamadı | Supabase sunucusundan bağlantı kurulamıyor |
+| Hatay BB ihaleleri | Otomatik yok | Hatay BB ihaleleri ilan.gov.tr / EKAP üzerinden yayınlıyor; ikisi de yalnız elle eklenebilir |
+
+Durum (25 Ekim): **TASLAK — hiçbir kaynak "İzinli" yapılmadı.** Bu liste 25 Ekim 2026'da hazırlandı. Hazırlandığı ortamdan bu
 sitelere ağ erişimi YOKTU (bağlantı reddedildi); bu yüzden aşağıdaki robots.txt, kullanım koşulları ve RSS/API varlığı
 **doğrulanmamıştır**. Her satır, sahip veya yetkili bir kişi tarafından tek tek kontrol edilmeden kullanılmamalıdır.
 

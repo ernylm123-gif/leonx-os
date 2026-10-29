@@ -1963,10 +1963,16 @@ await test('LEONX AI Radar 016: zamanlanmış raporlar (günlük/haftalık, PDF/
   mock.serverInsert('radar_reports', { kind: 'haftalik', period_start: '2026-10-17', period_end: '2026-10-23', created_at: new Date().toISOString(), payload: { new_count: 3, won: 0, lost: 0, pipeline: { yeni: 3 }, follow_ups: [], deadlines: [] } })
   mock.serverInsert('radar_changes', { opportunity_id: a.id, field: 'deadline', old_value: '01.11.2026', new_value: '05.11.2026', created_at: new Date().toISOString(), notified_at: null })
   mock.updateRow('radar_sources', src.id, { consecutive_failures: 4 }, null, true)
+  mock.serverInsert('radar_source_runs', { source_id: src.id, started_at: new Date(Date.now() - 600000).toISOString(), finished_at: new Date(Date.now() - 590000).toISOString(), status: 'hata', http_status: 500, items_seen: 0, items_new: 0, items_updated: 0, items_rejected: 0, reject_reasons: {}, error: 'HTTP 500' })
+  mock.serverInsert('radar_source_runs', { source_id: src.id, started_at: new Date(Date.now() - 4000000).toISOString(), finished_at: new Date(Date.now() - 3990000).toISOString(), status: 'ok', http_status: 200, items_seen: 2, items_new: 2, items_updated: 0, items_rejected: 5, reject_reasons: { insaat_disi: 3, urun_yok: 2 }, error: null })
 
   await login(page, OWNER, '/leonx-ai?bolum=raporlar')
   await page.getByTestId('radar-health').waitFor()
-  await page.getByTestId('radar-health-failing').getByText(/Sentetik kamu akışı: 4 ardışık hata/).waitFor()
+  await page.getByTestId('radar-health-failing').getByText(/Sentetik kamu akışı: HTTP 500 \(4 ardışık hata/).waitFor()
+  // İşletim sayıları veritabanı değerleriyle aynı: toplanan = yazılan + elenen
+  await page.getByTestId('ops-collected').getByText('7').waitFor()
+  await page.getByTestId('ops-rejected').getByText('5').waitFor()
+  await page.getByTestId('ops-reasons').getByText(/Satış, kiralama, hizmet ilanı 3/).waitFor()
   const view = page.getByTestId('report-view')
   await view.getByText(/Günlük öncelikli rapor/).first().waitFor()
   await view.getByRole('link', { name: `[Yeni] ${a.title}` }).waitFor()
@@ -2050,6 +2056,12 @@ await test('LEONX AI Radar: iletişim araştırması (işlev dağıtılmış) ka
   await page.getByTestId('source-test-result').getByText('Sentetik ilan 1').waitFor()
   expect(mock.db.radar_items.length === before, 'test kayıt yazdı')
   expect(mock.functionCalls.some((c) => c.fn === 'radar-scan' && c.body?.test_source_id === added.id), 'test isteği gitmedi')
+  // Doğrula: sonuç kaynağa yazılır ve satırda görünür
+  await page.keyboard.press('Escape')
+  await page.getByTestId('source-row').filter({ hasText: 'Sentetik belediye duyuruları' }).getByTestId('source-verify').click()
+  await page.getByTestId('source-verify-result').getByText(/Doğrulandı — İzinli \+ Etkin yapılabilir/).waitFor()
+  await page.keyboard.press('Escape')
+  await page.getByTestId('source-row').filter({ hasText: 'Sentetik belediye duyuruları' }).getByTestId('source-verification').getByText(/Doğrulandı · 2 ilan, 1 LEONX ile ilgili/).waitFor()
   await page.keyboard.press('Escape')
   // Elle bağlantı
   await page.getByTestId('manual-url').fill('https://ilan.ornek.test/elle/1')

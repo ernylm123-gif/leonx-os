@@ -44,8 +44,9 @@ export function RadarDashboard({ data, loading, error, reload }: { data: RadarDa
       <Panel title="Tarama durumu" subtitle={lastRun ? `Son tarama: ${fmtDateTime(lastRun.started_at)} · ${RUN_LABEL[lastRun.status]}` : 'Henüz tarama yapılmadı'} icon={Activity}>
         {!lastRun && (
           <Notice testId="radar-scan-empty">
-            Otomatik tarama, sunucu işlevi (<b>radar-scan</b>) sahip onayıyla dağıtıldıktan ve en az bir kaynak <b>İzinli</b> ve <b>etkin</b> olarak işaretlendikten sonra başlar
-            (saatte bir). Şu an {autoSources.length} otomatik kaynak kayıtlı, {izinli.length} tanesi izinli ve etkin. Bu arada “Kaynaklar” bölümünden bağlantıyı elle ekleyebilirsiniz.
+            Sunucu taraması saatte bir çalışır (cihazların açık olması gerekmez) ama yalnız <b>doğrulanmış</b>, <b>İzinli</b> ve <b>etkin</b> kaynakları okur.
+            Şu an {autoSources.length} otomatik kaynak kayıtlı, {izinli.length} tanesi izinli ve etkin{izinli.length ? '; ilk tarama kaydı bir sonraki saatte oluşur' : ' — kaynak olmadan tarama hiçbir şey bulamaz'}.
+            Ayrıntılı işletim durumu “Raporlar” bölümündedir; bu arada “Kaynaklar” bölümünden bağlantıyı elle ekleyebilirsiniz.
           </Notice>
         )}
         {autoSources.length > 0 && (
