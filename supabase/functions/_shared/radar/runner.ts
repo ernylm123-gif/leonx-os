@@ -181,7 +181,7 @@ export function headlineLinks(html: string, pageUrl: string, allowedHosts: strin
     u.hash = ''
     if (out.some((x) => x.url === u.toString())) continue
     out.push({ url: u.toString(), title: text, body, publishedAt: null })
-    if (out.length >= max * 4) break
+    if (out.length >= 1000) break
   }
   // Kayıtlı sayfanın alt yolundaki bağlantılar (ör. /ihaleler/detay/…) yeterliyse menü/altbilgi bağlantıları atılır
   const base = new URL(pageUrl).pathname.replace(/\/+$/, '')

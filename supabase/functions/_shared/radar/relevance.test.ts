@@ -12,6 +12,8 @@ describe('ilgililik kapısı (gerçek belediye ilan başlıkları biçiminde)', 
   })
   it('proje türü + yapım işi potansiyel olarak kabul edilir; altyapı yapım işi reddedilir', () => {
     expect(check('24 Derslikli Ortaokul Binası İnşaatı Yapım İşi').keep).toBe(true)
+    expect(check('Ankara İli Etimesgut İlçesi Bahçekapı Mahallesinde İtfaiye Hizmet Binası Yapım İşi').keep).toBe(true)
+    expect(check('Medrese Mahallesi Akıllı Sera, GES, Su Hasadı ve Su Deposu ile Çevre Düzenlemesi Projesi Yapım İşi').keep).toBe(false)
     expect(check('Mahalle Yolları Sıcak Asfalt Kaplama Yapım İşi')).toEqual({ keep: false, reason: 'kapsam_disi_alim' })
   })
   it('satış, kiralama ve LEONX dışı mal alımları reddedilir', () => {
