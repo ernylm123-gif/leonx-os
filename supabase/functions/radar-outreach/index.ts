@@ -1,12 +1,12 @@
-// LEONX OS — radar-outreach (Supabase Edge Function, Deno). verify_jwt = false; yalnız zamanlayıcı gizli başlığı.
+﻿// LEONX OS â€” radar-outreach (Supabase Edge Function, Deno). verify_jwt = false; yalnÄ±z zamanlayÄ±cÄ± gizli baÅŸlÄ±ÄŸÄ±.
 //
-//  { "gmail_check": true } — Gmail OAuth bağlantısını doğrular (hesap info@erlinkapi.tr mi?) ve sonucu
-//      radar_settings.gmail_verified_at / gmail_last_check alanına yazar. Başarısızsa otomatik gönderim kapanır.
-//  { "send": true }        — sahibin ONAYLADIĞI sistem taslaklarını, tüm uygunluk denetimleri geçerse gönderir
-//      (outreachRunner.ts). RADAR_OUTREACH_SEND_ENABLED=true değilse hiçbir şey gönderilmez (acil durdurma).
+//  { "gmail_check": true } â€” Gmail OAuth baÄŸlantÄ±sÄ±nÄ± doÄŸrular (hesap erlindoorkapi@gmail.com mi?) ve sonucu
+//      radar_settings.gmail_verified_at / gmail_last_check alanÄ±na yazar. BaÅŸarÄ±sÄ±zsa otomatik gÃ¶nderim kapanÄ±r.
+//  { "send": true }        â€” sahibin ONAYLADIÄI sistem taslaklarÄ±nÄ±, tÃ¼m uygunluk denetimleri geÃ§erse gÃ¶nderir
+//      (outreachRunner.ts). RADAR_OUTREACH_SEND_ENABLED=true deÄŸilse hiÃ§bir ÅŸey gÃ¶nderilmez (acil durdurma).
 //
-// Gizli değerler: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN (info@erlinkapi.tr Google Workspace
-// hesabı için OAuth 2.0), SUPABASE_SERVICE_ROLE_KEY. Hiçbiri yanıta veya loglara yazılmaz.
+// Gizli deÄŸerler: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN (erlindoorkapi@gmail.com Google Workspace
+// hesabÄ± iÃ§in OAuth 2.0), SUPABASE_SERVICE_ROLE_KEY. HiÃ§biri yanÄ±ta veya loglara yazÄ±lmaz.
 import { createClient } from 'npm:@supabase/supabase-js@2.117.3'
 import { credentialsFromEnv, sendGmail, verifyGmail } from '../_shared/radar/gmail.ts'
 import { processSendQueue, type SendQueue } from '../_shared/radar/outreachRunner.ts'
@@ -28,16 +28,16 @@ async function resolve(host: string): Promise<string[]> {
     try {
       out.push(...(await Deno.resolveDns(host, t)))
     } catch {
-      // kayıt yok
+      // kayÄ±t yok
     }
   }
-  if (!out.length) throw new Error('çözümlenemedi')
+  if (!out.length) throw new Error('Ã§Ã¶zÃ¼mlenemedi')
   return out
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method !== 'POST') return json(405, { error: 'Yalnız POST' })
-  if (!SERVICE) return json(500, { error: 'yapılandırma eksik' })
+  if (req.method !== 'POST') return json(405, { error: 'YalnÄ±z POST' })
+  if (!SERVICE) return json(500, { error: 'yapÄ±landÄ±rma eksik' })
   const db = createClient(URL_, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } })
   const cfg = await db.rpc('radar_service_config')
   const secret = (cfg.data as { cron_secret?: string } | null)?.cron_secret ?? ''
@@ -47,14 +47,14 @@ Deno.serve(async (req: Request) => {
   const deps = { fetch: (u: string, i: RequestInit) => fetch(u, i), resolve }
 
   if (body.gmail_check === true) {
-    const v = creds ? await verifyGmail(creds, deps) : { ok: false, email: null, error: 'GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN tanımlı değil' }
+    const v = creds ? await verifyGmail(creds, deps) : { ok: false, email: null, error: 'GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN tanÄ±mlÄ± deÄŸil' }
     await db.rpc('radar_service_gmail_status', { p_ok: v.ok, p_detail: { email: v.email, error: v.error } })
     return json(200, { ok: v.ok, email: v.email, error: v.error })
   }
   if (body.send === true) {
-    if (!creds) return json(200, { sent: 0, reason: 'Gmail kimlik bilgileri tanımlı değil; taslaklar inceleme kuyruğunda kalır' })
+    if (!creds) return json(200, { sent: 0, reason: 'Gmail kimlik bilgileri tanÄ±mlÄ± deÄŸil; taslaklar inceleme kuyruÄŸunda kalÄ±r' })
     const q = await db.rpc('radar_service_send_queue', { p_limit: 5 })
-    if (q.error) return json(500, { error: 'Kuyruk okunamadı' })
+    if (q.error) return json(500, { error: 'Kuyruk okunamadÄ±' })
     const r = await processSendQueue({
       queue: q.data as SendQueue,
       killSwitchOpen: Deno.env.get('RADAR_OUTREACH_SEND_ENABLED') === 'true',

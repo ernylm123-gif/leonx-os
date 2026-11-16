@@ -1,21 +1,21 @@
-/**
- * LEONX Radar — inşaat satış istihbaratı (kural tabanlı, açıklanabilir).
+﻿/**
+ * LEONX Radar â€” inÅŸaat satÄ±ÅŸ istihbaratÄ± (kural tabanlÄ±, aÃ§Ä±klanabilir).
  *
- * Bir kaynak öğesinden şunları çıkarır:
- *  • İnşaat aşaması (ruhsat → temel atma → hafriyat → temel → kaba inşaat → kaba inşaat tamam →
- *    duvar → cephe → doğrama montajı → ince işler → tamamlandı). Metinde birden çok aşama geçerse
- *    en ileri aşama alınır ("kaba inşaat tamamlandı, ince işlere geçildi" → ince işler).
- *  • Satın alma zamanlaması: YALNIZ ÇIKARIM ('tahmin: true'); kaynakta yazmaz, hiçbir zaman
- *    doğrulanmış bilgi olarak gösterilmez.
- *  • Satış sınıfı: A doğrulanmış açık talep (ilan/RFQ/tedarikçi daveti + ürün), B yüksek öncelikli
- *    aktif proje (açık talep yok), C erken aşama (izlenecek), D düşük ilgi. B ve C asla satın alma
- *    fırsatı olarak sunulmaz.
- *  • LEONX / ERLIN KAPI ürün grupları (taksonomi kategorilerinden ve proje türünden; proje türünden
- *    gelenler 'olasi' işaretlidir).
- *  • Bölge önceliği: 1 Ankara, 2 Hatay, 3 Kahramanmaraş, 4 komşu iller, 5 diğer iller.
- *  • Hariç tutulan firmalar (ör. sahibin listesi): eşleşirse sınıf D ve öneri yapılmaz.
+ * Bir kaynak Ã¶ÄŸesinden ÅŸunlarÄ± Ã§Ä±karÄ±r:
+ *  â€¢ Ä°nÅŸaat aÅŸamasÄ± (ruhsat â†’ temel atma â†’ hafriyat â†’ temel â†’ kaba inÅŸaat â†’ kaba inÅŸaat tamam â†’
+ *    duvar â†’ cephe â†’ doÄŸrama montajÄ± â†’ ince iÅŸler â†’ tamamlandÄ±). Metinde birden Ã§ok aÅŸama geÃ§erse
+ *    en ileri aÅŸama alÄ±nÄ±r ("kaba inÅŸaat tamamlandÄ±, ince iÅŸlere geÃ§ildi" â†’ ince iÅŸler).
+ *  â€¢ SatÄ±n alma zamanlamasÄ±: YALNIZ Ã‡IKARIM ('tahmin: true'); kaynakta yazmaz, hiÃ§bir zaman
+ *    doÄŸrulanmÄ±ÅŸ bilgi olarak gÃ¶sterilmez.
+ *  â€¢ SatÄ±ÅŸ sÄ±nÄ±fÄ±: A doÄŸrulanmÄ±ÅŸ aÃ§Ä±k talep (ilan/RFQ/tedarikÃ§i daveti + Ã¼rÃ¼n), B yÃ¼ksek Ã¶ncelikli
+ *    aktif proje (aÃ§Ä±k talep yok), C erken aÅŸama (izlenecek), D dÃ¼ÅŸÃ¼k ilgi. B ve C asla satÄ±n alma
+ *    fÄ±rsatÄ± olarak sunulmaz.
+ *  â€¢ LEONX / ERLIN KAPI Ã¼rÃ¼n gruplarÄ± (taksonomi kategorilerinden ve proje tÃ¼rÃ¼nden; proje tÃ¼rÃ¼nden
+ *    gelenler 'olasi' iÅŸaretlidir).
+ *  â€¢ BÃ¶lge Ã¶nceliÄŸi: 1 Ankara, 2 Hatay, 3 KahramanmaraÅŸ, 4 komÅŸu iller, 5 diÄŸer iller.
+ *  â€¢ HariÃ§ tutulan firmalar (Ã¶r. sahibin listesi): eÅŸleÅŸirse sÄ±nÄ±f D ve Ã¶neri yapÄ±lmaz.
  *
- * Kaynak metni yalnız VERİDİR; içindeki talimatlar yorumlanmaz.
+ * Kaynak metni yalnÄ±z VERÄ°DÄ°R; iÃ§indeki talimatlar yorumlanmaz.
  */
 import type { Classification } from './classify.ts'
 import { findPrefixPhrase } from './classify.ts'
@@ -24,38 +24,38 @@ import { fold, foldTokens, phraseOf } from './text.ts'
 export type ConstructionStage =
   | 'ruhsat' | 'temel_atma' | 'hafriyat' | 'temel' | 'kaba_insaat' | 'kaba_tamam' | 'duvar' | 'cephe' | 'dograma' | 'ince_isler' | 'tamamlandi'
 
-/** Sıra = ilerleme. Anahtar sözcükler katlanmış (ASCII) ve sözcük-başı önekidir. */
+/** SÄ±ra = ilerleme. Anahtar sÃ¶zcÃ¼kler katlanmÄ±ÅŸ (ASCII) ve sÃ¶zcÃ¼k-baÅŸÄ± Ã¶nekidir. */
 export const STAGES: { key: ConstructionStage; label: string; terms: string[] }[] = [
-  { key: 'ruhsat', label: 'Yapı ruhsatı', terms: ['yapi ruhsat', 'insaat ruhsat', 'ruhsat alindi', 'ruhsati alindi', 'ruhsatini aldi', 'ruhsat verildi'] },
+  { key: 'ruhsat', label: 'YapÄ± ruhsatÄ±', terms: ['yapi ruhsat', 'insaat ruhsat', 'ruhsat alindi', 'ruhsati alindi', 'ruhsatini aldi', 'ruhsat verildi'] },
   { key: 'temel_atma', label: 'Temel atma', terms: ['temel atma', 'temeli atildi', 'temelini att', 'temel atildi', 'ilk kazma'] },
-  { key: 'hafriyat', label: 'Hafriyat / kazı', terms: ['hafriyat', 'kazi calisma', 'kazi isleri', 'iksa', 'zemin iyilestirme', 'fore kazik'] },
+  { key: 'hafriyat', label: 'Hafriyat / kazÄ±', terms: ['hafriyat', 'kazi calisma', 'kazi isleri', 'iksa', 'zemin iyilestirme', 'fore kazik'] },
   { key: 'temel', label: 'Temel', terms: ['temel betonu', 'radye temel', 'temel insaat', 'temel calisma', 'temel isleri', 'temel seviyesi'] },
-  { key: 'kaba_insaat', label: 'Kaba inşaat / karkas', terms: ['kaba insaat', 'karkas', 'betonarme', 'kat betonu', 'beton dokum', 'kat kat yuksel', 'yukseliyor', 'insaati sur', 'insaati devam', 'insaat devam', 'yapimi sur', 'yapimi devam', 'insaat calismalari sur'] },
-  { key: 'kaba_tamam', label: 'Kaba inşaat tamamlandı', terms: ['kaba insaat tamamlan', 'kaba insaati tamamlan', 'karkas tamamlan', 'karkasi tamamlan', 'cati katina ulas', 'son kat betonu', 'en ust kata ulas', 'betonarme tamamlan'] },
-  { key: 'duvar', label: 'Duvar örme', terms: ['duvar orme', 'duvar ormeleri', 'duvarlari oruluyor', 'tugla duvar', 'gazbeton duvar', 'bims duvar'] },
+  { key: 'kaba_insaat', label: 'Kaba inÅŸaat / karkas', terms: ['kaba insaat', 'karkas', 'betonarme', 'kat betonu', 'beton dokum', 'kat kat yuksel', 'yukseliyor', 'insaati sur', 'insaati devam', 'insaat devam', 'yapimi sur', 'yapimi devam', 'insaat calismalari sur'] },
+  { key: 'kaba_tamam', label: 'Kaba inÅŸaat tamamlandÄ±', terms: ['kaba insaat tamamlan', 'kaba insaati tamamlan', 'karkas tamamlan', 'karkasi tamamlan', 'cati katina ulas', 'son kat betonu', 'en ust kata ulas', 'betonarme tamamlan'] },
+  { key: 'duvar', label: 'Duvar Ã¶rme', terms: ['duvar orme', 'duvar ormeleri', 'duvarlari oruluyor', 'tugla duvar', 'gazbeton duvar', 'bims duvar'] },
   { key: 'cephe', label: 'Cephe', terms: ['cephe kaplama', 'cephe montaj', 'cephe calisma', 'cephe isleri', 'mantolama', 'dis cephe calisma', 'giydirme cephe montaj'] },
-  { key: 'dograma', label: 'Doğrama / pencere montajı', terms: ['dograma montaj', 'pencere montaj', 'pencereler takil', 'dogramalar takil', 'dograma isleri basla', 'pencere dograma montaj'] },
-  { key: 'ince_isler', label: 'İnce işler', terms: ['ince isler', 'ince insaat', 'ic mimari', 'boya badana', 'seramik dosem', 'ince iscilik', 'ic mekan isleri', 'parke dosem'] },
-  { key: 'tamamlandi', label: 'Tamamlandı', terms: ['tamamlandi', 'hizmete girdi', 'hizmete acildi', 'acilisi yapildi', 'teslim edildi', 'kullanima acildi', 'anahtar teslim toren', 'anahtarlari teslim'] },
+  { key: 'dograma', label: 'DoÄŸrama / pencere montajÄ±', terms: ['dograma montaj', 'pencere montaj', 'pencereler takil', 'dogramalar takil', 'dograma isleri basla', 'pencere dograma montaj'] },
+  { key: 'ince_isler', label: 'Ä°nce iÅŸler', terms: ['ince isler', 'ince insaat', 'ic mimari', 'boya badana', 'seramik dosem', 'ince iscilik', 'ic mekan isleri', 'parke dosem'] },
+  { key: 'tamamlandi', label: 'TamamlandÄ±', terms: ['tamamlandi', 'hizmete girdi', 'hizmete acildi', 'acilisi yapildi', 'teslim edildi', 'kullanima acildi', 'anahtar teslim toren', 'anahtarlari teslim'] },
 ]
 
 const STAGE_INDEX: Record<ConstructionStage, number> = Object.fromEntries(STAGES.map((s, i) => [s.key, i])) as Record<ConstructionStage, number>
 export const STAGE_LABEL: Record<ConstructionStage, string> = Object.fromEntries(STAGES.map((s) => [s.key, s.label])) as Record<ConstructionStage, string>
 
-/** LEONX / ERLIN KAPI ürün grupları (kullanıcı listesi) */
+/** LEONX / ERLIN KAPI Ã¼rÃ¼n gruplarÄ± (kullanÄ±cÄ± listesi) */
 export type ProductGroup = 'aluminyum_cephe' | 'pvc' | 'cam' | 'korkuluk' | 'yangin_kapisi' | 'celik_kapi' | 'ic_kapi' | 'metal_celik'
 export const PRODUCT_LABEL: Record<ProductGroup, string> = {
-  aluminyum_cephe: 'Alüminyum doğrama ve cephe sistemleri',
-  pvc: 'PVC pencere ve kapı',
+  aluminyum_cephe: 'AlÃ¼minyum doÄŸrama ve cephe sistemleri',
+  pvc: 'PVC pencere ve kapÄ±',
   cam: 'Cam ve camlama',
-  korkuluk: 'Cam ve alüminyum korkuluk',
-  yangin_kapisi: 'Yangına dayanıklı kapı',
-  celik_kapi: 'Çelik güvenlik kapısı',
-  ic_kapi: 'İç kapı',
-  metal_celik: 'Metal imalat ve çelik konstrüksiyon',
+  korkuluk: 'Cam ve alÃ¼minyum korkuluk',
+  yangin_kapisi: 'YangÄ±na dayanÄ±klÄ± kapÄ±',
+  celik_kapi: 'Ã‡elik gÃ¼venlik kapÄ±sÄ±',
+  ic_kapi: 'Ä°Ã§ kapÄ±',
+  metal_celik: 'Metal imalat ve Ã§elik konstrÃ¼ksiyon',
 }
 
-/** Taksonomi kategorisi → ürün grubu */
+/** Taksonomi kategorisi â†’ Ã¼rÃ¼n grubu */
 const CATEGORY_GROUP: Record<string, ProductGroup> = {
   aluminyum_dograma: 'aluminyum_cephe', giydirme_cephe: 'aluminyum_cephe', kompozit_cephe: 'aluminyum_cephe', cephe_yenileme: 'aluminyum_cephe',
   pencere_kapi_sistemleri: 'aluminyum_cephe', surme_sistemleri: 'aluminyum_cephe', dekoratif_metal_cephe: 'aluminyum_cephe',
@@ -69,7 +69,7 @@ const CATEGORY_GROUP: Record<string, ProductGroup> = {
   cnc_abkant: 'metal_celik', delikli_sac: 'metal_celik', bahce_villa_metal: 'metal_celik',
 }
 
-/** Proje türünden OLASI ürün grupları (çıkarım) */
+/** Proje tÃ¼rÃ¼nden OLASI Ã¼rÃ¼n gruplarÄ± (Ã§Ä±karÄ±m) */
 const TYPE_GROUPS: Record<string, ProductGroup[]> = {
   hastane: ['aluminyum_cephe', 'yangin_kapisi', 'ic_kapi', 'cam'],
   otel: ['aluminyum_cephe', 'cam', 'ic_kapi', 'korkuluk', 'yangin_kapisi'],
@@ -86,18 +86,18 @@ const TYPE_GROUPS: Record<string, ProductGroup[]> = {
   otopark: ['korkuluk', 'yangin_kapisi', 'metal_celik'],
 }
 
-/** Tedarikçi daveti / teklif talebi işaretleri (ürün de geçmeliyse A) */
+/** TedarikÃ§i daveti / teklif talebi iÅŸaretleri (Ã¼rÃ¼n de geÃ§meliyse A) */
 const SUPPLIER_INVITE = [
   'tedarikci basvuru', 'tedarikci kayit', 'tedarikci aran', 'tedarikci olmak', 'taseron aran', 'alt yuklenici aran',
   'teklif davet', 'teklif istenm', 'teklif alinacak', 'teklif toplan', 'firmalardan teklif', 'fiyat teklifi talep', 'teklif talep',
 ]
 
-export const PRIORITY_PROVINCES: Record<string, 1 | 2 | 3> = { Ankara: 1, Hatay: 2, Kahramanmaraş: 3 }
-/** Ankara, Hatay ve Kahramanmaraş'a komşu iller */
+export const PRIORITY_PROVINCES: Record<string, 1 | 2 | 3> = { Ankara: 1, Hatay: 2, KahramanmaraÅŸ: 3 }
+/** Ankara, Hatay ve KahramanmaraÅŸ'a komÅŸu iller */
 export const NEIGHBOUR_PROVINCES = [
-  'Bolu', 'Çankırı', 'Kırıkkale', 'Kırşehir', 'Aksaray', 'Konya', 'Eskişehir',
+  'Bolu', 'Ã‡ankÄ±rÄ±', 'KÄ±rÄ±kkale', 'KÄ±rÅŸehir', 'Aksaray', 'Konya', 'EskiÅŸehir',
   'Adana', 'Osmaniye', 'Gaziantep',
-  'Kayseri', 'Sivas', 'Malatya', 'Adıyaman',
+  'Kayseri', 'Sivas', 'Malatya', 'AdÄ±yaman',
 ]
 
 export function regionPriority(city: string | null): 1 | 2 | 3 | 4 | 5 | null {
@@ -108,10 +108,10 @@ export function regionPriority(city: string | null): 1 | 2 | 3 | 4 | 5 | null {
 
 export type SalesClass = 'A' | 'B' | 'C' | 'D'
 export const SALES_CLASS_LABEL: Record<SalesClass, string> = {
-  A: 'Doğrulanmış aktif fırsat',
-  B: 'Yüksek öncelikli proje',
-  C: 'Erken aşama proje',
-  D: 'Düşük ilgi',
+  A: 'DoÄŸrulanmÄ±ÅŸ aktif fÄ±rsat',
+  B: 'YÃ¼ksek Ã¶ncelikli proje',
+  C: 'Erken aÅŸama proje',
+  D: 'DÃ¼ÅŸÃ¼k ilgi',
 }
 
 export interface ProcurementOutlook {
@@ -126,7 +126,7 @@ export interface ConstructionIntel {
   version: 1
   stage: ConstructionStage | null
   stageTerms: string[]
-  /** Kaynakta inşaat yapıldığına dair işaret (proje haberi/ilerleme) */
+  /** Kaynakta inÅŸaat yapÄ±ldÄ±ÄŸÄ±na dair iÅŸaret (proje haberi/ilerleme) */
   activeConstruction: boolean
   supplierInvite: string[]
   products: { group: ProductGroup; basis: 'kaynak' | 'olasi' }[]
@@ -148,7 +148,7 @@ export function detectStage(tokens: string[]): { stage: ConstructionStage | null
   for (const s of STAGES) {
     const hit = matchTerms(tokens, s.terms)
     if (!hit.length) continue
-    // "tamamlandi" yalnız başına bir alt işin tamamlanması olabilir: kaba inşaat tamam ifadesi varsa o aşama
+    // "tamamlandi" yalnÄ±z baÅŸÄ±na bir alt iÅŸin tamamlanmasÄ± olabilir: kaba inÅŸaat tamam ifadesi varsa o aÅŸama
     if (s.key === 'tamamlandi' && terms.some((t) => t.includes('tamamlan'))) continue
     terms.push(...hit)
     if (best === null || STAGE_INDEX[s.key] > STAGE_INDEX[best]) best = s.key
@@ -156,7 +156,7 @@ export function detectStage(tokens: string[]): { stage: ConstructionStage | null
   return { stage: best, terms }
 }
 
-/** Aşamadan satın alma zamanlaması — YALNIZ ÇIKARIM */
+/** AÅŸamadan satÄ±n alma zamanlamasÄ± â€” YALNIZ Ã‡IKARIM */
 export function outlookFor(stage: ConstructionStage | null, groups: ProductGroup[]): ProcurementOutlook | null {
   if (!stage || stage === 'tamamlandi') return null
   const exterior = groups.filter((g) => g === 'aluminyum_cephe' || g === 'pvc' || g === 'cam' || g === 'korkuluk' || g === 'metal_celik')
@@ -167,17 +167,17 @@ export function outlookFor(stage: ConstructionStage | null, groups: ProductGroup
     case 'temel_atma':
     case 'hafriyat':
     case 'temel':
-      return { tahmin: true, pencere: '6-18_ay', urunler: groups, gerekce: `${label} aşamasında doğrama, cephe ve kapı alımı genellikle aylar sonradır` }
+      return { tahmin: true, pencere: '6-18_ay', urunler: groups, gerekce: `${label} aÅŸamasÄ±nda doÄŸrama, cephe ve kapÄ± alÄ±mÄ± genellikle aylar sonradÄ±r` }
     case 'kaba_insaat':
-      return { tahmin: true, pencere: '3-6_ay', urunler: exterior.length ? exterior : groups, gerekce: `${label} sürerken dış doğrama/cephe tedarikçisi genellikle kaba inşaat bitmeden seçilir` }
+      return { tahmin: true, pencere: '3-6_ay', urunler: exterior.length ? exterior : groups, gerekce: `${label} sÃ¼rerken dÄ±ÅŸ doÄŸrama/cephe tedarikÃ§isi genellikle kaba inÅŸaat bitmeden seÃ§ilir` }
     case 'kaba_tamam':
     case 'duvar':
-      return { tahmin: true, pencere: '0-3_ay', urunler: groups, gerekce: `${label}: doğrama, cephe ve korkuluk alımı yaklaşmış olabilir; kapılar ince işlerle gelir` }
+      return { tahmin: true, pencere: '0-3_ay', urunler: groups, gerekce: `${label}: doÄŸrama, cephe ve korkuluk alÄ±mÄ± yaklaÅŸmÄ±ÅŸ olabilir; kapÄ±lar ince iÅŸlerle gelir` }
     case 'cephe':
     case 'dograma':
-      return { tahmin: true, pencere: 'simdi', urunler: interior.length ? interior : groups, gerekce: `${label} başlamış: dış doğrama/cephe büyük olasılıkla sözleşmeli; iç kapı ve yangın kapısı alımı yakın olabilir` }
+      return { tahmin: true, pencere: 'simdi', urunler: interior.length ? interior : groups, gerekce: `${label} baÅŸlamÄ±ÅŸ: dÄ±ÅŸ doÄŸrama/cephe bÃ¼yÃ¼k olasÄ±lÄ±kla sÃ¶zleÅŸmeli; iÃ§ kapÄ± ve yangÄ±n kapÄ±sÄ± alÄ±mÄ± yakÄ±n olabilir` }
     case 'ince_isler':
-      return { tahmin: true, pencere: interior.length ? 'simdi' : 'gecmis_olabilir', urunler: interior, gerekce: `${label}: dış doğrama ve cephe büyük olasılıkla tamamlandı; iç kapı / yangın kapısı için geç kalınmış olabilir` }
+      return { tahmin: true, pencere: interior.length ? 'simdi' : 'gecmis_olabilir', urunler: interior, gerekce: `${label}: dÄ±ÅŸ doÄŸrama ve cephe bÃ¼yÃ¼k olasÄ±lÄ±kla tamamlandÄ±; iÃ§ kapÄ± / yangÄ±n kapÄ±sÄ± iÃ§in geÃ§ kalÄ±nmÄ±ÅŸ olabilir` }
   }
 }
 
@@ -185,9 +185,9 @@ export interface IntelInput {
   title: string
   summary: string
   classification: Classification
-  /** Kayıtlı/bağlı firma adları (hariç tutma kontrolü için) */
+  /** KayÄ±tlÄ±/baÄŸlÄ± firma adlarÄ± (hariÃ§ tutma kontrolÃ¼ iÃ§in) */
   companyNames?: string[]
-  /** Hariç tutulan firma kalıpları (katlanmış; ör. "ozcelik insaat") */
+  /** HariÃ§ tutulan firma kalÄ±plarÄ± (katlanmÄ±ÅŸ; Ã¶r. "ozcelik insaat") */
   excludedPatterns?: string[]
 }
 
@@ -198,7 +198,7 @@ export function analyzeConstruction(input: IntelInput): ConstructionIntel {
   const reasons: string[] = []
 
   const st = detectStage(tokens)
-  // Sınıflandırıcının kaba aşaması da işaret sayılır
+  // SÄ±nÄ±flandÄ±rÄ±cÄ±nÄ±n kaba aÅŸamasÄ± da iÅŸaret sayÄ±lÄ±r
   const activeConstruction = (st.stage !== null && st.stage !== 'tamamlandi' && st.stage !== 'ruhsat') || c.stage === 'yapim'
   const supplierInvite = matchTerms(tokens, SUPPLIER_INVITE)
 
@@ -225,7 +225,7 @@ export function analyzeConstruction(input: IntelInput): ConstructionIntel {
     }
   }
 
-  // Sınıflandırıcı "tamamlandı"yı alt iş için de yakalar ("kaba inşaat tamamlandı"): ayrıntılı aşama önceliklidir
+  // SÄ±nÄ±flandÄ±rÄ±cÄ± "tamamlandÄ±"yÄ± alt iÅŸ iÃ§in de yakalar ("kaba inÅŸaat tamamlandÄ±"): ayrÄ±ntÄ±lÄ± aÅŸama Ã¶nceliklidir
   const completed = st.stage === 'tamamlandi' || (c.stage === 'tamamlandi' && st.stage === null)
   const deadlinePassed = c.risks.includes('son_tarih_gecti')
   const procurement = c.isProcurement || supplierInvite.length > 0
@@ -234,31 +234,31 @@ export function analyzeConstruction(input: IntelInput): ConstructionIntel {
   let salesClass: SalesClass
   if (excluded) {
     salesClass = 'D'
-    reasons.push(`Hariç tutulan firma listesinde: ${excluded}`)
+    reasons.push(`HariÃ§ tutulan firma listesinde: ${excluded}`)
   } else if (completed) {
     salesClass = 'D'
-    reasons.push('Proje tamamlanmış görünüyor')
+    reasons.push('Proje tamamlanmÄ±ÅŸ gÃ¶rÃ¼nÃ¼yor')
   } else if (procurement && sourceProducts.length > 0 && !deadlinePassed) {
     salesClass = 'A'
-    reasons.push(c.isProcurement ? 'Satın alma / ihale ilanı ve LEONX ürünü kaynakta geçiyor' : `Tedarikçi daveti / teklif talebi (${supplierInvite.join(', ')}) ve LEONX ürünü kaynakta geçiyor`)
+    reasons.push(c.isProcurement ? 'SatÄ±n alma / ihale ilanÄ± ve LEONX Ã¼rÃ¼nÃ¼ kaynakta geÃ§iyor' : `TedarikÃ§i daveti / teklif talebi (${supplierInvite.join(', ')}) ve LEONX Ã¼rÃ¼nÃ¼ kaynakta geÃ§iyor`)
   } else if (relevantProject && activeConstruction && st.stage && STAGE_INDEX[st.stage] >= STAGE_INDEX.kaba_insaat) {
     salesClass = 'B'
-    reasons.push(`Aktif inşaat (${STAGE_LABEL[st.stage]}); açık satın alma ilanı doğrulanmadı`)
+    reasons.push(`Aktif inÅŸaat (${STAGE_LABEL[st.stage]}); aÃ§Ä±k satÄ±n alma ilanÄ± doÄŸrulanmadÄ±`)
   } else if (relevantProject && (activeConstruction || st.stage !== null || c.stage === 'planlama' || c.stage === 'ihale' || procurement)) {
     salesClass = 'C'
-    reasons.push(st.stage ? `Erken aşama (${STAGE_LABEL[st.stage]}); izlenmeli` : 'Yeni/planlanan proje; izlenmeli')
-    if (deadlinePassed) reasons.push('İlandaki son tarih geçmiş')
+    reasons.push(st.stage ? `Erken aÅŸama (${STAGE_LABEL[st.stage]}); izlenmeli` : 'Yeni/planlanan proje; izlenmeli')
+    if (deadlinePassed) reasons.push('Ä°landaki son tarih geÃ§miÅŸ')
   } else {
     salesClass = 'D'
-    reasons.push(relevantProject ? 'İnşaat aşaması veya satın alma işareti yok' : 'LEONX ürünü veya ilgili proje türü yok')
+    reasons.push(relevantProject ? 'Ä°nÅŸaat aÅŸamasÄ± veya satÄ±n alma iÅŸareti yok' : 'LEONX Ã¼rÃ¼nÃ¼ veya ilgili proje tÃ¼rÃ¼ yok')
   }
 
   const outlook = salesClass === 'D' ? null : outlookFor(st.stage, products.map((p) => p.group))
   const action =
-    salesClass === 'A' ? 'İlan/talep belgesini indir, son tarihi takvime ekle, teklif hazırla'
-    : salesClass === 'B' ? 'Yükleniciyi/geliştiriciyi belirle, resmî iletişim kanalından tanıtım ve tedarikçi başvurusu yap'
-    : salesClass === 'C' ? 'İzleme listesine al; aşama değişiminde yeniden değerlendir'
-    : 'İşlem gerekmiyor'
+    salesClass === 'A' ? 'Ä°lan/talep belgesini indir, son tarihi takvime ekle, teklif hazÄ±rla'
+    : salesClass === 'B' ? 'YÃ¼kleniciyi/geliÅŸtiriciyi belirle, resmÃ® iletiÅŸim kanalÄ±ndan tanÄ±tÄ±m ve tedarikÃ§i baÅŸvurusu yap'
+    : salesClass === 'C' ? 'Ä°zleme listesine al; aÅŸama deÄŸiÅŸiminde yeniden deÄŸerlendir'
+    : 'Ä°ÅŸlem gerekmiyor'
 
   return {
     version: 1,

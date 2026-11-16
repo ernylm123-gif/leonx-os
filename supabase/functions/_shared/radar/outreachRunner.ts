@@ -1,13 +1,13 @@
-/**
- * LEONX Radar — onaylı e-posta kuyruğunu işler (Edge Function "radar-outreach", hafta içi saatlik).
+﻿/**
+ * LEONX Radar â€” onaylÄ± e-posta kuyruÄŸunu iÅŸler (Edge Function "radar-outreach", hafta iÃ§i saatlik).
  *
- * Bir taslak YALNIZ şu koşulların hepsi sağlanırsa gönderilir (checkEligibility):
- *  sahip taslağı onayladı · ayarlarda otomatik gönderim açık · Gmail (info@erlinkapi.tr) bağlantısı sunucuda
- *  doğrulandı · hukuki dayanak belgelendi · alıcı firmanın kendi alan adında, son 180 günde sitesinden
- *  doğrulanmış kurumsal adres · ret listesinde değil · günlük sınır · son 90 günde aynı firmaya e-posta yok ·
- *  projeye ait kaynak kanıtı var · kamu kurumu değil. Ek olarak ortam anahtarı RADAR_OUTREACH_SEND_ENABLED=true
- *  olmadıkça (acil durdurma) hiçbir şey gönderilmez. Geçmeyen taslak kuyrukta kalır; nedeni taslağa yazılmaz,
- *  çalıştırma yanıtında döner.
+ * Bir taslak YALNIZ ÅŸu koÅŸullarÄ±n hepsi saÄŸlanÄ±rsa gÃ¶nderilir (checkEligibility):
+ *  sahip taslaÄŸÄ± onayladÄ± Â· ayarlarda otomatik gÃ¶nderim aÃ§Ä±k Â· Gmail (erlindoorkapi@gmail.com) baÄŸlantÄ±sÄ± sunucuda
+ *  doÄŸrulandÄ± Â· hukuki dayanak belgelendi Â· alÄ±cÄ± firmanÄ±n kendi alan adÄ±nda, son 180 gÃ¼nde sitesinden
+ *  doÄŸrulanmÄ±ÅŸ kurumsal adres Â· ret listesinde deÄŸil Â· gÃ¼nlÃ¼k sÄ±nÄ±r Â· son 90 gÃ¼nde aynÄ± firmaya e-posta yok Â·
+ *  projeye ait kaynak kanÄ±tÄ± var Â· kamu kurumu deÄŸil. Ek olarak ortam anahtarÄ± RADAR_OUTREACH_SEND_ENABLED=true
+ *  olmadÄ±kÃ§a (acil durdurma) hiÃ§bir ÅŸey gÃ¶nderilmez. GeÃ§meyen taslak kuyrukta kalÄ±r; nedeni taslaÄŸa yazÄ±lmaz,
+ *  Ã§alÄ±ÅŸtÄ±rma yanÄ±tÄ±nda dÃ¶ner.
  */
 import { checkEligibility, type BlockReason } from './outreach.ts'
 

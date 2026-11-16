@@ -1,4 +1,4 @@
-import { Activity, Building2, CheckCircle2, ExternalLink, HardHat, Mail, MapPinned, Settings2, TrendingUp } from 'lucide-react'
+﻿import { Activity, Building2, CheckCircle2, ExternalLink, HardHat, Mail, MapPinned, Settings2, TrendingUp } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
@@ -24,12 +24,12 @@ import { ExtLink, Kpi, Notice } from './shared'
 
 type Tab = PrivateSegment | 'firmalar'
 const TABS: Tab[] = ['ozel_proje', 'yeni_baslayan', 'aktif_santiye', 'firmalar', 'teklif_firsati', 'kamu_ihale']
-const TAB_LABEL: Record<Tab, string> = { ...SEGMENT_LABEL, firmalar: 'Müteahhit Firmaları' }
+const TAB_LABEL: Record<Tab, string> = { ...SEGMENT_LABEL, firmalar: 'MÃ¼teahhit FirmalarÄ±' }
 
 const QUALITY = [
-  { v: '', l: 'Tüm fırsat kaliteleri' },
-  { v: '70', l: 'Yüksek (≥ 70)' },
-  { v: '50', l: 'Orta ve üzeri (≥ 50)' },
+  { v: '', l: 'TÃ¼m fÄ±rsat kaliteleri' },
+  { v: '70', l: 'YÃ¼ksek (â‰¥ 70)' },
+  { v: '50', l: 'Orta ve Ã¼zeri (â‰¥ 50)' },
 ]
 
 const STATUS_TONE: Record<PrivateRun['status'], string> = {
@@ -46,8 +46,8 @@ interface Filters { q: string; district: string; company: string; stage: string;
 const NO_FILTERS: Filters = { q: '', district: '', company: '', stage: '', type: '', product: '', quality: '', contact: '', outreach: '', reply: '' }
 
 /**
- * 020: Özel sektör inşaat satış paneli. Bölümler, puanlar, aşamalar ve sayılar sunucuda yazılan kayıtlardan
- * gelir; uydurma ölçüt, tahmini yanıt oranı veya garanti gösterilmez. Kamu ihaleleri ayrı, ikincil sekmededir.
+ * 020: Ã–zel sektÃ¶r inÅŸaat satÄ±ÅŸ paneli. BÃ¶lÃ¼mler, puanlar, aÅŸamalar ve sayÄ±lar sunucuda yazÄ±lan kayÄ±tlardan
+ * gelir; uydurma Ã¶lÃ§Ã¼t, tahmini yanÄ±t oranÄ± veya garanti gÃ¶sterilmez. Kamu ihaleleri ayrÄ±, ikincil sekmededir.
  */
 export function PrivateSectorPanel({ data }: { data: RadarData }) {
   const [ov, setOv] = useState<PrivateOverview | null | 'yok'>(null)
@@ -129,9 +129,9 @@ export function PrivateSectorPanel({ data }: { data: RadarData }) {
       .sort((a, b) => b.projects - a.projects || a.c.name.localeCompare(b.c.name, 'tr'))
   }, [data.companies, data.oppCompanies, contactsOf, f.q, f.district])
 
-  if (ov === null) return <p className="card px-5 py-8 text-center text-sm text-subtle">Özel sektör paneli yükleniyor…</p>
+  if (ov === null) return <p className="card px-5 py-8 text-center text-sm text-subtle">Ã–zel sektÃ¶r paneli yÃ¼kleniyorâ€¦</p>
   if (ov === 'yok') {
-    return <Notice tone="warn" testId="private-missing">Özel sektör keşfi veritabanında henüz etkin değil (migration 020 uygulanmadı). Mevcut radar “Tüm fırsatlar” bölümünde çalışmaya devam ediyor.</Notice>
+    return <Notice tone="warn" testId="private-missing">Ã–zel sektÃ¶r keÅŸfi veritabanÄ±nda henÃ¼z etkin deÄŸil (migration 020 uygulanmadÄ±). Mevcut radar â€œTÃ¼m fÄ±rsatlarâ€ bÃ¶lÃ¼mÃ¼nde Ã§alÄ±ÅŸmaya devam ediyor.</Notice>
   }
 
   const set = <K extends keyof Filters>(k: K, v: Filters[K]) => setF((x) => ({ ...x, [k]: v }))
@@ -142,7 +142,7 @@ export function PrivateSectorPanel({ data }: { data: RadarData }) {
     <div className="flex flex-col gap-6" data-testid="private-panel">
       <DiscoveryStatus ov={ov} data={data} onSaved={() => setTick((t) => t + 1)} />
 
-      <section aria-label="Bölümler" className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6" data-testid="private-tabs">
+      <section aria-label="BÃ¶lÃ¼mler" className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6" data-testid="private-tabs">
         {TABS.map((t) => (
           <button
             key={t}
@@ -152,57 +152,57 @@ export function PrivateSectorPanel({ data }: { data: RadarData }) {
             data-testid={`private-tab-${t}`}
             className={cn('min-w-0 rounded-xl border px-3 py-2.5 text-left shadow-card transition-colors', tab === t ? 'border-primary bg-surface-2' : 'border-line bg-surface hover:bg-surface-2', t === 'kamu_ihale' && 'opacity-80')}
           >
-            <div className="truncate text-[11.5px] font-medium text-muted">{TAB_LABEL[t]}{t === 'kamu_ihale' ? ' · ikincil' : ''}</div>
+            <div className="truncate text-[11.5px] font-medium text-muted">{TAB_LABEL[t]}{t === 'kamu_ihale' ? ' Â· ikincil' : ''}</div>
             <div className="mt-1 font-mono text-xl font-semibold text-ink" data-value>{counts[t] ?? 0}</div>
           </button>
         ))}
       </section>
 
-      <section aria-label="Süzgeçler" className="flex flex-col gap-2.5">
-        <SearchInput value={f.q} onChange={(v) => set('q', v)} placeholder="Proje, ilçe veya firma ara…" label="Özel sektör kayıtlarında ara" />
+      <section aria-label="SÃ¼zgeÃ§ler" className="flex flex-col gap-2.5">
+        <SearchInput value={f.q} onChange={(v) => set('q', v)} placeholder="Proje, ilÃ§e veya firma araâ€¦" label="Ã–zel sektÃ¶r kayÄ±tlarÄ±nda ara" />
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5" data-testid="private-filters">
-          <FilterSelect value={f.district} onChange={(v) => set('district', v)} label="İlçe">
-            <option value="">Tüm ilçeler</option>
+          <FilterSelect value={f.district} onChange={(v) => set('district', v)} label="Ä°lÃ§e">
+            <option value="">TÃ¼m ilÃ§eler</option>
             {ANKARA_DISTRICTS.map((d) => <option key={d} value={d}>{d}</option>)}
             {cov.filter((c) => c.city !== 'Ankara').map((c) => <option key={c.district} value={c.district}>{c.district} ({c.city})</option>)}
           </FilterSelect>
           <FilterSelect value={f.company} onChange={(v) => set('company', v)} label="Firma">
-            <option value="">Tüm firmalar</option>
+            <option value="">TÃ¼m firmalar</option>
             {contractors.map(({ c }) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </FilterSelect>
-          <FilterSelect value={f.stage} onChange={(v) => set('stage', v)} label="Proje aşaması">
-            <option value="">Tüm aşamalar</option>
+          <FilterSelect value={f.stage} onChange={(v) => set('stage', v)} label="Proje aÅŸamasÄ±">
+            <option value="">TÃ¼m aÅŸamalar</option>
             <option value="dogrulanamadi">{STAGE_UNVERIFIED}</option>
             {(['ruhsat', 'temel_atma', 'hafriyat', 'temel', 'kaba_insaat', 'kaba_tamam', 'duvar', 'cephe', 'dograma', 'ince_isler'] as const).map((s) => <option key={s} value={s}>{STAGE_NAMES[s]}</option>)}
           </FilterSelect>
-          <FilterSelect value={f.type} onChange={(v) => set('type', v)} label="Proje türü">
-            <option value="">Tüm proje türleri</option>
+          <FilterSelect value={f.type} onChange={(v) => set('type', v)} label="Proje tÃ¼rÃ¼">
+            <option value="">TÃ¼m proje tÃ¼rleri</option>
             {PROJECT_TYPES.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
           </FilterSelect>
-          <FilterSelect value={f.product} onChange={(v) => set('product', v)} label="İlgili ürün">
-            <option value="">Tüm ürünler</option>
+          <FilterSelect value={f.product} onChange={(v) => set('product', v)} label="Ä°lgili Ã¼rÃ¼n">
+            <option value="">TÃ¼m Ã¼rÃ¼nler</option>
             {(Object.keys(PRODUCT_LABEL) as ProductGroup[]).map((g) => <option key={g} value={g}>{PRODUCT_LABEL[g]}</option>)}
           </FilterSelect>
-          <FilterSelect value={f.quality} onChange={(v) => set('quality', v)} label="Fırsat kalitesi">
+          <FilterSelect value={f.quality} onChange={(v) => set('quality', v)} label="FÄ±rsat kalitesi">
             {QUALITY.map((q) => <option key={q.v} value={q.v}>{q.l}</option>)}
           </FilterSelect>
-          <FilterSelect value={f.contact} onChange={(v) => set('contact', v)} label="İletişim">
-            <option value="">İletişim: tümü</option>
-            <option value="var">Doğrulanmış kanal var</option>
+          <FilterSelect value={f.contact} onChange={(v) => set('contact', v)} label="Ä°letiÅŸim">
+            <option value="">Ä°letiÅŸim: tÃ¼mÃ¼</option>
+            <option value="var">DoÄŸrulanmÄ±ÅŸ kanal var</option>
             <option value="yok">Kanal yok</option>
           </FilterSelect>
           <FilterSelect value={f.outreach} onChange={(v) => set('outreach', v)} label="E-posta durumu">
-            <option value="">E-posta: tümü</option>
+            <option value="">E-posta: tÃ¼mÃ¼</option>
             <option value="yok">Taslak yok</option>
-            <option value="inceleme">İncelemede</option>
-            <option value="onaylandi">Onaylandı</option>
-            <option value="gonderildi_elle">Elle gönderildi</option>
+            <option value="inceleme">Ä°ncelemede</option>
+            <option value="onaylandi">OnaylandÄ±</option>
+            <option value="gonderildi_elle">Elle gÃ¶nderildi</option>
           </FilterSelect>
-          <FilterSelect value={f.reply} onChange={(v) => set('reply', v)} label="Yanıt durumu">
-            <option value="">Yanıt: tümü</option>
+          <FilterSelect value={f.reply} onChange={(v) => set('reply', v)} label="YanÄ±t durumu">
+            <option value="">YanÄ±t: tÃ¼mÃ¼</option>
             {(Object.keys(REPLY_LABEL) as ReplyStatus[]).map((r) => <option key={r} value={r}>{REPLY_LABEL[r]}</option>)}
           </FilterSelect>
-          {JSON.stringify(f) !== JSON.stringify(NO_FILTERS) && <Button variant="ghost" onClick={() => setF(NO_FILTERS)}>Süzgeçleri temizle</Button>}
+          {JSON.stringify(f) !== JSON.stringify(NO_FILTERS) && <Button variant="ghost" onClick={() => setF(NO_FILTERS)}>SÃ¼zgeÃ§leri temizle</Button>}
         </div>
       </section>
 
@@ -210,7 +210,7 @@ export function PrivateSectorPanel({ data }: { data: RadarData }) {
         <ContractorList rows={contractors} />
       ) : list.length === 0 ? (
         <Notice testId="private-empty">
-          Bu bölümde kayıt yok. {lastRun ? `Son keşif: ${fmtDateTime(lastRun.started_at)} — ${DISCOVERY_STATUS_LABEL[lastRun.status]}.` : 'Henüz keşif çalışmadı.'} Kayıtlar yalnız kaynaklı kanıttan oluşur; boş liste uydurma veriyle doldurulmaz.
+          Bu bÃ¶lÃ¼mde kayÄ±t yok. {lastRun ? `Son keÅŸif: ${fmtDateTime(lastRun.started_at)} â€” ${DISCOVERY_STATUS_LABEL[lastRun.status]}.` : 'HenÃ¼z keÅŸif Ã§alÄ±ÅŸmadÄ±.'} KayÄ±tlar yalnÄ±z kaynaklÄ± kanÄ±ttan oluÅŸur; boÅŸ liste uydurma veriyle doldurulmaz.
         </Notice>
       ) : (
         <ul className="flex flex-col gap-3" data-testid="private-list">
@@ -227,8 +227,8 @@ export function PrivateSectorPanel({ data }: { data: RadarData }) {
 }
 
 const STAGE_NAMES: Record<string, string> = {
-  ruhsat: 'Yapı ruhsatı', temel_atma: 'Temel atma', hafriyat: 'Hafriyat / kazı', temel: 'Temel', kaba_insaat: 'Kaba inşaat / karkas', kaba_tamam: 'Kaba inşaat tamamlandı',
-  duvar: 'Duvar örme', cephe: 'Cephe', dograma: 'Doğrama / pencere montajı', ince_isler: 'İnce işler', tamamlandi: 'Tamamlandı',
+  ruhsat: 'YapÄ± ruhsatÄ±', temel_atma: 'Temel atma', hafriyat: 'Hafriyat / kazÄ±', temel: 'Temel', kaba_insaat: 'Kaba inÅŸaat / karkas', kaba_tamam: 'Kaba inÅŸaat tamamlandÄ±',
+  duvar: 'Duvar Ã¶rme', cephe: 'Cephe', dograma: 'DoÄŸrama / pencere montajÄ±', ince_isler: 'Ä°nce iÅŸler', tamamlandi: 'TamamlandÄ±',
 }
 
 function ProjectCard({ o, companies, draft, contacts }: { o: RadarOpportunity; companies: RadarCompany[]; draft?: RadarDraft; contacts: Map<string, number> }) {
@@ -238,45 +238,45 @@ function ProjectCard({ o, companies, draft, contacts }: { o: RadarOpportunity; c
     <li className="card min-w-0 px-4 py-3.5" data-testid="private-card">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <Link to={`/leonx-ai/firsat/${o.id}`} className="min-w-0 flex-1 text-[14px] font-semibold text-ink hover:underline" data-testid="private-card-title">{o.title}</Link>
-        <span className="font-mono text-[15px] font-semibold text-ink" title="Özel sektör fırsat puanı" data-testid="private-card-score">{o.private_score ?? '—'}</span>
+        <span className="font-mono text-[15px] font-semibold text-ink" title="Ã–zel sektÃ¶r fÄ±rsat puanÄ±" data-testid="private-card-score">{o.private_score ?? 'â€”'}</span>
       </div>
       <p className="mt-0.5 text-[12px] text-muted">
         {[o.district, o.city].filter(Boolean).join(' / ') || 'Konum bilinmiyor'}
-        {o.project_type ? ` · ${PROJECT_TYPE_BY_KEY[o.project_type]?.label ?? o.project_type}` : ''}
-        {o.unit_text ? ` · ${o.unit_text}` : ''}
-        {o.size_band && o.size_band !== 'bilinmiyor' ? ` · ${SIZE_LABEL[o.size_band as SizeBand]}` : ''}
+        {o.project_type ? ` Â· ${PROJECT_TYPE_BY_KEY[o.project_type]?.label ?? o.project_type}` : ''}
+        {o.unit_text ? ` Â· ${o.unit_text}` : ''}
+        {o.size_band && o.size_band !== 'bilinmiyor' ? ` Â· ${SIZE_LABEL[o.size_band as SizeBand]}` : ''}
       </p>
       <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
         <span className={cn('rounded-md px-1.5 py-0.5 font-semibold', verified ? 'bg-ok-soft text-ok' : 'bg-warn-soft text-warn')} data-testid="private-card-need">
-          {verified ? 'Doğrulanmış satın alma talebi' : o.procurement_status === 'tedarikci_daveti' ? 'Tedarikçi daveti (ürün doğrulanmadı)' : 'Potansiyel fırsat — açık talep doğrulanmadı'}
+          {verified ? 'DoÄŸrulanmÄ±ÅŸ satÄ±n alma talebi' : o.procurement_status === 'tedarikci_daveti' ? 'TedarikÃ§i daveti (Ã¼rÃ¼n doÄŸrulanmadÄ±)' : 'Potansiyel fÄ±rsat â€” aÃ§Ä±k talep doÄŸrulanmadÄ±'}
         </span>
         <span className={cn('rounded-md px-1.5 py-0.5 font-semibold', o.stage_active ? 'bg-surface-2 text-ink' : 'bg-surface-2 text-subtle')} data-testid="private-card-stage">
-          {o.stage_display ?? STAGE_UNVERIFIED}{o.stage_confidence ? ` · güven: ${CONFIDENCE_LABEL[o.stage_confidence].toLocaleLowerCase('tr-TR')}` : ''}
+          {o.stage_display ?? STAGE_UNVERIFIED}{o.stage_confidence ? ` Â· gÃ¼ven: ${CONFIDENCE_LABEL[o.stage_confidence].toLocaleLowerCase('tr-TR')}` : ''}
         </span>
         {(o.product_groups ?? []).slice(0, 4).map((g) => <span key={g} className="rounded-md bg-surface-2 px-1.5 py-0.5 text-ink-2">{PRODUCT_LABEL[g as ProductGroup] ?? g}</span>)}
-        {draft && <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-ink-2">E-posta: {draft.status === 'inceleme' ? 'incelemede' : draft.status}{draft.reply_status && draft.reply_status !== 'yok' ? ` · ${REPLY_LABEL[draft.reply_status]}` : ''}</span>}
+        {draft && <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-ink-2">E-posta: {draft.status === 'inceleme' ? 'incelemede' : draft.status}{draft.reply_status && draft.reply_status !== 'yok' ? ` Â· ${REPLY_LABEL[draft.reply_status]}` : ''}</span>}
       </div>
       {o.relevance_explanation && <p className="mt-2 text-[12.5px] leading-relaxed text-ink-2" data-testid="private-card-why">{o.relevance_explanation}</p>}
       <div className="mt-2 flex flex-col gap-1 text-[11.5px] text-muted">
         {companies.map((c) => (
           <span key={c.id}>
-            <Building2 className="mr-1 inline h-3 w-3" aria-hidden="true" />{c.name}{c.name_basis === 'alan_adi' ? ' (ad kaynakta yok — alan adı)' : ''}
-            {c.website ? <> · <ExtLink href={c.website}>{c.website.replace(/^https:\/\//, '')}</ExtLink></> : ''}
-            {` · ${contacts.get(c.id) ?? 0} doğrulanmış iletişim kanalı`}
+            <Building2 className="mr-1 inline h-3 w-3" aria-hidden="true" />{c.name}{c.name_basis === 'alan_adi' ? ' (ad kaynakta yok â€” alan adÄ±)' : ''}
+            {c.website ? <> Â· <ExtLink href={c.website}>{c.website.replace(/^https:\/\//, '')}</ExtLink></> : ''}
+            {` Â· ${contacts.get(c.id) ?? 0} doÄŸrulanmÄ±ÅŸ iletiÅŸim kanalÄ±`}
           </span>
         ))}
         {o.stage_evidence_url && (
           <span data-testid="private-card-evidence">
-            Kanıt: <ExtLink href={o.stage_evidence_url}>{o.stage_evidence_url}</ExtLink>
-            {o.stage_evidence_at ? ` · yayın ${fmtDay(o.stage_evidence_at)}` : ' · yayın tarihi yok'}
-            {o.stage_verified_at ? ` · son doğrulama ${fmtDateTime(o.stage_verified_at)}` : ''}
+            KanÄ±t: <ExtLink href={o.stage_evidence_url}>{o.stage_evidence_url}</ExtLink>
+            {o.stage_evidence_at ? ` Â· yayÄ±n ${fmtDay(o.stage_evidence_at)}` : ' Â· yayÄ±n tarihi yok'}
+            {o.stage_verified_at ? ` Â· son doÄŸrulama ${fmtDateTime(o.stage_verified_at)}` : ''}
           </span>
         )}
-        {o.stage_explanation && <span>Aşama açıklaması: {o.stage_explanation}</span>}
+        {o.stage_explanation && <span>AÅŸama aÃ§Ä±klamasÄ±: {o.stage_explanation}</span>}
       </div>
       {(o.private_score_breakdown ?? []).length > 0 && (
         <button type="button" className="mt-2 text-[11.5px] font-semibold text-ink-2 underline underline-offset-2" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-          {open ? 'Puan dökümünü gizle' : 'Puan nasıl hesaplandı?'}
+          {open ? 'Puan dÃ¶kÃ¼mÃ¼nÃ¼ gizle' : 'Puan nasÄ±l hesaplandÄ±?'}
         </button>
       )}
       {open && (
@@ -298,7 +298,7 @@ function ProjectCard({ o, companies, draft, contacts }: { o: RadarOpportunity; c
 
 function ContractorList({ rows }: { rows: { c: RadarCompany; projects: number; contacts: number }[] }) {
   const { notify } = useToast()
-  if (!rows.length) return <Notice testId="contractors-empty">Henüz özel sektör yüklenici kaydı yok. Firmalar yalnız kaynaklı keşiften (arama sonucu, firma sitesi) veya sizin eklediğiniz kayıtlardan oluşur.</Notice>
+  if (!rows.length) return <Notice testId="contractors-empty">HenÃ¼z Ã¶zel sektÃ¶r yÃ¼klenici kaydÄ± yok. Firmalar yalnÄ±z kaynaklÄ± keÅŸiften (arama sonucu, firma sitesi) veya sizin eklediÄŸiniz kayÄ±tlardan oluÅŸur.</Notice>
   const toggle = async (c: RadarCompany) => {
     try {
       await updateCompanyMonitoring(requireSupabase(), c, { monitor_active: !(c.monitor_active ?? true) })
@@ -312,22 +312,22 @@ function ContractorList({ rows }: { rows: { c: RadarCompany; projects: number; c
         <li key={c.id} className="flex flex-col gap-1 px-4 py-3 text-[12.5px]">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="font-semibold text-ink">{c.name}</span>
-            <span className="text-[11.5px] text-muted">{projects} proje · {contacts} iletişim kanalı</span>
+            <span className="text-[11.5px] text-muted">{projects} proje Â· {contacts} iletiÅŸim kanalÄ±</span>
           </div>
           <span className="text-[11.5px] text-muted">
-            {CONTRACTOR_KIND_LABEL[(c.contractor_kind ?? 'bilinmiyor') as ContractorKind]} · {SIZE_LABEL[(c.size_band ?? 'bilinmiyor') as SizeBand]}
-            {(c.districts ?? []).length ? ` · ${(c.districts ?? []).join(', ')}` : ''}
-            {c.discovery_source ? ` · keşif: ${c.discovery_source === 'arama' ? 'arama API' : c.discovery_source === 'firma_sitesi' ? 'firma sitesi' : c.discovery_source}` : ''}
-            {c.opted_out ? ' · listeden çıkmak istedi' : ''}
+            {CONTRACTOR_KIND_LABEL[(c.contractor_kind ?? 'bilinmiyor') as ContractorKind]} Â· {SIZE_LABEL[(c.size_band ?? 'bilinmiyor') as SizeBand]}
+            {(c.districts ?? []).length ? ` Â· ${(c.districts ?? []).join(', ')}` : ''}
+            {c.discovery_source ? ` Â· keÅŸif: ${c.discovery_source === 'arama' ? 'arama API' : c.discovery_source === 'firma_sitesi' ? 'firma sitesi' : c.discovery_source}` : ''}
+            {c.opted_out ? ' Â· listeden Ã§Ä±kmak istedi' : ''}
           </span>
           <span className="text-[11.5px] text-subtle">
-            {c.website ? <ExtLink href={c.website}>{c.website.replace(/^https:\/\//, '')}</ExtLink> : 'Web sitesi doğrulanmadı'}
-            {` · son araştırma ${c.last_research_at ? fmtDateTime(c.last_research_at) : '—'} · sonraki ${c.next_research_at ? fmtDay(c.next_research_at) : '—'}`}
-            {c.research_status && c.research_status !== 'ok' ? ` · ${c.research_note ?? c.research_status}` : ''}
+            {c.website ? <ExtLink href={c.website}>{c.website.replace(/^https:\/\//, '')}</ExtLink> : 'Web sitesi doÄŸrulanmadÄ±'}
+            {` Â· son araÅŸtÄ±rma ${c.last_research_at ? fmtDateTime(c.last_research_at) : 'â€”'} Â· sonraki ${c.next_research_at ? fmtDay(c.next_research_at) : 'â€”'}`}
+            {c.research_status && c.research_status !== 'ok' ? ` Â· ${c.research_note ?? c.research_status}` : ''}
           </span>
           {c.website && (
             <label className="flex items-center gap-2 text-[11.5px] text-ink-2">
-              <input type="checkbox" checked={c.monitor_active ?? true} onChange={() => void toggle(c)} /> Yeni proje duyuruları için firma sitesini izle
+              <input type="checkbox" checked={c.monitor_active ?? true} onChange={() => void toggle(c)} /> Yeni proje duyurularÄ± iÃ§in firma sitesini izle
             </label>
           )}
         </li>
@@ -354,9 +354,9 @@ function OutreachQueue({ drafts, data, onChange }: { drafts: RadarDraft[]; data:
     }
   }
   return (
-    <Panel title="Proje bazlı e-posta kuyruğu" subtitle="Gönderen: info@erlinkapi.tr · Otomatik gönderim yalnız tüm denetimler geçerse" icon={Mail}>
+    <Panel title="Proje bazlÄ± e-posta kuyruÄŸu" subtitle="GÃ¶nderen: erlindoorkapi@gmail.com Â· Otomatik gÃ¶nderim yalnÄ±z tÃ¼m denetimler geÃ§erse" icon={Mail}>
       {queue.length === 0 ? (
-        <p className="text-[12.5px] text-subtle" data-testid="outreach-empty">İncelemede taslak yok. Taslaklar, eşik puanı geçen ve firmanın kendi sitesinde doğrulanmış kurumsal e-postası olan özel sektör projeleri için oluşturulur.</p>
+        <p className="text-[12.5px] text-subtle" data-testid="outreach-empty">Ä°ncelemede taslak yok. Taslaklar, eÅŸik puanÄ± geÃ§en ve firmanÄ±n kendi sitesinde doÄŸrulanmÄ±ÅŸ kurumsal e-postasÄ± olan Ã¶zel sektÃ¶r projeleri iÃ§in oluÅŸturulur.</p>
       ) : (
         <ul className="flex flex-col gap-3" data-testid="outreach-queue">
           {queue.map((d) => {
@@ -366,11 +366,11 @@ function OutreachQueue({ drafts, data, onChange }: { drafts: RadarDraft[]; data:
               <li key={d.id} className="rounded-xl border border-line p-3 text-[12.5px]">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-ink">{d.subject}</span>
-                  <span className="text-[11.5px] text-muted">{d.status === 'inceleme' ? 'İncelemede' : 'Onaylandı — gönderim denetimlerini bekliyor'}</span>
+                  <span className="text-[11.5px] text-muted">{d.status === 'inceleme' ? 'Ä°ncelemede' : 'OnaylandÄ± â€” gÃ¶nderim denetimlerini bekliyor'}</span>
                 </div>
-                <p className="mt-0.5 text-[11.5px] text-muted">{o?.title ?? 'Proje'} · Alıcı: {c?.value ?? '—'}</p>
+                <p className="mt-0.5 text-[11.5px] text-muted">{o?.title ?? 'Proje'} Â· AlÄ±cÄ±: {c?.value ?? 'â€”'}</p>
                 {(d.blocked_reasons ?? []).length > 0 && (
-                  <p className="mt-1 text-[11.5px] text-warn">Otomatik gönderilmiyor: {(d.blocked_reasons ?? []).map((r) => BLOCK_LABEL[r as BlockReason] ?? r).join(' · ')}</p>
+                  <p className="mt-1 text-[11.5px] text-warn">Otomatik gÃ¶nderilmiyor: {(d.blocked_reasons ?? []).map((r) => BLOCK_LABEL[r as BlockReason] ?? r).join(' Â· ')}</p>
                 )}
                 <details className="mt-1.5">
                   <summary className="cursor-pointer text-[11.5px] font-semibold text-ink-2">E-posta metni</summary>
@@ -378,9 +378,9 @@ function OutreachQueue({ drafts, data, onChange }: { drafts: RadarDraft[]; data:
                 </details>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {d.status === 'inceleme' && <Button variant="secondary" disabled={busy === d.id} icon={CheckCircle2} onClick={() => void act(d, () => updateDraft(requireSupabase(), d, { status: 'onaylandi' }))}>Onayla</Button>}
-                  {c && <a className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-line px-3 text-[12.5px] font-semibold text-ink" href={`mailto:${encodeURIComponent(c.value)}?subject=${encodeURIComponent(d.subject)}&body=${encodeURIComponent(d.body)}`}><ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />E-posta istemcisinde aç</a>}
-                  <Button variant="ghost" disabled={busy === d.id} onClick={() => void act(d, () => updateDraft(requireSupabase(), d, { status: 'gonderildi_elle' }))}>Elle gönderdim</Button>
-                  <FilterSelect value={d.reply_status ?? 'yok'} onChange={(v) => void act(d, () => setDraftReply(requireSupabase(), d, v as ReplyStatus))} label="Yanıt durumu" className="h-10">
+                  {c && <a className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-line px-3 text-[12.5px] font-semibold text-ink" href={`mailto:${encodeURIComponent(c.value)}?subject=${encodeURIComponent(d.subject)}&body=${encodeURIComponent(d.body)}`}><ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />E-posta istemcisinde aÃ§</a>}
+                  <Button variant="ghost" disabled={busy === d.id} onClick={() => void act(d, () => updateDraft(requireSupabase(), d, { status: 'gonderildi_elle' }))}>Elle gÃ¶nderdim</Button>
+                  <FilterSelect value={d.reply_status ?? 'yok'} onChange={(v) => void act(d, () => setDraftReply(requireSupabase(), d, v as ReplyStatus))} label="YanÄ±t durumu" className="h-10">
                     {(Object.keys(REPLY_LABEL) as ReplyStatus[]).map((r) => <option key={r} value={r}>{REPLY_LABEL[r]}</option>)}
                   </FilterSelect>
                 </div>
@@ -396,15 +396,15 @@ function OutreachQueue({ drafts, data, onChange }: { drafts: RadarDraft[]; data:
 function Performance({ ov }: { ov: PrivateOverview }) {
   const p = ov.performance
   return (
-    <Panel title="Satış performansı" subtitle="Yalnız kayıtlı gerçek olaylar: gönderim defteri, işaretlenen yanıtlar ve fırsat durum geçişleri" icon={TrendingUp}>
+    <Panel title="SatÄ±ÅŸ performansÄ±" subtitle="YalnÄ±z kayÄ±tlÄ± gerÃ§ek olaylar: gÃ¶nderim defteri, iÅŸaretlenen yanÄ±tlar ve fÄ±rsat durum geÃ§iÅŸleri" icon={TrendingUp}>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="private-performance">
-        <Kpi label="Gönderilen e-posta" value={p.emails_sent} hint={`${p.drafts_manual_sent} elle · ${p.emails_failed} hata`} />
-        <Kpi label="İncelemedeki taslak" value={p.drafts_review} />
-        <Kpi label="Yanıtlar" value={p.replies} hint="Sizin işaretlediğiniz" />
+        <Kpi label="GÃ¶nderilen e-posta" value={p.emails_sent} hint={`${p.drafts_manual_sent} elle Â· ${p.emails_failed} hata`} />
+        <Kpi label="Ä°ncelemedeki taslak" value={p.drafts_review} />
+        <Kpi label="YanÄ±tlar" value={p.replies} hint="Sizin iÅŸaretlediÄŸiniz" />
         <Kpi label="Teklif talepleri" value={p.quote_requests} />
-        <Kpi label="Toplantılar" value={p.meetings} />
+        <Kpi label="ToplantÄ±lar" value={p.meetings} />
         <Kpi label="Verilen teklifler" value={p.quotes_sent} />
-        <Kpi label="Kazanılan" value={p.won} tone={p.won ? 'ok' : undefined} />
+        <Kpi label="KazanÄ±lan" value={p.won} tone={p.won ? 'ok' : undefined} />
         <Kpi label="Kaybedilen" value={p.lost} />
       </div>
     </Panel>
@@ -415,13 +415,13 @@ function Coverage({ cov }: { cov: DistrictCoverage[] }) {
   const ankara = cov.filter((c) => c.city === 'Ankara')
   const searched = ankara.filter((c) => c.queries30d > 0).length
   return (
-    <Panel title="İlçe kapsamı (son 30 gün)" subtitle={`Ankara: ${searched}/${ankara.length || 25} ilçe arandı · ikincil: Hatay, Kahramanmaraş`} icon={MapPinned}>
+    <Panel title="Ä°lÃ§e kapsamÄ± (son 30 gÃ¼n)" subtitle={`Ankara: ${searched}/${ankara.length || 25} ilÃ§e arandÄ± Â· ikincil: Hatay, KahramanmaraÅŸ`} icon={MapPinned}>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5" data-testid="private-coverage">
         {cov.map((c) => (
           <div key={`${c.city}-${c.district}`} className={cn('rounded-lg border px-2.5 py-2 text-[11.5px]', c.queries30d ? 'border-line bg-surface' : 'border-warn-line bg-warn-soft')}>
             <div className="font-semibold text-ink">{c.district}{c.city !== 'Ankara' ? ` (${c.city})` : ''}</div>
-            <div className="text-muted">{c.queries30d} sorgu · {c.results30d} sonuç</div>
-            <div className="text-muted">{c.companies} firma · {c.private_projects} proje · {c.active_sites} aktif</div>
+            <div className="text-muted">{c.queries30d} sorgu Â· {c.results30d} sonuÃ§</div>
+            <div className="text-muted">{c.companies} firma Â· {c.private_projects} proje Â· {c.active_sites} aktif</div>
           </div>
         ))}
       </div>
@@ -431,9 +431,9 @@ function Coverage({ cov }: { cov: DistrictCoverage[] }) {
 
 function RunLog({ runs }: { runs: PrivateRun[] }) {
   return (
-    <Panel title="Keşif çalıştırmaları" subtitle="Sunucuda saatte bir (cihazlar kapalıyken de). Sıfır sonuç nedeniyle birlikte gösterilir." icon={Activity}>
+    <Panel title="KeÅŸif Ã§alÄ±ÅŸtÄ±rmalarÄ±" subtitle="Sunucuda saatte bir (cihazlar kapalÄ±yken de). SÄ±fÄ±r sonuÃ§ nedeniyle birlikte gÃ¶sterilir." icon={Activity}>
       {runs.length === 0 ? (
-        <p className="text-[12.5px] text-subtle" data-testid="private-runs-empty">Henüz keşif çalıştırması kaydı yok.</p>
+        <p className="text-[12.5px] text-subtle" data-testid="private-runs-empty">HenÃ¼z keÅŸif Ã§alÄ±ÅŸtÄ±rmasÄ± kaydÄ± yok.</p>
       ) : (
         <ul className="divide-y divide-line text-[12px]" data-testid="private-runs">
           {runs.map((r) => (
@@ -441,13 +441,13 @@ function RunLog({ runs }: { runs: PrivateRun[] }) {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-muted">{fmtDateTime(r.started_at)}</span>
                 <span className={cn('rounded-md px-1.5 py-0.5 text-[11px] font-semibold', STATUS_TONE[r.status])} data-testid="private-run-status">{DISCOVERY_STATUS_LABEL[r.status]}</span>
-                <span className="text-ink-2">{r.api_calls} API çağrısı · {r.results_seen} sonuç ({r.results_new} yeni, {r.results_rejected} elendi) · {r.companies_new} yeni firma · {r.projects_new} yeni / {r.projects_updated} güncellenen proje · {r.contacts_verified} iletişim · {r.outreach_candidates} e-posta adayı</span>
+                <span className="text-ink-2">{r.api_calls} API Ã§aÄŸrÄ±sÄ± Â· {r.results_seen} sonuÃ§ ({r.results_new} yeni, {r.results_rejected} elendi) Â· {r.companies_new} yeni firma Â· {r.projects_new} yeni / {r.projects_updated} gÃ¼ncellenen proje Â· {r.contacts_verified} iletiÅŸim Â· {r.outreach_candidates} e-posta adayÄ±</span>
               </div>
-              {r.districts.length > 0 && <p className="text-[11.5px] text-subtle">İlçeler: {r.districts.join(', ')}</p>}
-              {r.queries.length > 0 && <p className="text-[11.5px] text-subtle">Sorgular: {r.queries.join(' · ')}</p>}
-              {r.quota_limit !== null && <p className="text-[11.5px] text-subtle">Arama bütçesi: {r.quota_used}/{r.quota_limit} kullanıldı · kalan {r.quota_remaining}{r.diversity ? ` · ${r.diversity.distinctDomains} farklı alan adı` : ''}</p>}
+              {r.districts.length > 0 && <p className="text-[11.5px] text-subtle">Ä°lÃ§eler: {r.districts.join(', ')}</p>}
+              {r.queries.length > 0 && <p className="text-[11.5px] text-subtle">Sorgular: {r.queries.join(' Â· ')}</p>}
+              {r.quota_limit !== null && <p className="text-[11.5px] text-subtle">Arama bÃ¼tÃ§esi: {r.quota_used}/{r.quota_limit} kullanÄ±ldÄ± Â· kalan {r.quota_remaining}{r.diversity ? ` Â· ${r.diversity.distinctDomains} farklÄ± alan adÄ±` : ''}</p>}
               {r.note && <p className="text-[11.5px] text-warn">{r.note}</p>}
-              {r.errors.length > 0 && <p className="text-[11.5px] text-danger">Hatalar: {r.errors.slice(0, 3).join(' · ')}</p>}
+              {r.errors.length > 0 && <p className="text-[11.5px] text-danger">Hatalar: {r.errors.slice(0, 3).join(' Â· ')}</p>}
             </li>
           ))}
         </ul>
@@ -466,12 +466,12 @@ function DiscoveryStatus({ ov, data, onSaved }: { ov: PrivateOverview; data: Rad
   const src = ov.discovery_source
   const st = ov.settings
   const missing: string[] = []
-  if (!src) missing.push('Özel sektör keşif kaynağı kayıtlı değil')
-  else if (src.permission_status !== 'izinli' || !src.active) missing.push(`Keşif kaynağı "${PERMISSION_LABEL[src.permission_status]}${src.active ? '' : ', pasif'}" — Kaynaklar bölümünde Tavily koşullarını onaylayıp İzinli + Etkin yapın`)
-  if (st && !st.search_api_enabled) missing.push('Ayarlar › Arama API kapalı')
-  if (st && !st.discovery_enabled) missing.push('Özel sektör keşfi kapalı (aşağıdan açın)')
+  if (!src) missing.push('Ã–zel sektÃ¶r keÅŸif kaynaÄŸÄ± kayÄ±tlÄ± deÄŸil')
+  else if (src.permission_status !== 'izinli' || !src.active) missing.push(`KeÅŸif kaynaÄŸÄ± "${PERMISSION_LABEL[src.permission_status]}${src.active ? '' : ', pasif'}" â€” Kaynaklar bÃ¶lÃ¼mÃ¼nde Tavily koÅŸullarÄ±nÄ± onaylayÄ±p Ä°zinli + Etkin yapÄ±n`)
+  if (st && !st.search_api_enabled) missing.push('Ayarlar â€º Arama API kapalÄ±')
+  if (st && !st.discovery_enabled) missing.push('Ã–zel sektÃ¶r keÅŸfi kapalÄ± (aÅŸaÄŸÄ±dan aÃ§Ä±n)')
   const lastRun = ov.runs[0]
-  if (lastRun?.status === 'yapilandirma_eksik') missing.push('TAVILY_API_KEY Edge Function gizli değişkeni tanımlı değil')
+  if (lastRun?.status === 'yapilandirma_eksik') missing.push('TAVILY_API_KEY Edge Function gizli deÄŸiÅŸkeni tanÄ±mlÄ± deÄŸil')
 
   const save = async (patch: Parameters<typeof saveRadarSettings>[2]) => {
     if (!s) return
@@ -479,7 +479,7 @@ function DiscoveryStatus({ ov, data, onSaved }: { ov: PrivateOverview; data: Rad
     setErr(null)
     try {
       await saveRadarSettings(requireSupabase(), s, patch)
-      notify('Keşif ayarı kaydedildi.', 'success')
+      notify('KeÅŸif ayarÄ± kaydedildi.', 'success')
       onSaved()
     } catch (e) {
       setErr(dataErrorMessage(e, 'Ayarlar'))
@@ -489,44 +489,44 @@ function DiscoveryStatus({ ov, data, onSaved }: { ov: PrivateOverview; data: Rad
   }
 
   return (
-    <Panel title="Özel sektör inşaat keşfi" subtitle="Ankara’nın 25 ilçesi önce · Hatay ve Kahramanmaraş ikincil · kamu ihaleleri ayrı ve ikincil kanal" icon={HardHat}>
+    <Panel title="Ã–zel sektÃ¶r inÅŸaat keÅŸfi" subtitle="Ankaraâ€™nÄ±n 25 ilÃ§esi Ã¶nce Â· Hatay ve KahramanmaraÅŸ ikincil Â· kamu ihaleleri ayrÄ± ve ikincil kanal" icon={HardHat}>
       {err && <FormAlert>{err}</FormAlert>}
       {missing.length > 0 ? (
         <Notice tone="warn" testId="private-config-missing">
-          Keşif şu an çalışamaz; tarama kaydı bunu “başarılı” olarak göstermez. Eksikler: {missing.join(' · ')}.
+          KeÅŸif ÅŸu an Ã§alÄ±ÅŸamaz; tarama kaydÄ± bunu â€œbaÅŸarÄ±lÄ±â€ olarak gÃ¶stermez. Eksikler: {missing.join(' Â· ')}.
         </Notice>
       ) : (
-        <Notice testId="private-config-ok">Keşif yapılandırılmış: saatte bir {st?.queries_per_run ?? 1} sorgu, en az aranmış ilçeler önce.</Notice>
+        <Notice testId="private-config-ok">KeÅŸif yapÄ±landÄ±rÄ±lmÄ±ÅŸ: saatte bir {st?.queries_per_run ?? 1} sorgu, en az aranmÄ±ÅŸ ilÃ§eler Ã¶nce.</Notice>
       )}
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi label="Arama bütçesi (bu ay)" value={ov.quota ? `${ov.quota.month_used}/${ov.quota.month_limit}` : '—'} hint={ov.quota ? `Bugün ${ov.quota.day_used}/${ov.quota.day_limit} · LEONX sınırı` : undefined} />
-        <Kpi label="Son keşif" value={lastRun ? DISCOVERY_STATUS_LABEL[lastRun.status] : '—'} hint={lastRun ? fmtDateTime(lastRun.started_at) : 'Çalışmadı'} />
-        <Kpi label="Aşaması doğrulanamayan" value={ov.unverified_stage} hint="Yakın tarihli kanıt yok; aktif sayılmaz" />
-        <Kpi label="Gmail (info@erlinkapi.tr)" value={st?.gmail_verified_at ? 'Doğrulandı' : 'Bağlı değil'} hint={st?.gmail_last_check?.error ?? (st?.outreach_auto_send ? 'Otomatik gönderim açık' : 'Otomatik gönderim kapalı')} tone={st?.gmail_verified_at ? 'ok' : 'warn'} />
+        <Kpi label="Arama bÃ¼tÃ§esi (bu ay)" value={ov.quota ? `${ov.quota.month_used}/${ov.quota.month_limit}` : 'â€”'} hint={ov.quota ? `BugÃ¼n ${ov.quota.day_used}/${ov.quota.day_limit} Â· LEONX sÄ±nÄ±rÄ±` : undefined} />
+        <Kpi label="Son keÅŸif" value={lastRun ? DISCOVERY_STATUS_LABEL[lastRun.status] : 'â€”'} hint={lastRun ? fmtDateTime(lastRun.started_at) : 'Ã‡alÄ±ÅŸmadÄ±'} />
+        <Kpi label="AÅŸamasÄ± doÄŸrulanamayan" value={ov.unverified_stage} hint="YakÄ±n tarihli kanÄ±t yok; aktif sayÄ±lmaz" />
+        <Kpi label="Gmail (erlindoorkapi@gmail.com)" value={st?.gmail_verified_at ? 'DoÄŸrulandÄ±' : 'BaÄŸlÄ± deÄŸil'} hint={st?.gmail_last_check?.error ?? (st?.outreach_auto_send ? 'Otomatik gÃ¶nderim aÃ§Ä±k' : 'Otomatik gÃ¶nderim kapalÄ±')} tone={st?.gmail_verified_at ? 'ok' : 'warn'} />
       </div>
       {s && s.discovery_enabled !== undefined && (
         <details className="mt-4" data-testid="private-settings">
-          <summary className="flex cursor-pointer items-center gap-1.5 text-[12.5px] font-semibold text-ink-2"><Settings2 className="h-3.5 w-3.5" aria-hidden="true" />Keşif ve e-posta ayarları</summary>
+          <summary className="flex cursor-pointer items-center gap-1.5 text-[12.5px] font-semibold text-ink-2"><Settings2 className="h-3.5 w-3.5" aria-hidden="true" />KeÅŸif ve e-posta ayarlarÄ±</summary>
           <div className="mt-3 flex flex-col gap-4">
-            <Toggle id="discovery-enabled" checked={!!s.discovery_enabled} onChange={(v) => void save({ discovery_enabled: v })} label="Özel sektör keşfi" description="Yetkili arama API’si (Tavily) ile saatlik, ilçe rotasyonlu sorgular. Google sonuç sayfası kazınmaz." />
-            <Toggle id="company-monitoring" checked={!!s.company_monitoring_enabled} onChange={(v) => void save({ company_monitoring_enabled: v })} label="Firma sitelerini izle" description="Bulunan firmaların kendi sitelerinde robots.txt’ye uyarak proje sayfaları ve kurumsal iletişim kanalları (çalıştırma başına en çok 2 firma)." />
+            <Toggle id="discovery-enabled" checked={!!s.discovery_enabled} onChange={(v) => void save({ discovery_enabled: v })} label="Ã–zel sektÃ¶r keÅŸfi" description="Yetkili arama APIâ€™si (Tavily) ile saatlik, ilÃ§e rotasyonlu sorgular. Google sonuÃ§ sayfasÄ± kazÄ±nmaz." />
+            <Toggle id="company-monitoring" checked={!!s.company_monitoring_enabled} onChange={(v) => void save({ company_monitoring_enabled: v })} label="Firma sitelerini izle" description="Bulunan firmalarÄ±n kendi sitelerinde robots.txtâ€™ye uyarak proje sayfalarÄ± ve kurumsal iletiÅŸim kanallarÄ± (Ã§alÄ±ÅŸtÄ±rma baÅŸÄ±na en Ã§ok 2 firma)." />
             <label className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-2">
-              Saatlik sorgu sayısı
-              <FilterSelect value={String(s.discovery_queries_per_run ?? 1)} onChange={(v) => void save({ discovery_queries_per_run: Number(v) })} label="Saatlik sorgu sayısı" className="h-10">
+              Saatlik sorgu sayÄ±sÄ±
+              <FilterSelect value={String(s.discovery_queries_per_run ?? 1)} onChange={(v) => void save({ discovery_queries_per_run: Number(v) })} label="Saatlik sorgu sayÄ±sÄ±" className="h-10">
                 {[0, 1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
               </FilterSelect>
-              <span className="text-[11.5px] text-subtle">Tavily ücretsiz kotası ~1.000/ay: saatte 1 sorgu ≈ 720/ay. Daha fazlası ücretli plan gerektirir.</span>
+              <span className="text-[11.5px] text-subtle">Tavily Ã¼cretsiz kotasÄ± ~1.000/ay: saatte 1 sorgu â‰ˆ 720/ay. Daha fazlasÄ± Ã¼cretli plan gerektirir.</span>
             </label>
-            <TextAreaField label="Ticari ileti hukuki dayanağı (otomatik gönderim için zorunlu)" value={legal} onChange={(e) => setLegal(e.target.value)} rows={3} hint="Ör. alıcıların tacir olduğu, adreslerin firmaların kendi sitelerinde kamuya açık kurumsal adres olduğu, İYS/ret yükümlülüklerinin nasıl karşılandığı. Hukuki danışmanınızla doğrulayın." />
+            <TextAreaField label="Ticari ileti hukuki dayanaÄŸÄ± (otomatik gÃ¶nderim iÃ§in zorunlu)" value={legal} onChange={(e) => setLegal(e.target.value)} rows={3} hint="Ã–r. alÄ±cÄ±larÄ±n tacir olduÄŸu, adreslerin firmalarÄ±n kendi sitelerinde kamuya aÃ§Ä±k kurumsal adres olduÄŸu, Ä°YS/ret yÃ¼kÃ¼mlÃ¼lÃ¼klerinin nasÄ±l karÅŸÄ±landÄ±ÄŸÄ±. Hukuki danÄ±ÅŸmanÄ±nÄ±zla doÄŸrulayÄ±n." />
             <div className="flex flex-wrap gap-2">
-              <Button disabled={busy || !legal.trim()} onClick={() => void save({ outreach_legal_note: legal.trim(), outreach_legal_confirmed_at: new Date().toISOString() })}>Hukuki dayanağı kaydet</Button>
+              <Button disabled={busy || !legal.trim()} onClick={() => void save({ outreach_legal_note: legal.trim(), outreach_legal_confirmed_at: new Date().toISOString() })}>Hukuki dayanaÄŸÄ± kaydet</Button>
             </div>
             <Toggle
               id="auto-send"
               checked={!!s.outreach_auto_send}
-              onChange={(v) => (v && (!s.gmail_verified_at || !s.outreach_legal_confirmed_at) ? notify('Önce Gmail (info@erlinkapi.tr) bağlantısı sunucuda doğrulanmalı ve hukuki dayanak kaydedilmeli.', 'error') : void save({ outreach_auto_send: v }))}
-              label="Onaylı taslakları otomatik gönder"
-              description="Yalnız sizin onayladığınız taslaklar, tüm denetimler (Gmail doğrulaması, ret listesi, alıcı doğrulaması, günlük sınır, 90 gün kuralı) geçerse gönderilir."
+              onChange={(v) => (v && (!s.gmail_verified_at || !s.outreach_legal_confirmed_at) ? notify('Ã–nce Gmail (erlindoorkapi@gmail.com) baÄŸlantÄ±sÄ± sunucuda doÄŸrulanmalÄ± ve hukuki dayanak kaydedilmeli.', 'error') : void save({ outreach_auto_send: v }))}
+              label="OnaylÄ± taslaklarÄ± otomatik gÃ¶nder"
+              description="YalnÄ±z sizin onayladÄ±ÄŸÄ±nÄ±z taslaklar, tÃ¼m denetimler (Gmail doÄŸrulamasÄ±, ret listesi, alÄ±cÄ± doÄŸrulamasÄ±, gÃ¼nlÃ¼k sÄ±nÄ±r, 90 gÃ¼n kuralÄ±) geÃ§erse gÃ¶nderilir."
             />
           </div>
         </details>

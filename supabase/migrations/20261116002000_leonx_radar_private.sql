@@ -1,18 +1,18 @@
--- =====================================================================
--- LEONX OS — 020: Özel sektör inşaat keşfi, yüklenici dizini, kanıtlı aşama, şeffaf puan ve
---                 proje bazlı e-posta kuyruğu
---   A) Ayarlar: keşif (arama API), firma sitesi izleme, e-posta kuyruğu ve OTOMATİK GÖNDERİM (varsayılan
---      KAPALI; Gmail bağlantısı + hukuki dayanak belgelenmeden açılamaz — veritabanı kısıtı).
---   B) Yüklenici dizini (radar_companies genişletilir): sektör, ölçek, tür, ilçeler, keşif kaynağı,
---      izleme önceliği, son/sonraki araştırma, ret listesi.
---   C) Fırsat (radar_opportunities genişletilir): özel sektör puanı ve dökümü, satış bölümleri, kanıtlı
---      aşama (kanıt adresi, yayın tarihi, doğrulama zamanı, güven, açıklama), daire sayısı, ölçek.
---   D) Keşif kayıtları: sorgu rotasyonu (radar_discovery_queries), görülen sonuçlar (tekilleştirme ve
---      artımlı keşif — radar_discovery_seen), her çalıştırmanın dürüst durumu (radar_discovery_runs).
---   E) E-posta: taslaklara inceleme kuyruğu/uygunluk/yanıt durumu; gerçek gönderimler ayrı ve yalnız
---      sunucunun yazdığı defterde (radar_outreach_sends); ret (listeden çıkma) listesi.
---   F) Sunucu işlevleri, ilçe kapsamı, özel sektör paneli özeti, saatlik keşif zamanlayıcısı.
--- 015–019'a bağlıdır. Tekrar çalıştırılabilir; tablo veya veri SİLMEZ (yalnız ekler/genişletir).
+﻿-- =====================================================================
+-- LEONX OS â€” 020: Ã–zel sektÃ¶r inÅŸaat keÅŸfi, yÃ¼klenici dizini, kanÄ±tlÄ± aÅŸama, ÅŸeffaf puan ve
+--                 proje bazlÄ± e-posta kuyruÄŸu
+--   A) Ayarlar: keÅŸif (arama API), firma sitesi izleme, e-posta kuyruÄŸu ve OTOMATÄ°K GÃ–NDERÄ°M (varsayÄ±lan
+--      KAPALI; Gmail baÄŸlantÄ±sÄ± + hukuki dayanak belgelenmeden aÃ§Ä±lamaz â€” veritabanÄ± kÄ±sÄ±tÄ±).
+--   B) YÃ¼klenici dizini (radar_companies geniÅŸletilir): sektÃ¶r, Ã¶lÃ§ek, tÃ¼r, ilÃ§eler, keÅŸif kaynaÄŸÄ±,
+--      izleme Ã¶nceliÄŸi, son/sonraki araÅŸtÄ±rma, ret listesi.
+--   C) FÄ±rsat (radar_opportunities geniÅŸletilir): Ã¶zel sektÃ¶r puanÄ± ve dÃ¶kÃ¼mÃ¼, satÄ±ÅŸ bÃ¶lÃ¼mleri, kanÄ±tlÄ±
+--      aÅŸama (kanÄ±t adresi, yayÄ±n tarihi, doÄŸrulama zamanÄ±, gÃ¼ven, aÃ§Ä±klama), daire sayÄ±sÄ±, Ã¶lÃ§ek.
+--   D) KeÅŸif kayÄ±tlarÄ±: sorgu rotasyonu (radar_discovery_queries), gÃ¶rÃ¼len sonuÃ§lar (tekilleÅŸtirme ve
+--      artÄ±mlÄ± keÅŸif â€” radar_discovery_seen), her Ã§alÄ±ÅŸtÄ±rmanÄ±n dÃ¼rÃ¼st durumu (radar_discovery_runs).
+--   E) E-posta: taslaklara inceleme kuyruÄŸu/uygunluk/yanÄ±t durumu; gerÃ§ek gÃ¶nderimler ayrÄ± ve yalnÄ±z
+--      sunucunun yazdÄ±ÄŸÄ± defterde (radar_outreach_sends); ret (listeden Ã§Ä±kma) listesi.
+--   F) Sunucu iÅŸlevleri, ilÃ§e kapsamÄ±, Ã¶zel sektÃ¶r paneli Ã¶zeti, saatlik keÅŸif zamanlayÄ±cÄ±sÄ±.
+-- 015â€“019'a baÄŸlÄ±dÄ±r. Tekrar Ã§alÄ±ÅŸtÄ±rÄ±labilir; tablo veya veri SÄ°LMEZ (yalnÄ±z ekler/geniÅŸletir).
 -- =====================================================================
 
 create or replace function pg_temp.leonx_policy(
@@ -45,7 +45,7 @@ alter table public.radar_settings add column if not exists outreach_auto_send bo
 alter table public.radar_settings add column if not exists outreach_daily_limit smallint not null default 10;
 alter table public.radar_settings add column if not exists outreach_legal_note text;
 alter table public.radar_settings add column if not exists outreach_legal_confirmed_at timestamptz;
-alter table public.radar_settings add column if not exists gmail_sender text not null default 'info@erlinkapi.tr';
+alter table public.radar_settings add column if not exists gmail_sender text not null default 'erlindoorkapi@gmail.com';
 alter table public.radar_settings add column if not exists gmail_verified_at timestamptz;
 alter table public.radar_settings add column if not exists gmail_last_check jsonb;
 do $$
@@ -57,10 +57,10 @@ begin
       and outreach_min_score between 0 and 100
       and outreach_daily_limit between 0 and 50
       and (outreach_legal_note is null or char_length(outreach_legal_note) <= 2000)
-      -- Gönderen hesap sabittir; Claude hesabı veya başka bir adres kullanılamaz
-      and gmail_sender = 'info@erlinkapi.tr');
+      -- GÃ¶nderen hesap sabittir; Claude hesabÄ± veya baÅŸka bir adres kullanÄ±lamaz
+      and gmail_sender = 'erlindoorkapi@gmail.com');
   end if;
-  -- Otomatik gönderim: Gmail bağlantısı sunucuda doğrulanmadan ve hukuki dayanak belgelenmeden açılamaz
+  -- Otomatik gÃ¶nderim: Gmail baÄŸlantÄ±sÄ± sunucuda doÄŸrulanmadan ve hukuki dayanak belgelenmeden aÃ§Ä±lamaz
   if not exists (select 1 from pg_constraint where conname = 'radar_settings_auto_send_check') then
     alter table public.radar_settings add constraint radar_settings_auto_send_check check (
       not outreach_auto_send
@@ -73,7 +73,7 @@ grant update (discovery_enabled, discovery_queries_per_run, company_monitoring_e
   on table public.radar_settings to authenticated;
 
 -- =====================================================================
--- B) YÜKLENİCİ DİZİNİ
+-- B) YÃœKLENÄ°CÄ° DÄ°ZÄ°NÄ°
 -- =====================================================================
 alter table public.radar_companies add column if not exists sector text;
 alter table public.radar_companies add column if not exists size_band text;
@@ -116,7 +116,7 @@ create index if not exists radar_companies_research_idx on public.radar_companie
 grant update (monitor_active, monitor_priority, opted_out, projects_page_url, sector, contractor_kind) on table public.radar_companies to authenticated;
 
 -- =====================================================================
--- C) FIRSAT: ÖZEL SEKTÖR ALANLARI
+-- C) FIRSAT: Ã–ZEL SEKTÃ–R ALANLARI
 -- =====================================================================
 alter table public.radar_opportunities add column if not exists private_score smallint;
 alter table public.radar_opportunities add column if not exists private_score_breakdown jsonb not null default '[]'::jsonb;
@@ -156,7 +156,7 @@ begin
       and (procurement_status is null or procurement_status in ('dogrulanmis_talep', 'tedarikci_daveti', 'potansiyel'))
       and (relevance_explanation is null or char_length(relevance_explanation) <= 800)
       and (discovered_via is null or discovered_via in ('kaynak', 'arama', 'firma_sitesi'))
-      -- Yeni başlayan / aktif şantiye yalnız kanıt tarihiyle (tahmin yok)
+      -- Yeni baÅŸlayan / aktif ÅŸantiye yalnÄ±z kanÄ±t tarihiyle (tahmin yok)
       and (not stage_new_start or stage_evidence_at is not null)
       and (stage_active is not true or stage_evidence_at is not null));
   end if;
@@ -166,7 +166,7 @@ create index if not exists radar_opportunities_segments_idx on public.radar_oppo
 create index if not exists radar_opportunities_private_idx on public.radar_opportunities (private_score desc nulls last);
 
 -- =====================================================================
--- D) KEŞİF KAYITLARI
+-- D) KEÅÄ°F KAYITLARI
 -- =====================================================================
 create table if not exists public.radar_discovery_queries (
   key          text primary key check (char_length(key) between 3 and 200),
@@ -226,7 +226,7 @@ create table if not exists public.radar_discovery_runs (
 create index if not exists radar_discovery_runs_recent_idx on public.radar_discovery_runs (started_at desc);
 
 -- =====================================================================
--- E) E-POSTA KUYRUĞU, GÖNDERİM DEFTERİ, RET LİSTESİ
+-- E) E-POSTA KUYRUÄU, GÃ–NDERÄ°M DEFTERÄ°, RET LÄ°STESÄ°
 -- =====================================================================
 alter table public.radar_outreach_drafts add column if not exists brands text[] not null default '{}';
 alter table public.radar_outreach_drafts add column if not exists services text[] not null default '{}';
@@ -239,7 +239,7 @@ alter table public.radar_outreach_drafts add column if not exists reply_note tex
 do $$
 declare v_def text;
 begin
-  -- Taslak durumu genişletilir: 'inceleme' (sistem taslağı, sahip onayı bekliyor). Mevcut değerler korunur.
+  -- Taslak durumu geniÅŸletilir: 'inceleme' (sistem taslaÄŸÄ±, sahip onayÄ± bekliyor). Mevcut deÄŸerler korunur.
   select pg_get_constraintdef(oid) into v_def from pg_constraint
    where conrelid = 'public.radar_outreach_drafts'::regclass and conname = 'radar_outreach_drafts_status_check';
   if v_def is not null and v_def not like '%inceleme%' then
@@ -260,15 +260,15 @@ end;
 $$;
 create unique index if not exists radar_outreach_drafts_system_unique on public.radar_outreach_drafts (opportunity_id, company_id) where generated_by = 'sistem';
 
--- Gerçek gönderim defteri: yalnız sunucu (radar-outreach, service_role) yazar. Gösterilen başarı ölçütleri
--- buradan ve sahibin girdiği yanıt durumundan gelir; tahmin veya garanti yoktur.
+-- GerÃ§ek gÃ¶nderim defteri: yalnÄ±z sunucu (radar-outreach, service_role) yazar. GÃ¶sterilen baÅŸarÄ± Ã¶lÃ§Ã¼tleri
+-- buradan ve sahibin girdiÄŸi yanÄ±t durumundan gelir; tahmin veya garanti yoktur.
 create table if not exists public.radar_outreach_sends (
   id               uuid primary key default gen_random_uuid(),
   draft_id         uuid references public.radar_outreach_drafts (id) on delete set null,
   opportunity_id   uuid references public.radar_opportunities (id) on delete set null,
   company_id       uuid references public.radar_companies (id) on delete set null,
   recipient        text not null check (recipient ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' and char_length(recipient) <= 320),
-  sender           text not null default 'info@erlinkapi.tr' check (sender = 'info@erlinkapi.tr'),
+  sender           text not null default 'erlindoorkapi@gmail.com' check (sender = 'erlindoorkapi@gmail.com'),
   gmail_message_id text check (gmail_message_id is null or char_length(gmail_message_id) <= 200),
   status           text not null check (status in ('gonderildi', 'hata')),
   error            text check (error is null or char_length(error) <= 500),
@@ -288,7 +288,7 @@ create table if not exists public.radar_outreach_suppression (
 );
 
 -- =====================================================================
--- RLS ve yetkiler (yalnız sahip okur; keşif/gönderim kayıtlarını yalnız sunucu yazar)
+-- RLS ve yetkiler (yalnÄ±z sahip okur; keÅŸif/gÃ¶nderim kayÄ±tlarÄ±nÄ± yalnÄ±z sunucu yazar)
 -- =====================================================================
 alter table public.radar_discovery_queries    enable row level security;
 alter table public.radar_discovery_seen       enable row level security;
@@ -320,11 +320,11 @@ end;
 $$;
 
 -- =====================================================================
--- F) İŞLEVLER
+-- F) Ä°ÅLEVLER
 -- =====================================================================
 
--- Özel sektör puanının iletişim ve önceki temas etkenlerini GÜNCEL kayıtlarla yeniden hesaplar
--- (privateIntel.ts contactPart/historyPart ile aynı tablo). Döküm boşsa (keşif görmemiş kayıt) dokunmaz.
+-- Ã–zel sektÃ¶r puanÄ±nÄ±n iletiÅŸim ve Ã¶nceki temas etkenlerini GÃœNCEL kayÄ±tlarla yeniden hesaplar
+-- (privateIntel.ts contactPart/historyPart ile aynÄ± tablo). DÃ¶kÃ¼m boÅŸsa (keÅŸif gÃ¶rmemiÅŸ kayÄ±t) dokunmaz.
 create or replace function public.radar_private_finalize(p_opp uuid)
 returns void
 language plpgsql
@@ -334,11 +334,11 @@ as $$
 declare
   v_br      jsonb;
   v_contact numeric := 0;
-  v_creason text := 'Kurumsal iletişim kanalı yok';
+  v_creason text := 'Kurumsal iletiÅŸim kanalÄ± yok';
   v_last    timestamptz;
   v_days    integer;
   v_hist    numeric := 1;
-  v_hreason text := 'Daha önce temas kurulmadı';
+  v_hreason text := 'Daha Ã¶nce temas kurulmadÄ±';
   v_out     jsonb := '[]'::jsonb;
   v_x       jsonb;
 begin
@@ -346,13 +346,13 @@ begin
   if v_br is null or jsonb_array_length(v_br) = 0 then return; end if;
   if exists (select 1 from public.radar_contacts c join public.radar_opportunity_companies oc on oc.company_id = c.company_id
               where oc.opportunity_id = p_opp and c.kind in ('satinalma_eposta', 'tedarikci_portali', 'teknik_ofis_eposta')) then
-    v_contact := 1; v_creason := 'Doğrulanmış satın alma / tedarikçi kanalı var';
+    v_contact := 1; v_creason := 'DoÄŸrulanmÄ±ÅŸ satÄ±n alma / tedarikÃ§i kanalÄ± var';
   elsif exists (select 1 from public.radar_contacts c join public.radar_opportunity_companies oc on oc.company_id = c.company_id
                  where oc.opportunity_id = p_opp) then
-    v_contact := 0.7; v_creason := 'Doğrulanmış kurumsal genel e-posta/telefon var';
+    v_contact := 0.7; v_creason := 'DoÄŸrulanmÄ±ÅŸ kurumsal genel e-posta/telefon var';
   elsif exists (select 1 from public.radar_companies rc join public.radar_opportunity_companies oc on oc.company_id = rc.id
                  where oc.opportunity_id = p_opp and rc.website is not null) then
-    v_contact := 0.4; v_creason := 'Firma web sitesi biliniyor, iletişim kanalı henüz doğrulanmadı';
+    v_contact := 0.4; v_creason := 'Firma web sitesi biliniyor, iletiÅŸim kanalÄ± henÃ¼z doÄŸrulanmadÄ±';
   end if;
   select greatest(max(s.sent_at), max(rc.last_outreach_at)) into v_last
     from public.radar_opportunity_companies oc
@@ -362,7 +362,7 @@ begin
   if v_last is not null then
     v_days := greatest(0, floor(extract(epoch from (now() - v_last)) / 86400)::integer);
     if v_days > 90 then v_hist := 0.6; else v_hist := 0; end if;
-    v_hreason := format('Son temas %s gün önce%s', v_days, case when v_days <= 90 then ' (90 günden yakın)' else '' end);
+    v_hreason := format('Son temas %s gÃ¼n Ã¶nce%s', v_days, case when v_days <= 90 then ' (90 gÃ¼nden yakÄ±n)' else '' end);
   end if;
   for v_x in select * from jsonb_array_elements(v_br) loop
     if v_x ->> 'key' = 'iletisim' then
@@ -409,7 +409,7 @@ create or replace trigger radar_sends_private_finalize
 create or replace trigger radar_opp_companies_private_finalize
   after insert on public.radar_opportunity_companies for each row execute function public.tg_radar_private_finalize();
 
--- Ret listesi: yanıt "listeden çıkar" olarak işaretlenince alıcı alan adı değil, gönderilen ADRES eklenir
+-- Ret listesi: yanÄ±t "listeden Ã§Ä±kar" olarak iÅŸaretlenince alÄ±cÄ± alan adÄ± deÄŸil, gÃ¶nderilen ADRES eklenir
 create or replace function public.tg_radar_reply_optout()
 returns trigger
 language plpgsql
@@ -421,7 +421,7 @@ begin
   if new.reply_status = 'listeden_cikar' and old.reply_status is distinct from 'listeden_cikar' then
     select lower(c.value) into v_email from public.radar_contacts c where c.id = new.contact_id;
     if v_email is not null then
-      insert into public.radar_outreach_suppression (value, kind, reason) values (v_email, 'eposta', 'Yanıt: listeden çıkma talebi')
+      insert into public.radar_outreach_suppression (value, kind, reason) values (v_email, 'eposta', 'YanÄ±t: listeden Ã§Ä±kma talebi')
       on conflict (value) do nothing;
     end if;
     if new.company_id is not null then update public.radar_companies set opted_out = true where id = new.company_id; end if;
@@ -433,9 +433,9 @@ revoke all on function public.tg_radar_reply_optout() from public, anon, authent
 create or replace trigger radar_drafts_reply_optout
   after update of reply_status on public.radar_outreach_drafts for each row execute function public.tg_radar_reply_optout();
 
--- Keşif sonucunu yazar: radar_ingest'ten SONRA çağrılır (fırsat url_hash → radar_items ile bulunur).
--- Yalnız service_role. Firma dizini, kanıtlı aşama, özel sektör puanı, bölümler, sorgu/sonuç kayıtları,
--- firma sitesi araştırma durumu ve doğrulanmış iletişim kanalları.
+-- KeÅŸif sonucunu yazar: radar_ingest'ten SONRA Ã§aÄŸrÄ±lÄ±r (fÄ±rsat url_hash â†’ radar_items ile bulunur).
+-- YalnÄ±z service_role. Firma dizini, kanÄ±tlÄ± aÅŸama, Ã¶zel sektÃ¶r puanÄ±, bÃ¶lÃ¼mler, sorgu/sonuÃ§ kayÄ±tlarÄ±,
+-- firma sitesi araÅŸtÄ±rma durumu ve doÄŸrulanmÄ±ÅŸ iletiÅŸim kanallarÄ±.
 create or replace function public.radar_service_discovery_save(p jsonb)
 returns jsonb
 language plpgsql
@@ -459,7 +459,7 @@ declare
   v_n        integer;
 begin
   if jsonb_typeof(coalesce(p -> 'items', '[]'::jsonb)) <> 'array' or jsonb_array_length(coalesce(p -> 'items', '[]'::jsonb)) > 300 then
-    raise exception 'Öğe listesi geçersiz (en çok 300)' using errcode = '22023';
+    raise exception 'Ã–ÄŸe listesi geÃ§ersiz (en Ã§ok 300)' using errcode = '22023';
   end if;
 
   for v_x in select * from jsonb_array_elements(coalesce(p -> 'items', '[]'::jsonb)) loop
@@ -467,7 +467,7 @@ begin
      where i.url_hash = v_x ->> 'url_hash';
     if not found then continue; end if;
     if v_opp.first_seen_at >= v_since then v_new_pr := v_new_pr + 1; else v_upd_pr := v_upd_pr + 1; end if;
-    -- Daha yeni (veya ilk) aşama kanıtı mı?
+    -- Daha yeni (veya ilk) aÅŸama kanÄ±tÄ± mÄ±?
     v_newer := v_opp.stage_evidence_at is null
       or (nullif(v_x ->> 'stage_evidence_at', '') is not null and (v_x ->> 'stage_evidence_at')::timestamptz >= v_opp.stage_evidence_at);
     update public.radar_opportunities o set
@@ -552,7 +552,7 @@ begin
       last_status = excluded.last_status, last_run_at = now(), query = excluded.query, updated_at = now();
   end loop;
 
-  -- Görülen sonuçlar (tekilleştirme + artımlı keşif + kaynak çeşitliliği)
+  -- GÃ¶rÃ¼len sonuÃ§lar (tekilleÅŸtirme + artÄ±mlÄ± keÅŸif + kaynak Ã§eÅŸitliliÄŸi)
   for v_x in select * from jsonb_array_elements(coalesce(p -> 'seen', '[]'::jsonb)) loop
     if coalesce(v_x ->> 'url_hash', '') !~ '^[0-9a-f]{64}$' or coalesce(v_x ->> 'url', '') !~* '^https?://' then continue; end if;
     insert into public.radar_discovery_seen as s (url_hash, url, domain, query_key, page_kind, outcome, reject_reason)
@@ -562,7 +562,7 @@ begin
       outcome = case when excluded.outcome = 'firsat' then 'firsat' else s.outcome end;
   end loop;
 
-  -- Firma sitesi araştırma durumu (bir sonraki araştırma: öncelik 1 → 3 gün … 5 → 21 gün)
+  -- Firma sitesi araÅŸtÄ±rma durumu (bir sonraki araÅŸtÄ±rma: Ã¶ncelik 1 â†’ 3 gÃ¼n â€¦ 5 â†’ 21 gÃ¼n)
   for v_x in select * from jsonb_array_elements(coalesce(p -> 'companies_checked', '[]'::jsonb)) loop
     update public.radar_companies set last_research_at = now(),
       next_research_at = now() + make_interval(days => case monitor_priority when 1 then 3 when 2 then 5 when 3 then 7 when 4 then 14 else 21 end),
@@ -572,7 +572,7 @@ begin
     where id = (v_x ->> 'id')::uuid;
   end loop;
 
-  -- Firmanın KENDİ sitesinden doğrulanmış kurumsal iletişim kanalları (kaynak adresi + doğrulama zamanı)
+  -- FirmanÄ±n KENDÄ° sitesinden doÄŸrulanmÄ±ÅŸ kurumsal iletiÅŸim kanallarÄ± (kaynak adresi + doÄŸrulama zamanÄ±)
   for v_x in select * from jsonb_array_elements(coalesce(p -> 'contacts', '[]'::jsonb)) loop
     begin
       insert into public.radar_contacts (company_id, kind, value, source_url, verified_at, created_by)
@@ -581,7 +581,7 @@ begin
       get diagnostics v_n = row_count;
       v_contacts := v_contacts + v_n;
     exception when check_violation or foreign_key_violation or invalid_text_representation then
-      null; -- geçersiz kanal atlanır
+      null; -- geÃ§ersiz kanal atlanÄ±r
     end;
   end loop;
 
@@ -590,7 +590,7 @@ end;
 $$;
 revoke all on function public.radar_service_discovery_save(jsonb) from public, anon, authenticated;
 
--- Arama kotası (LEONX bütçesi: aylık sınır − kullanılan). Sağlayıcının kendi kalan kotası ayrıca bilinmez.
+-- Arama kotasÄ± (LEONX bÃ¼tÃ§esi: aylÄ±k sÄ±nÄ±r âˆ’ kullanÄ±lan). SaÄŸlayÄ±cÄ±nÄ±n kendi kalan kotasÄ± ayrÄ±ca bilinmez.
 create or replace function public.radar_search_quota()
 returns jsonb
 language sql
@@ -606,7 +606,7 @@ as $$
   where s.singleton;
 $$;
 
--- Keşif yapılandırması (yalnız service_role)
+-- KeÅŸif yapÄ±landÄ±rmasÄ± (yalnÄ±z service_role)
 create or replace function public.radar_service_discovery_config()
 returns jsonb
 language sql
@@ -625,7 +625,7 @@ as $$
     'quota', public.radar_search_quota());
 $$;
 
--- İzlenmesi zamanı gelen firma siteleri
+-- Ä°zlenmesi zamanÄ± gelen firma siteleri
 create or replace function public.radar_service_due_companies(p_limit integer)
 returns setof public.radar_companies
 language sql
@@ -641,7 +641,7 @@ as $$
    limit greatest(0, least(coalesce(p_limit, 2), 10));
 $$;
 
--- E-posta adayı: özel sektör projesi + eşik puanı + firmanın kendi sitesinden doğrulanmış e-posta + taslağı yok
+-- E-posta adayÄ±: Ã¶zel sektÃ¶r projesi + eÅŸik puanÄ± + firmanÄ±n kendi sitesinden doÄŸrulanmÄ±ÅŸ e-posta + taslaÄŸÄ± yok
 create or replace function public.radar_service_outreach_candidates(p_limit integer)
 returns jsonb
 language sql
@@ -677,7 +677,7 @@ as $$
   ) t;
 $$;
 
--- Sistem taslakları inceleme kuyruğuna yazılır (asla doğrudan gönderilmez)
+-- Sistem taslaklarÄ± inceleme kuyruÄŸuna yazÄ±lÄ±r (asla doÄŸrudan gÃ¶nderilmez)
 create or replace function public.radar_service_save_drafts(p_drafts jsonb)
 returns integer
 language plpgsql
@@ -690,7 +690,7 @@ declare
   v_c integer;
 begin
   if jsonb_typeof(p_drafts) <> 'array' or jsonb_array_length(p_drafts) > 50 then
-    raise exception 'Taslak listesi geçersiz (en çok 50)' using errcode = '22023';
+    raise exception 'Taslak listesi geÃ§ersiz (en Ã§ok 50)' using errcode = '22023';
   end if;
   for v_x in select * from jsonb_array_elements(p_drafts) loop
     insert into public.radar_outreach_drafts (opportunity_id, company_id, contact_id, subject, body, status, brands, services, eligibility, blocked_reasons, generated_by, created_by)
@@ -706,7 +706,7 @@ end;
 $$;
 revoke all on function public.radar_service_save_drafts(jsonb) from public, anon, authenticated;
 
--- Gönderime hazır, sahibin ONAYLADIĞI sistem taslakları (radar-outreach)
+-- GÃ¶nderime hazÄ±r, sahibin ONAYLADIÄI sistem taslaklarÄ± (radar-outreach)
 create or replace function public.radar_service_send_queue(p_limit integer)
 returns jsonb
 language sql
@@ -751,7 +751,7 @@ end;
 $$;
 revoke all on function public.radar_service_record_send(jsonb) from public, anon, authenticated;
 
--- Gmail bağlantı denetimi sonucu (yalnız sunucu). Başarısızsa otomatik gönderim kapanır.
+-- Gmail baÄŸlantÄ± denetimi sonucu (yalnÄ±z sunucu). BaÅŸarÄ±sÄ±zsa otomatik gÃ¶nderim kapanÄ±r.
 create or replace function public.radar_service_gmail_status(p_ok boolean, p_detail jsonb)
 returns void
 language plpgsql
@@ -788,7 +788,7 @@ revoke all on function public.radar_service_outreach_candidates(integer) from pu
 revoke all on function public.radar_service_send_queue(integer) from public, anon, authenticated;
 grant execute on function public.radar_search_quota() to authenticated;
 
--- Keşif kaynağı genel tarama döngüsüne kiralanmaz (kendi saatlik keşif zamanlayıcısı var)
+-- KeÅŸif kaynaÄŸÄ± genel tarama dÃ¶ngÃ¼sÃ¼ne kiralanmaz (kendi saatlik keÅŸif zamanlayÄ±cÄ±sÄ± var)
 create or replace function public.radar_service_claim_sources(p_limit integer)
 returns setof public.radar_sources
 language plpgsql
@@ -812,7 +812,7 @@ begin
 end;
 $$;
 
--- ---------------------------------------------------------------- İlçe kapsamı ve panel özeti (sahip)
+-- ---------------------------------------------------------------- Ä°lÃ§e kapsamÄ± ve panel Ã¶zeti (sahip)
 create or replace function public.radar_district_coverage()
 returns jsonb
 language plpgsql
@@ -824,11 +824,11 @@ begin
   if not public.is_owner() then raise exception 'Yetkisiz' using errcode = '42501'; end if;
   return coalesce((
     with d(city, district, ord) as (
-      select 'Ankara', x, n from unnest(array['Çankaya', 'Yenimahalle', 'Etimesgut', 'Sincan', 'Gölbaşı', 'Pursaklar', 'Keçiören', 'Mamak', 'Altındağ',
-        'Kahramankazan', 'Akyurt', 'Polatlı', 'Beypazarı', 'Elmadağ', 'Kalecik', 'Çubuk', 'Haymana', 'Kızılcahamam', 'Ayaş', 'Bala', 'Çamlıdere',
-        'Evren', 'Güdül', 'Nallıhan', 'Şereflikoçhisar']) with ordinality as t(x, n)
-      union all select 'Hatay', x, 100 + n from unnest(array['Antakya', 'İskenderun', 'Defne', 'Dörtyol', 'Kırıkhan']) with ordinality as t(x, n)
-      union all select 'Kahramanmaraş', x, 200 + n from unnest(array['Onikişubat', 'Dulkadiroğlu', 'Elbistan', 'Pazarcık']) with ordinality as t(x, n)
+      select 'Ankara', x, n from unnest(array['Ã‡ankaya', 'Yenimahalle', 'Etimesgut', 'Sincan', 'GÃ¶lbaÅŸÄ±', 'Pursaklar', 'KeÃ§iÃ¶ren', 'Mamak', 'AltÄ±ndaÄŸ',
+        'Kahramankazan', 'Akyurt', 'PolatlÄ±', 'BeypazarÄ±', 'ElmadaÄŸ', 'Kalecik', 'Ã‡ubuk', 'Haymana', 'KÄ±zÄ±lcahamam', 'AyaÅŸ', 'Bala', 'Ã‡amlÄ±dere',
+        'Evren', 'GÃ¼dÃ¼l', 'NallÄ±han', 'ÅereflikoÃ§hisar']) with ordinality as t(x, n)
+      union all select 'Hatay', x, 100 + n from unnest(array['Antakya', 'Ä°skenderun', 'Defne', 'DÃ¶rtyol', 'KÄ±rÄ±khan']) with ordinality as t(x, n)
+      union all select 'KahramanmaraÅŸ', x, 200 + n from unnest(array['OnikiÅŸubat', 'DulkadiroÄŸlu', 'Elbistan', 'PazarcÄ±k']) with ordinality as t(x, n)
     ), q as (
       select ql ->> 'city' as city, ql ->> 'district' as district, count(*) as n, sum(coalesce((ql ->> 'results')::integer, 0)) as results, max(r.started_at) as last_at
         from public.radar_discovery_runs r, jsonb_array_elements(r.query_log) ql
@@ -875,7 +875,7 @@ begin
                    'gmail_last_check', gmail_last_check, 'outreach_legal_confirmed_at', outreach_legal_confirmed_at) from public.radar_settings where singleton),
     'runs', coalesce((select jsonb_agg(to_jsonb(r) - 'query_log' || jsonb_build_object('queries', (select coalesce(jsonb_agg(ql ->> 'query'), '[]'::jsonb) from jsonb_array_elements(r.query_log) ql)) order by r.started_at desc)
                         from (select * from public.radar_discovery_runs order by started_at desc limit 20) r), '[]'::jsonb),
-    -- Satış performansı: yalnız kayıtlı gerçek olaylar (durum geçişleri, gönderim defteri, sahibin işaretlediği yanıtlar)
+    -- SatÄ±ÅŸ performansÄ±: yalnÄ±z kayÄ±tlÄ± gerÃ§ek olaylar (durum geÃ§iÅŸleri, gÃ¶nderim defteri, sahibin iÅŸaretlediÄŸi yanÄ±tlar)
     'performance', jsonb_build_object(
       'emails_sent', (select count(*) from public.radar_outreach_sends where status = 'gonderildi'),
       'emails_failed', (select count(*) from public.radar_outreach_sends where status = 'hata'),
@@ -895,11 +895,11 @@ revoke all on function public.radar_private_overview() from public, anon;
 grant execute on function public.radar_private_overview() to authenticated;
 
 -- =====================================================================
--- G) KEŞİF KAYNAĞI (başlangıçta İNCELENİYOR + PASİF) VE ZAMANLAYICI
+-- G) KEÅÄ°F KAYNAÄI (baÅŸlangÄ±Ã§ta Ä°NCELENÄ°YOR + PASÄ°F) VE ZAMANLAYICI
 -- =====================================================================
 insert into public.radar_sources (name, kind, sector_hint, region_hint, permission_status, permission_note, interval_minutes, max_items, active)
-select 'Özel sektör keşfi — Arama API (Tavily)', 'search_api', 'ozel', 'Ankara (ikincil: Hatay, Kahramanmaraş)', 'inceleniyor',
-       'Yetkili arama API''si; Google sonuç sayfası kazınmaz. Etkinleştirmeden önce: Tavily ticari kullanım koşulları sahip tarafından onaylanmalı, TAVILY_API_KEY Edge Function gizli değişkeni tanımlanmalı, Ayarlar''da arama API ve keşif açılmalı.',
+select 'Ã–zel sektÃ¶r keÅŸfi â€” Arama API (Tavily)', 'search_api', 'ozel', 'Ankara (ikincil: Hatay, KahramanmaraÅŸ)', 'inceleniyor',
+       'Yetkili arama API''si; Google sonuÃ§ sayfasÄ± kazÄ±nmaz. EtkinleÅŸtirmeden Ã¶nce: Tavily ticari kullanÄ±m koÅŸullarÄ± sahip tarafÄ±ndan onaylanmalÄ±, TAVILY_API_KEY Edge Function gizli deÄŸiÅŸkeni tanÄ±mlanmalÄ±, Ayarlar''da arama API ve keÅŸif aÃ§Ä±lmalÄ±.',
        60, 10, false
 where not exists (select 1 from public.radar_sources where kind = 'search_api' and sector_hint = 'ozel');
 
@@ -933,8 +933,8 @@ end;
 $$;
 revoke all on function leonx_private.dispatch_radar_discover() from public, anon, authenticated;
 
--- Gönderim işlevi (radar-outreach) ayrı dağıtılır; adresi yapılandırılmadıkça istek yapılmaz.
--- İşlev ayrıca kendi içinde Gmail doğrulaması + ayar + uygunluk denetimi olmadan hiçbir şey göndermez.
+-- GÃ¶nderim iÅŸlevi (radar-outreach) ayrÄ± daÄŸÄ±tÄ±lÄ±r; adresi yapÄ±landÄ±rÄ±lmadÄ±kÃ§a istek yapÄ±lmaz.
+-- Ä°ÅŸlev ayrÄ±ca kendi iÃ§inde Gmail doÄŸrulamasÄ± + ayar + uygunluk denetimi olmadan hiÃ§bir ÅŸey gÃ¶ndermez.
 create or replace function leonx_private.dispatch_radar_outreach()
 returns void
 language plpgsql
@@ -960,11 +960,11 @@ do $$
 begin
   if not exists (select 1 from pg_available_extensions where name = 'pg_cron')
      or not exists (select 1 from pg_available_extensions where name = 'pg_net') then
-    raise notice 'pg_cron / pg_net bulunamadı; keşif zamanlayıcısı kurulmadı.';
+    raise notice 'pg_cron / pg_net bulunamadÄ±; keÅŸif zamanlayÄ±cÄ±sÄ± kurulmadÄ±.';
     return;
   end if;
   execute 'create extension if not exists pg_cron';
   execute $q$select cron.schedule('leonx-radar-kesif', '47 * * * *', 'select leonx_private.dispatch_radar_discover()')$q$;
-  execute $q$select cron.schedule('leonx-radar-eposta', '52 6-15 * * 1-5', 'select leonx_private.dispatch_radar_outreach()')$q$;  -- UTC: 09–18 TSİ, hafta içi
+  execute $q$select cron.schedule('leonx-radar-eposta', '52 6-15 * * 1-5', 'select leonx_private.dispatch_radar_outreach()')$q$;  -- UTC: 09â€“18 TSÄ°, hafta iÃ§i
 end;
 $$;
