@@ -13,7 +13,7 @@ import type { ConstructionStage } from './construction.ts'
 import { STAGE_LABEL } from './construction.ts'
 import { looksPersonal } from './contacts.ts'
 
-export const SENDER_EMAIL = 'info@erlinkapi.tr'
+export const SENDER_EMAIL = 'erlindoorkapi@gmail.com'
 
 export type Brand = 'leonx_metal' | 'erlin_kapi'
 export const BRANDS: Record<Brand, { name: string; websites: string[] }> = {
@@ -170,7 +170,7 @@ export type BlockReason =
 
 export const BLOCK_LABEL: Record<BlockReason, string> = {
   otomatik_gonderim_kapali: 'Otomatik gönderim ayarlarda kapalı',
-  gmail_dogrulanmadi: 'Gmail (info@erlinkapi.tr) bağlantısı doğrulanmadı',
+  gmail_dogrulanmadi: 'Gmail (erlindoorkapi@gmail.com) bağlantısı doğrulanmadı',
   hukuki_dayanak_onaylanmadi: 'Ticari ileti hukuki dayanağı sahip tarafından belgelenmedi',
   alici_yok: 'Alıcı e-posta adresi yok',
   alici_dogrulanmadi: 'Alıcı adresi son 180 günde firmanın kendi sitesinden doğrulanmadı',

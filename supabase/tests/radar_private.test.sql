@@ -88,7 +88,7 @@ begin
   exception when insufficient_privilege then null;
   end;
   update public.radar_settings set discovery_enabled = true, discovery_queries_per_run = 2, outreach_legal_note = 'Sentetik not', outreach_legal_confirmed_at = now() where singleton;
-  raise notice 'PASS B: otomatik gönderim kilitli (Gmail + hukuki dayanak); gönderen info@erlinkapi.tr sabit; keşif ayarı sahipçe açılabilir';
+  raise notice 'PASS B: otomatik gönderim kilitli (Gmail + hukuki dayanak); gönderen erlindoorkapi@gmail.com sabit; keşif ayarı sahipçe açılabilir';
 end;
 $$;
 reset role;
@@ -189,7 +189,24 @@ begin
   -- Gmail denetimi başarısızsa doğrulama silinir
   perform public.radar_service_gmail_status(false, '{"error":"kimlik bilgisi yok"}'::jsonb);
   if (select gmail_verified_at from public.radar_settings where singleton) is not null then raise exception 'TEST BAŞARISIZ: başarısız Gmail denetimi doğrulandı'; end if;
-  raise notice 'PASS C4: başarısız Gmail denetimi bağlantıyı doğrulanmamış bırakır';
+  -- Başka bir hesap "başarılı" bildirilse bile doğrulanmaz; yalnız erlindoorkapi@gmail.com kabul edilir
+  perform public.radar_service_gmail_status(true, '{"email":"info@erlinkapi.tr"}'::jsonb);
+  if (select gmail_verified_at from public.radar_settings where singleton) is not null then raise exception 'TEST BAŞARISIZ: başka hesap Gmail doğrulaması aldı'; end if;
+  perform public.radar_service_gmail_status(true, '{"email":"ErlinDoorKapi@gmail.com"}'::jsonb);
+  if (select gmail_verified_at from public.radar_settings where singleton) is null then raise exception 'TEST BAŞARISIZ: doğru hesap doğrulanmadı'; end if;
+  perform public.radar_service_gmail_status(false, '{"error":"sıfırla"}'::jsonb);
+  if (select gmail_sender from public.radar_settings where singleton) <> 'erlindoorkapi@gmail.com' then raise exception 'TEST BAŞARISIZ: varsayılan gönderen yanlış'; end if;
+  begin
+    update public.radar_settings set gmail_sender = 'info@erlinkapi.tr' where singleton;
+    raise exception 'TEST BAŞARISIZ: sunucu bile gönderen adresi değiştirebildi';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.radar_outreach_sends (recipient, sender, status) values ('a@ornek.test', 'info@erlinkapi.tr', 'hata');
+    raise exception 'TEST BAŞARISIZ: defterde başka gönderen kabul edildi';
+  exception when check_violation then null;
+  end;
+  raise notice 'PASS C4: başarısız Gmail denetimi ve başka hesap doğrulanmaz; gönderen yalnız erlindoorkapi@gmail.com';
 end;
 $$;
 reset role;

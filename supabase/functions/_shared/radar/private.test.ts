@@ -4,7 +4,7 @@ import { assessPage, contractorKind, extractCompanyName, extractUnitCount, sizeB
 import { ANKARA_DISTRICTS } from './geo.ts'
 import { buildDiscoveryPlan, coverageSummary, coverageUnit, discoveryStatus, diversityMetrics, QUERY_PATTERNS, selectQueries } from './discovery.ts'
 import { type DiscoveryConfig, type DiscoveryDb, type DiscoveryPayload, type DiscoveryRunRow, projectListLinks, runDiscovery } from './discoveryRunner.ts'
-import { base64Url, buildMime, encodeHeader } from './gmail.ts'
+import { base64Url, buildMime, encodeHeader, idTokenEmail, sendGmail, sendSelfTest, verifyGmail } from './gmail.ts'
 import { buildEmail, checkEligibility, matchServices } from './outreach.ts'
 import { processSendQueue, type SendQueue } from './outreachRunner.ts'
 import { buildIngestItem } from './pipeline.ts'
@@ -168,7 +168,7 @@ describe('Türkçe e-posta ve gönderim uygunluğu', () => {
     expect(m.body).toContain('Sayın Örnek Yapı İnşaat Yetkilisi')
     expect(m.body).toContain('https://www.leonxmetal.com')
     expect(m.body).toContain('https://www.erlinkapi.com.tr')
-    expect(m.body).toContain('info@erlinkapi.tr')
+    expect(m.body).toContain('erlindoorkapi@gmail.com')
     expect(m.body).toMatch(/metraj/)
     expect(m.body).toMatch(/LİSTEDEN ÇIKAR/)
     expect(m.body).not.toMatch(/talebiniz|teklif istediğiniz|tedarikçi teklifi toplandığını/)
@@ -208,10 +208,57 @@ describe('Türkçe e-posta ve gönderim uygunluğu', () => {
 
   it('MIME: Türkçe konu kodlanır, başlık enjeksiyonu reddedilir', () => {
     expect(encodeHeader('Çelik kapı')).toMatch(/^=\?UTF-8\?B\?/)
-    expect(() => buildMime({ from: 'info@erlinkapi.tr', to: 'a@b.test\r\nBcc: x@y.test', subject: 's', body: 'b' })).toThrow()
-    const mime = buildMime({ from: 'info@erlinkapi.tr', to: 'info@ornek.test', subject: 'Teklif', body: 'Merhaba' })
+    expect(() => buildMime({ from: 'erlindoorkapi@gmail.com', to: 'a@b.test\r\nBcc: x@y.test', subject: 's', body: 'b' })).toThrow()
+    const mime = buildMime({ from: 'erlindoorkapi@gmail.com', to: 'info@ornek.test', subject: 'Teklif', body: 'Merhaba' })
     expect(mime).toContain('Content-Type: text/plain; charset=UTF-8')
     expect(base64Url('?>')).not.toMatch(/[+/=]/)
+  })
+})
+
+describe('Gmail gönderen hesabı (erlindoorkapi@gmail.com)', () => {
+  const b64u = (o: unknown) => btoa(JSON.stringify(o)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  const jwt = (claims: Record<string, unknown>) => `${b64u({ alg: 'RS256' })}.${b64u(claims)}.imza`
+  const creds = { clientId: 'id', clientSecret: 'gizli', refreshToken: 'yenile' }
+  function google(email: string, opts: { verified?: boolean; scope?: string } = {}) {
+    const calls: { url: string; body: string }[] = []
+    const fetch = async (url: string, init: RequestInit) => {
+      calls.push({ url, body: String(init.body ?? '') })
+      if (url.startsWith('https://oauth2.googleapis.com/token')) {
+        return new Response(JSON.stringify({ access_token: 'erisim', scope: opts.scope ?? 'https://www.googleapis.com/auth/gmail.send openid https://www.googleapis.com/auth/userinfo.email', id_token: jwt({ iss: 'https://accounts.google.com', email, email_verified: opts.verified ?? true }) }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (url.endsWith('/messages/send')) return new Response(JSON.stringify({ id: 'msg-1' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      return new Response('{}', { status: 403, headers: { 'Content-Type': 'application/json' } })
+    }
+    return { deps: { fetch }, calls }
+  }
+
+  it('id_token e-postası okunur; Google dışı veren reddedilir', () => {
+    expect(idTokenEmail(jwt({ iss: 'https://accounts.google.com', email: 'ErlinDoorKapi@gmail.com', email_verified: true }))).toEqual({ email: 'erlindoorkapi@gmail.com', verified: true })
+    expect(idTokenEmail(jwt({ iss: 'https://kotu.test', email: 'erlindoorkapi@gmail.com', email_verified: true })).email).toBeNull()
+    expect(idTokenEmail('bozuk').email).toBeNull()
+  })
+
+  it('yalnız erlindoorkapi@gmail.com doğrulanır; başka hesap veya doğrulanmamış e-posta reddedilir', async () => {
+    expect((await verifyGmail(creds, google('erlindoorkapi@gmail.com').deps)).ok).toBe(true)
+    const other = await verifyGmail(creds, google('info@erlinkapi.tr').deps)
+    expect(other.ok).toBe(false)
+    expect(other.error).toContain('erlindoorkapi@gmail.com')
+    expect((await verifyGmail(creds, google('erlindoorkapi@gmail.com', { verified: false }).deps)).ok).toBe(false)
+    expect((await verifyGmail(creds, google('erlindoorkapi@gmail.com', { scope: 'openid email' }).deps)).error).toContain('gmail.send')
+  })
+
+  it('başka hesabın belirteciyle gönderim durdurulur; test gönderimi yalnız gönderenin kendisine gider', async () => {
+    await expect(sendGmail(creds, google('baska@gmail.com').deps, { to: 'info@ornek.test', subject: 's', body: 'b' })).rejects.toThrow(/erlindoorkapi@gmail.com/)
+    const g = google('erlindoorkapi@gmail.com')
+    const r = await sendSelfTest(creds, g.deps, NOW)
+    expect(r).toEqual({ ok: true, id: 'msg-1', error: null })
+    const sent = g.calls.find((c) => c.url.endsWith('/messages/send'))!
+    const raw = (JSON.parse(sent.body) as { raw: string }).raw
+    const mime = atob(raw.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (raw.length % 4)) % 4))
+    expect(mime).toContain('To: erlindoorkapi@gmail.com')
+    expect(mime).toContain('<erlindoorkapi@gmail.com>')
+    const blocked = await sendSelfTest(creds, google('baska@gmail.com').deps, NOW)
+    expect(blocked.ok).toBe(false)
   })
 })
 

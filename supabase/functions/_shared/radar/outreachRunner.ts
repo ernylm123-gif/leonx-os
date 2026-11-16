@@ -2,7 +2,7 @@
  * LEONX Radar — onaylı e-posta kuyruğunu işler (Edge Function "radar-outreach", hafta içi saatlik).
  *
  * Bir taslak YALNIZ şu koşulların hepsi sağlanırsa gönderilir (checkEligibility):
- *  sahip taslağı onayladı · ayarlarda otomatik gönderim açık · Gmail (info@erlinkapi.tr) bağlantısı sunucuda
+ *  sahip taslağı onayladı · ayarlarda otomatik gönderim açık · Gmail (erlindoorkapi@gmail.com) bağlantısı sunucuda
  *  doğrulandı · hukuki dayanak belgelendi · alıcı firmanın kendi alan adında, son 180 günde sitesinden
  *  doğrulanmış kurumsal adres · ret listesinde değil · günlük sınır · son 90 günde aynı firmaya e-posta yok ·
  *  projeye ait kaynak kanıtı var · kamu kurumu değil. Ek olarak ortam anahtarı RADAR_OUTREACH_SEND_ENABLED=true

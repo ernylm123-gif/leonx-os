@@ -354,7 +354,7 @@ function OutreachQueue({ drafts, data, onChange }: { drafts: RadarDraft[]; data:
     }
   }
   return (
-    <Panel title="Proje bazlı e-posta kuyruğu" subtitle="Gönderen: info@erlinkapi.tr · Otomatik gönderim yalnız tüm denetimler geçerse" icon={Mail}>
+    <Panel title="Proje bazlı e-posta kuyruğu" subtitle="Gönderen: erlindoorkapi@gmail.com · Otomatik gönderim yalnız tüm denetimler geçerse" icon={Mail}>
       {queue.length === 0 ? (
         <p className="text-[12.5px] text-subtle" data-testid="outreach-empty">İncelemede taslak yok. Taslaklar, eşik puanı geçen ve firmanın kendi sitesinde doğrulanmış kurumsal e-postası olan özel sektör projeleri için oluşturulur.</p>
       ) : (
@@ -502,7 +502,7 @@ function DiscoveryStatus({ ov, data, onSaved }: { ov: PrivateOverview; data: Rad
         <Kpi label="Arama bütçesi (bu ay)" value={ov.quota ? `${ov.quota.month_used}/${ov.quota.month_limit}` : '—'} hint={ov.quota ? `Bugün ${ov.quota.day_used}/${ov.quota.day_limit} · LEONX sınırı` : undefined} />
         <Kpi label="Son keşif" value={lastRun ? DISCOVERY_STATUS_LABEL[lastRun.status] : '—'} hint={lastRun ? fmtDateTime(lastRun.started_at) : 'Çalışmadı'} />
         <Kpi label="Aşaması doğrulanamayan" value={ov.unverified_stage} hint="Yakın tarihli kanıt yok; aktif sayılmaz" />
-        <Kpi label="Gmail (info@erlinkapi.tr)" value={st?.gmail_verified_at ? 'Doğrulandı' : 'Bağlı değil'} hint={st?.gmail_last_check?.error ?? (st?.outreach_auto_send ? 'Otomatik gönderim açık' : 'Otomatik gönderim kapalı')} tone={st?.gmail_verified_at ? 'ok' : 'warn'} />
+        <Kpi label="Gmail (erlindoorkapi@gmail.com)" value={st?.gmail_verified_at ? 'Doğrulandı' : 'Bağlı değil'} hint={st?.gmail_last_check?.error ?? (st?.outreach_auto_send ? 'Otomatik gönderim açık' : 'Otomatik gönderim kapalı')} tone={st?.gmail_verified_at ? 'ok' : 'warn'} />
       </div>
       {s && s.discovery_enabled !== undefined && (
         <details className="mt-4" data-testid="private-settings">
@@ -524,7 +524,7 @@ function DiscoveryStatus({ ov, data, onSaved }: { ov: PrivateOverview; data: Rad
             <Toggle
               id="auto-send"
               checked={!!s.outreach_auto_send}
-              onChange={(v) => (v && (!s.gmail_verified_at || !s.outreach_legal_confirmed_at) ? notify('Önce Gmail (info@erlinkapi.tr) bağlantısı sunucuda doğrulanmalı ve hukuki dayanak kaydedilmeli.', 'error') : void save({ outreach_auto_send: v }))}
+              onChange={(v) => (v && (!s.gmail_verified_at || !s.outreach_legal_confirmed_at) ? notify('Önce Gmail (erlindoorkapi@gmail.com) bağlantısı sunucuda doğrulanmalı ve hukuki dayanak kaydedilmeli.', 'error') : void save({ outreach_auto_send: v }))}
               label="Onaylı taslakları otomatik gönder"
               description="Yalnız sizin onayladığınız taslaklar, tüm denetimler (Gmail doğrulaması, ret listesi, alıcı doğrulaması, günlük sınır, 90 gün kuralı) geçerse gönderilir."
             />

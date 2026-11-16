@@ -45,7 +45,7 @@ alter table public.radar_settings add column if not exists outreach_auto_send bo
 alter table public.radar_settings add column if not exists outreach_daily_limit smallint not null default 10;
 alter table public.radar_settings add column if not exists outreach_legal_note text;
 alter table public.radar_settings add column if not exists outreach_legal_confirmed_at timestamptz;
-alter table public.radar_settings add column if not exists gmail_sender text not null default 'info@erlinkapi.tr';
+alter table public.radar_settings add column if not exists gmail_sender text not null default 'erlindoorkapi@gmail.com';
 alter table public.radar_settings add column if not exists gmail_verified_at timestamptz;
 alter table public.radar_settings add column if not exists gmail_last_check jsonb;
 do $$
@@ -58,7 +58,7 @@ begin
       and outreach_daily_limit between 0 and 50
       and (outreach_legal_note is null or char_length(outreach_legal_note) <= 2000)
       -- Gönderen hesap sabittir; Claude hesabı veya başka bir adres kullanılamaz
-      and gmail_sender = 'info@erlinkapi.tr');
+      and gmail_sender = 'erlindoorkapi@gmail.com');
   end if;
   -- Otomatik gönderim: Gmail bağlantısı sunucuda doğrulanmadan ve hukuki dayanak belgelenmeden açılamaz
   if not exists (select 1 from pg_constraint where conname = 'radar_settings_auto_send_check') then
@@ -268,7 +268,7 @@ create table if not exists public.radar_outreach_sends (
   opportunity_id   uuid references public.radar_opportunities (id) on delete set null,
   company_id       uuid references public.radar_companies (id) on delete set null,
   recipient        text not null check (recipient ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' and char_length(recipient) <= 320),
-  sender           text not null default 'info@erlinkapi.tr' check (sender = 'info@erlinkapi.tr'),
+  sender           text not null default 'erlindoorkapi@gmail.com' check (sender = 'erlindoorkapi@gmail.com'),
   gmail_message_id text check (gmail_message_id is null or char_length(gmail_message_id) <= 200),
   status           text not null check (status in ('gonderildi', 'hata')),
   error            text check (error is null or char_length(error) <= 500),
@@ -759,10 +759,12 @@ security definer
 set search_path = ''
 as $$
 begin
+  -- Doğrulama yalnız bildirilen hesap sabit gönderenle (gmail_sender) birebir aynıysa kabul edilir
   update public.radar_settings set
-    gmail_last_check = jsonb_build_object('ok', p_ok, 'at', now(), 'email', left(p_detail ->> 'email', 320), 'error', left(p_detail ->> 'error', 300)),
-    gmail_verified_at = case when p_ok then now() else null end,
-    outreach_auto_send = case when p_ok then outreach_auto_send else false end
+    gmail_last_check = jsonb_build_object('ok', p_ok and lower(coalesce(p_detail ->> 'email', '')) = gmail_sender, 'at', now(),
+      'email', left(p_detail ->> 'email', 320), 'error', left(p_detail ->> 'error', 300)),
+    gmail_verified_at = case when p_ok and lower(coalesce(p_detail ->> 'email', '')) = gmail_sender then now() else null end,
+    outreach_auto_send = case when p_ok and lower(coalesce(p_detail ->> 'email', '')) = gmail_sender then outreach_auto_send else false end
   where singleton;
 end;
 $$;
