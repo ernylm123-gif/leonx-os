@@ -2108,6 +2108,36 @@ await test('LEONX AI Radar: iletişim araştırması (işlev dağıtılmış) ka
   await eventually(() => mock.db.radar_items.some((i) => i.pending && i.raw_text === 'Metin'), 'elle öğe sunucuda temizlenip kaydedilmedi')
 })
 
+await test('LEONX AI Radar 020: özel sektör paneli — kanıtlı aşama, doğrulanamayan aşama, potansiyel/doğrulanmış ayrımı, eksik yapılandırma dürüstçe söylenir', async ({ page, mock, consoleErrors }) => {
+  // Tüm veriler SENTETİKTİR (.test alan adları)
+  const now = new Date().toISOString()
+  const a = mock.serverInsert('radar_opportunities', { title: 'Sentetik Etimesgut 24 daireli konut', city: 'Ankara', district: 'Etimesgut', is_ankara: true, sector: 'ozel', project_type: 'konut', stage: 'yapim', score: 39, private_score: 72, verified_need: false, label: 'potansiyel_ihtiyac', cluster_key: 'ankara:p-a', segments: ['ozel_proje', 'aktif_santiye'], stage_display: 'Kaba inşaat', stage_active: true, stage_confidence: 'orta', stage_evidence_url: 'https://firma.ornek.test/projeler/etimesgut', stage_evidence_at: now, stage_verified_at: now, unit_text: '24 daire', relevance_explanation: 'Etimesgut’ta kaba inşaat aşamasında konut projesi.' })
+  mock.serverInsert('radar_opportunities', { title: 'Sentetik Gölbaşı villa projesi', city: 'Ankara', district: 'Gölbaşı', is_ankara: true, sector: 'ozel', project_type: 'konut', stage: 'planlama', score: 30, private_score: 41, verified_need: false, label: 'potansiyel_ihtiyac', cluster_key: 'ankara:p-b', segments: ['ozel_proje'] })
+  mock.serverInsert('radar_opportunities', { title: 'Sentetik kamu yangın kapısı ihalesi', city: 'Ankara', is_ankara: true, sector: 'kamu', project_type: 'kamu_binasi', stage: 'ihale', score: 80, verified_need: true, label: 'dogrulanmis_firsat', cluster_key: 'ankara:p-c' })
+  await login(page, OWNER, '/leonx-ai?bolum=ozel')
+  await page.getByTestId('private-panel').waitFor()
+  await page.getByTestId('private-card').first().waitFor()
+  const titles = await page.getByTestId('private-card-title').allInnerTexts()
+  expect(titles.length === 2 && titles[0] === a.title, `özel proje sırası/sayısı: ${titles.join(' | ')}`)
+  const first = page.getByTestId('private-card').filter({ hasText: a.title })
+  expect((await first.getByTestId('private-card-need').innerText()).includes('Potansiyel fırsat'), 'potansiyel ayrımı')
+  expect((await first.getByTestId('private-card-stage').innerText()).includes('Kaba inşaat'), 'kanıtlı aşama')
+  await first.getByTestId('private-card-evidence').getByText('https://firma.ornek.test/projeler/etimesgut').waitFor()
+  const second = page.getByTestId('private-card').filter({ hasText: 'Gölbaşı' })
+  expect((await second.getByTestId('private-card-stage').innerText()).includes('Aşama doğrulanamadı'), 'kanıtsız aşama doğrulanamadı gösterilmeli')
+  await page.getByTestId('private-config-missing').waitFor()
+  await page.getByTestId('private-tab-kamu_ihale').click()
+  await page.getByTestId('private-card').filter({ hasText: 'kamu yangın kapısı' }).waitFor()
+  const unexpected = consoleErrors.filter((e) => !/WebSocket|realtime/i.test(e))
+  expect(unexpected.length === 0, `konsol hataları: ${unexpected.join(' | ')}`)
+})
+
+await test('LEONX AI Radar 020: migration uygulanmamışsa özel sektör paneli açıkça söyler, mevcut radar çalışır', async ({ page, mock }) => {
+  mock.privateRadar = false
+  await login(page, OWNER, '/leonx-ai?bolum=ozel')
+  await page.getByTestId('private-missing').waitFor()
+})
+
 await test('LEONX AI Radar: Kaynağı test et — işlev dağıtılmamışsa açıkça söylenir; ayarlar ve bildirim tercihi', async ({ page, mock }) => {
   seedRadar(mock)
   await login(page, OWNER, '/leonx-ai?bolum=kaynaklar')

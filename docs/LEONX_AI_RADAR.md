@@ -306,3 +306,10 @@ Radar yalnız ihale ilanlarını değil, inşaat projelerinin kendisini izler (`
 - **Bağımsız erişim izleme:** `leonx-surum` (10 dk) her version.json yanıtını `leonx_private.uptime_checks`'e yazar;
   3 ardışık hata → `uretim_erisim` sistem bildirimi. GitHub zamanlayıcısı yoğunlukta saatlerce gecikebildiği için
   (gözlenen: 10 dk yerine 4–6 saatte bir) asıl sıklık bu sunucu işidir; `uptime_summary()` özet verir.
+
+## 17. Özel sektör keşfi ve e-posta erişimi (0.17.0, 020 `20261116002000_leonx_radar_private.sql`)
+
+Ayrıntılar: [LEONX_OZEL_SEKTOR_RADAR.md](LEONX_OZEL_SEKTOR_RADAR.md). Özetle: Ankara'nın 25 ilçesinde özel inşaat
+projeleri ve her ölçekten müteahhit, yalnız yetkili arama API'siyle (Tavily) saatlik ve dönüşümlü sorgularla keşfedilir;
+aşama yalnız kanıtla gösterilir, aksi halde "Aşama doğrulanamadı"; kamu ihaleleri ikincil kanaldır. E-posta taslakları
+inceleme kuyruğunda bekler; gerçek gönderim Gmail OAuth, yasal onay ve tüm denetimler tamamlanana kadar kapalıdır.

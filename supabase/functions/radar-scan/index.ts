@@ -10,6 +10,9 @@
 //  3) "Doğrula": { "verify_source_id": "<uuid>" } — sahip JWT'si VEYA zamanlayıcı gizli başlığı. Erişim koşullarını
 //     (robots.txt, HTTP, giriş/CAPTCHA/ücret duvarı, ilan çıkarımı) sınar ve sonucu yalnız radar_sources.verification
 //     alanına yazar (radar_service_save_verification). Doğrulanmamış kaynak veritabanında İzinli yapılamaz (018).
+//  5) "Özel sektör keşfi": { "discover": true } — yalnız zamanlayıcı gizli başlığı (pg_cron :47). Yetkili arama API'si
+//     (Tavily) ile ilçe rotasyonlu sorgular + (ayar açıksa) firma sitesi izleme; sonuç radar_ingest +
+//     radar_service_discovery_save; her çalıştırma radar_discovery_runs'a dürüst durumla yazılır (020).
 //  4) "Yeniden değerlendir": { "reclassify": true } — yalnız zamanlayıcı gizli başlığı. Son 120 günün öğelerini
 //     güncel inşaat istihbaratı kurallarıyla yeniden sınıflandırır (ağ isteği yok; 019 radar_service_set_intel).
 //
@@ -17,6 +20,7 @@
 // search_api_enabled açık değilse kullanılmaz). Hiçbiri yanıta veya loglara yazılmaz.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.117.3'
 import type { IngestItem } from '../_shared/radar/pipeline.ts'
+import { type DiscoveryDb, pipelineSettingsFrom, runDiscovery } from '../_shared/radar/discoveryRunner.ts'
 import { type RadarDb, reclassifyIntel, type RunRecord, runScan, type SourceRow, type StoredItem, testSource, verifySource } from '../_shared/radar/runner.ts'
 
 const URL_ = Deno.env.get('SUPABASE_URL')!
@@ -90,6 +94,38 @@ function dbFor(db: SupabaseClient): RadarDb {
   }
 }
 
+function discoveryDbFor(db: SupabaseClient): DiscoveryDb {
+  const base = dbFor(db)
+  return {
+    config: async () => unwrap(await db.rpc('radar_service_discovery_config'), 'keşif yapılandırması'),
+    settingsForPipeline: async () => {
+      const [s, cats] = await Promise.all([base.settings(), base.categories()])
+      return pipelineSettingsFrom(s.weights, cats, s.excluded_companies ?? [])
+    },
+    clusters: base.clusters,
+    queryStates: async () => {
+      const rows = unwrap(await db.from('radar_discovery_queries').select('key, runs, new_results, last_run_at').limit(5000), 'sorgu geçmişi') as { key: string; runs: number; new_results: number; last_run_at: string | null }[]
+      return rows.map((r) => ({ key: r.key, runs: r.runs, newResults: r.new_results, lastRunAt: r.last_run_at }))
+    },
+    recentlySeen: async (hashes) => {
+      if (!hashes.length) return new Set<string>()
+      const since = new Date(Date.now() - 30 * 86400000).toISOString()
+      const rows = unwrap(await db.from('radar_discovery_seen').select('url_hash').in('url_hash', hashes).gte('last_seen_at', since), 'görülenler') as { url_hash: string }[]
+      return new Set(rows.map((r) => r.url_hash))
+    },
+    reserveSearch: base.reserveSearch,
+    ingest: base.ingest,
+    saveDiscovery: async (p) => unwrap(await db.rpc('radar_service_discovery_save', { p }), 'keşif kaydı'),
+    dueCompanies: async (limit) => unwrap(await db.rpc('radar_service_due_companies', { p_limit: limit }), 'firma izleme'),
+    outreachCandidates: async (limit) => unwrap(await db.rpc('radar_service_outreach_candidates', { p_limit: limit }), 'e-posta adayları'),
+    saveDrafts: async (drafts) => unwrap(await db.rpc('radar_service_save_drafts', { p_drafts: drafts }), 'taslaklar') as number,
+    saveRun: async (run) => {
+      unwrap(await db.from('radar_discovery_runs').insert(run).select('id'), 'keşif çalıştırma kaydı')
+    },
+    quota: async () => unwrap(await db.rpc('radar_search_quota'), 'kota'),
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(req) })
   if (req.method !== 'POST') return json(req, 405, { error: 'Yalnız POST' })
@@ -156,6 +192,20 @@ Deno.serve(async (req: Request) => {
 
   // ---------------------------------------------------------------- Zamanlayıcı
   if (!cronOk) return json(req, 401, { error: 'Yetkisiz' })
+  // 020: özel sektör keşfi (saatlik)
+  if (body.discover === true) {
+    try {
+      const r = await runDiscovery({ db: discoveryDbFor(db), now: () => new Date(), uuid: () => crypto.randomUUID(), tavilyKey: Deno.env.get('TAVILY_API_KEY') ?? null, fetch: (u, i) => fetch(u, i), resolve, budgetMs: 45_000, log: (m) => console.log(m) })
+      return json(req, 200, { status: r.status, note: r.note, queries: r.query_log.length, results_new: r.results_new, companies_new: r.companies_new, projects_new: r.projects_new, errors: r.errors.length })
+    } catch (e) {
+      const msg = (e instanceof Error ? e.message : String(e)).slice(0, 300)
+      console.error('radar-scan keşif hata:', msg)
+      // Çöken çalıştırma da kayda geçer: sıfır sonuç asla "başarılı" görünmez
+      const now = new Date().toISOString()
+      await db.from('radar_discovery_runs').insert({ started_at: now, finished_at: now, status: 'basarisiz', errors: [msg], note: 'Keşif çalıştırması beklenmeyen hatayla durdu' })
+      return json(req, 500, { error: 'Keşif hatası' })
+    }
+  }
   // 019: günlük yeniden değerlendirme (ağ isteği yok; saklanan öğeler güncel kurallarla)
   if (body.reclassify === true) {
     try {
