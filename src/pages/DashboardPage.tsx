@@ -1,23 +1,47 @@
-import { Sun, Moon, Heart, Star, Leaf, Calendar } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Bell, CalendarClock, CheckCircle2, Circle, FileText, History, LayoutDashboard, Layers, PlugZap } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
-import { usePreferences } from '@/context/preferences'
-import { ManifestStudio } from '@/components/manifest/ManifestStudio'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Panel } from '@/components/ui/Panel'
+import { StageBadge } from '@/components/ui/ProjectBadges'
+import { QuoteStatusBadge } from '@/features/quotes/shared'
+import { useNotifications } from '@/context/notifications'
+import type { ProjectEvent, ProjectTask } from '@/data/types'
+import { listAllTasks, listRecentEvents } from '@/data/workflowApi'
+import { listQuotes } from '@/data/quoteApi'
+import type { Quote } from '@/quote/types'
+import { EventLine } from '@/features/projects/ProjectTimeline'
+import { taskState } from '@/features/projects/ProjectTasks'
+import { NotificationItem } from '@/features/notifications/NotificationItem'
+import { requireSupabase } from '@/lib/supabase'
+import { useLiveQuery } from '@/lib/useLiveList'
+import { QUOTE_STAGES } from '@/lib/domain'
+import { StatusPill } from '@/components/ui/StatusPill'
+import { ErrorState } from '@/components/ui/States'
+import { APP, COMPANY, INTEGRATIONS, ROADMAP } from '@/config/company'
+import { NAV_ITEMS } from '@/config/navigation'
+import { useData } from '@/context/data'
+import { cn } from '@/lib/cn'
+import { computeStats, daysUntil, formatDate, localISODate } from '@/lib/stats'
 
+const modules = NAV_ITEMS.filter((i) => i.path !== '/')
 
+const SYNC_LABEL = { idle: 'Bağlı değil', connecting: 'Bağlanıyor', live: 'Canlı', reconnecting: 'Yeniden bağlanıyor', offline: 'Çevrimdışı' } as const
 
+export function DashboardPage() {
+  const { projects, companies, loading, error, refresh, syncState } = useData()
+  const today = localISODate()
+  const stats = computeStats(projects, companies, today)
+  const ready = !loading || projects.length > 0 || companies.length > 0
 
-
-
-  
-  
-  
-  
-
-  
-  
+  const { items: notifications, unread, open } = useNotifications()
+  const live = useLiveQuery<{ tasks: ProjectTask[]; events: ProjectEvent[]; quotes: Quote[] }>(
     ['project_tasks', 'project_events', 'quotes'],
-    
+    async () => {
+      const db = requireSupabase()
+      const [tasks, events, quotes] = await Promise.all([listAllTasks(db), listRecentEvents(db, 10), listQuotes(db)])
+      return { tasks, events, quotes }
+    },
     { tasks: [], events: [], quotes: [] },
   )
   const lateTasks = live.data.tasks.filter((t) => taskState(t, today) === 'gecikti')
