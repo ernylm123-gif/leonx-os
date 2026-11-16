@@ -1,0 +1,85 @@
+
+  type LucideIcon,
+  Sun,
+  Moon,
+  Heart,
+  Star,
+  Leaf,
+  Calendar,
+  Music,
+  Palette,
+  Lightbulb,
+  Book,
+  Gift,
+  Timer,
+  Clock,
+  Phone,
+  Map,
+  GraduationCap,
+  Shield,
+} from 'lucide-react'
+
+export type ModuleStatus = 'ready' | 'planned'
+
+export interface NavItem {
+  path: string
+  label: string
+  /** Dar alanlarda (telefon alt navigasyonu) kullanılan kısa ad */
+  shortLabel?: string
+  /** Modül kodu — teknik başlıklarda gösterilir */
+  code: string
+  /** Kısa açıklama — menü ipuçları ve komut paletinde kullanılır */
+  description: string
+  icon: LucideIcon
+  group: 'genel' | 'muhendislik' | 'ticari' | 'sistem'
+  /** Modülün iş mantığının durumu (arayüz her durumda hazırdır) */
+  status: ModuleStatus
+  /** Telefon alt çubuğunda gösterilsin mi */
+  mobilePrimary?: boolean
+}
+
+export const NAV_GROUPS: Record<NavItem['group'], string> = {
+  genel: 'Genel',
+  muhendislik: 'Mühendislik',
+  ticari: 'Ticari',
+  sistem: 'Sistem',
+}
+
+export const NAV_ITEMS: NavItem[] = [
+  {
+    path: '/',
+    code: 'M00',
+    label: 'Dashboard',
+    description: 'Genel bakış ve sistem durumu',
+    icon: LayoutDashboard,
+    group: 'genel',
+    status: 'ready',
+    mobilePrimary: true,
+  },
+  {
+    
+  {
+    
+  {
+    
+  {
+    
+  {
+    
+  {
+    
+  {
+    
+  {
+    
+  {
+    
+  {
+    
+  {
+    
+
+export function findNavItem(pathname: string): NavItem | undefined {
+  if (pathname === '/') return NAV_ITEMS[0]
+  return NAV_ITEMS.find((item) => item.path !== '/' && pathname.startsWith(item.path))
+}

@@ -13,7 +13,7 @@ function RouteError() {
 
 // Giriş sayfası herkese açıktır; diğer tüm rotalar RequireAuth ile korunur.
 // Dashboard ilk açılışta hazır gelir; diğer modüller ihtiyaç anında yüklenir.
-const router = createBrowserRouter([
+
   { path: '/giris', element: <LoginPage />, errorElement: <RouteError /> },
   {
     path: '/',
@@ -24,6 +24,33 @@ const router = createBrowserRouter([
       </RequireAuth>
     ),
     children: [
+      { index: true, element: <DashboardPage /> },
+      {
+        path: 'manifest',
+        lazy: () => import('@/pages/ManifestPage').then((m) => ({ Component: m.ManifestPage })),
+      },
+      {
+        path: 'planner',
+        lazy: () => import('@/pages/PlannerPage').then((m) => ({ Component: m.PlannerPage })),
+      },
+      {
+        path: 'journal',
+        lazy: () => import('@/pages/JournalPage').then((m) => ({ Component: m.JournalPage })),
+      },
+      {
+        path: 'habits',
+        lazy: () => import('@/pages/HabitsPage').then((m) => ({ Component: m.HabitsPage })),
+      },
+      {
+        path: 'settings',
+        lazy: () => import('@/pages/auth/SettingsPage').then((m) => ({ Component: m.SettingsPage })),
+      },
+      {
+        path: '*',
+        lazy: () => import('@/pages/NotFoundPage').then((m) => ({ Component: m.NotFoundPage })),
+      },
+    ],
+  }
       {
         // Sayfa hataları yerleşim (menü) korunarak gösterilir
         errorElement: <RouteError />,
