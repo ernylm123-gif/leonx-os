@@ -13,7 +13,8 @@ import type { ConstructionStage } from './construction.ts'
 import { STAGE_LABEL } from './construction.ts'
 import { looksPersonal } from './contacts.ts'
 
-export const SENDER_EMAIL = 'erlindoorkapi@gmail.com'
+import { SENDER_EMAIL } from './sender.ts'
+export { SENDER_EMAIL }
 
 export type Brand = 'leonx_metal' | 'erlin_kapi'
 export const BRANDS: Record<Brand, { name: string; websites: string[] }> = {

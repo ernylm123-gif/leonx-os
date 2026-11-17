@@ -1,15 +1,13 @@
 // LEONX OS — radar-outreach (Supabase Edge Function, Deno). verify_jwt = false; yalnız zamanlayıcı gizli başlığı.
 //
-//  { "gmail_check": true } — Gmail OAuth bağlantısını doğrular (hesap erlindoorkapi@gmail.com mi?) ve sonucu
-//      radar_settings.gmail_verified_at / gmail_last_check alanına yazar. Başarısızsa otomatik gönderim kapanır.
-//  { "test_send": true }  — kontrollü test: yalnız erlindoorkapi@gmail.com'un KENDİSİNE tek ileti (müşteriye gitmez).
+//  Gmail doğrulaması ve kontrollü test gönderimi ayrı işlevdedir: radar-gmail.
 //  { "send": true }        — sahibin ONAYLADIĞI sistem taslaklarını, tüm uygunluk denetimleri geçerse gönderir
 //      (outreachRunner.ts). RADAR_OUTREACH_SEND_ENABLED=true değilse hiçbir şey gönderilmez (acil durdurma).
 //
 // Gizli değerler: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN (erlindoorkapi@gmail.com Gmail
 // hesabı için OAuth 2.0), SUPABASE_SERVICE_ROLE_KEY. Hiçbiri yanıta veya loglara yazılmaz.
 import { createClient } from 'npm:@supabase/supabase-js@2.117.3'
-import { credentialsFromEnv, sendGmail, sendSelfTest, verifyGmail } from '../_shared/radar/gmail.ts'
+import { credentialsFromEnv, sendGmail } from '../_shared/radar/gmail.ts'
 import { processSendQueue, type SendQueue } from '../_shared/radar/outreachRunner.ts'
 
 const URL_ = Deno.env.get('SUPABASE_URL')!
@@ -47,16 +45,6 @@ Deno.serve(async (req: Request) => {
   const creds = credentialsFromEnv((k) => Deno.env.get(k))
   const deps = { fetch: (u: string, i: RequestInit) => fetch(u, i), resolve }
 
-  if (body.gmail_check === true) {
-    const v = creds ? await verifyGmail(creds, deps) : { ok: false, email: null, error: 'GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN tanımlı değil' }
-    await db.rpc('radar_service_gmail_status', { p_ok: v.ok, p_detail: { email: v.email, error: v.error } })
-    return json(200, { ok: v.ok, email: v.email, error: v.error })
-  }
-  if (body.test_send === true) {
-    if (!creds) return json(200, { ok: false, error: 'GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN tanımlı değil' })
-    const t = await sendSelfTest(creds, deps, new Date())
-    return json(200, t)
-  }
   if (body.send === true) {
     if (!creds) return json(200, { sent: 0, reason: 'Gmail kimlik bilgileri tanımlı değil; taslaklar inceleme kuyruğunda kalır' })
     const q = await db.rpc('radar_service_send_queue', { p_limit: 5 })

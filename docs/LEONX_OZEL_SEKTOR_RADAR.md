@@ -21,7 +21,7 @@ Migration: `supabase/migrations/20261116002000_leonx_radar_private.sql` (020, ya
 | Aşama ve puan | `_shared/radar/privateIntel.ts` | Aşama yalnız kanıtla (URL + yayın tarihi ≤180 gün) "aktif" sayılır; aksi halde **"Aşama doğrulanamadı"**. Şeffaf puan: ürün 22, aşama 20, güncellik 15, coğrafya 12, talep 12, iletişim 10, ölçek 5, geçmiş 4. Küçük/yerel/orta firmalar cezalandırılmaz. |
 | Keşif çalıştırıcı | `_shared/radar/discoveryRunner.ts` | Arama API → güvenli getirme (SSRF koruması, robots.txt) → değerlendirme → `radar_ingest` → firma kaydı → firma izleme (ana sayfa + en çok 2 proje sayfası) → taslak hazırlama. |
 | Ürün eşleme ve e-posta | `_shared/radar/outreach.ts` | LEONX METAL ve ERLİN KAPI hizmetleri; Türkçe kişiselleştirilmiş e-posta; proje bilgisi uydurulmaz, "teklif istediniz" denmez; "LİSTEDEN ÇIKAR" satırı; 14 engel nedeni. |
-| Gmail | `_shared/radar/gmail.ts`, `functions/radar-outreach` | OAuth 2.0 yenileme anahtarı; gönderici yalnız `erlindoorkapi@gmail.com` (veritabanı kısıtı da var). Başlık enjeksiyonu reddedilir. |
+| Gmail | `_shared/radar/gmail.ts`, `functions/radar-gmail` (doğrulama + kendine test), `functions/radar-outreach` (müşteri gönderimi) | OAuth 2.0 yenileme anahtarı; gönderici yalnız `erlindoorkapi@gmail.com` (veritabanı kısıtı da var). Başlık enjeksiyonu reddedilir. |
 | Durum | `discoveryStatus()` + `radar_discovery_runs` | başarılı-yeni / başarılı-yeni yok / eksik / başarısız / kaynak yok / kota bitti ayrı gösterilir; yapılandırma eksikse "başarılı" yazılmaz. |
 | Panel | `src/features/radar/PrivateSectorPanel.tsx` | LEONX AI → **Özel Sektör**: Özel Sektör Projeleri, Yeni Başlayan İnşaatlar, Aktif Şantiyeler, Müteahhit Firmaları, Teklif Fırsatları, Kamu İhaleleri. 9 filtre + arama, kanıt, puan dökümü, e-posta inceleme kuyruğu, yanıt takibi, ilçe kapsamı, çalıştırma günlüğü, gerçek performans (yalnız kayıtlı gönderim/yanıt/eylemlerden). |
 
@@ -43,7 +43,7 @@ listeden çıkma ve bastırma listesi, günlük sınır, firma başına tekrar e
 ## 5. Eren'in yapacakları (sıra önemli)
 
 1. 020'yi üretime uygula (onayınla).
-2. Edge Function'ları dağıt: `radar-scan` (keşif modu) ve yeni `radar-outreach`.
+2. Edge Function'ları dağıt: `radar-scan` (keşif modu) ve yeni `radar-gmail`, `radar-outreach`.
 3. Tavily: kullanım koşullarını onayla, `TAVILY_API_KEY`'i **Edge Function sırrı** olarak ekle (repoya/notlara değil).
 4. Panelde "Özel sektör keşfi — Arama API (Tavily)" kaynağını izinli + etkin yap; Ayarlar'da arama API'sini ve keşfi aç.
 5. Gmail OAuth: aşağıdaki 7. bölüm (sırlar, doğrulama, kontrollü test gönderimi).
@@ -93,11 +93,11 @@ belirteciyle doğrulama da gönderim de reddedilir.
 `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`. `RADAR_OUTREACH_SEND_ENABLED` **eklemeyin**
 (yoksa ya da `true` değilse müşteri gönderimi kesin kapalıdır). Sırlar repoda, veritabanında, istemcide ve loglarda yoktur.
 
-**D. Doğrulama ve kontrollü test (radar-outreach dağıtıldıktan sonra)**
+**D. Doğrulama ve kontrollü test (`radar-gmail` işlevi)**
 
 Her iki çağrı da `x-leonx-cron` başlığında zamanlayıcı sırrı ister (`leonx_private.push_config.cron_secret`).
 
-1. `POST /functions/v1/radar-outreach` gövde `{"gmail_check": true}` → yenileme belirteci alınır, id_token'daki
+1. `POST /functions/v1/radar-gmail` gövde `{"gmail_check": true}` → yenileme belirteci alınır, id_token'daki
    doğrulanmış e-posta `erlindoorkapi@gmail.com` ise `gmail_verified_at` yazılır; değilse doğrulama silinir ve otomatik
    gönderim kapanır. Panelde "Gmail (erlindoorkapi@gmail.com): Doğrulandı" görünür.
 2. `{"test_send": true}` → yalnız `erlindoorkapi@gmail.com`'un **kendisine** tek bir test iletisi gider (müşteriye

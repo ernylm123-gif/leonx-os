@@ -13,7 +13,7 @@
  *  • İstekler urlGuard ile yalnız oauth2.googleapis.com ve gmail.googleapis.com ana makinelerine gider.
  */
 import { JSON_TYPES, safeFetch, type SafeFetchDeps } from './urlGuard.ts'
-import { SENDER_EMAIL } from './outreach.ts'
+import { SENDER_EMAIL } from './sender.ts'
 
 export const GMAIL_HOSTS = ['oauth2.googleapis.com', 'gmail.googleapis.com']
 
