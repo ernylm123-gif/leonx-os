@@ -182,6 +182,8 @@ export class MockSupabase {
     this.radarActionSeq = 1
     /** Radar Edge Function'ları dağıtıldı mı (false: 404 — "dağıtılmadı" açıklaması sınanır) */
     this.radarFunctionsDeployed = false
+    /** 020 özel sektör RPC'leri var mı (false: migration uygulanmamış gibi davranır) */
+    this.privateRadar = true
     this.functionCalls = []
     this.db.radar_settings.push({ id: randomUUID(), ...RADAR_SETTINGS_DEFAULT, created_at: this.now(), updated_at: this.now(), version: 1 })
     RADAR_CATEGORIES.forEach(([key, name, group_key], i) => this.db.radar_categories.push({ key, id: randomUUID(), name, group_key, sort_order: (i + 1) * 10, active: true, extra_keywords: [], version: 1 }))
@@ -994,6 +996,24 @@ export class MockSupabase {
       })
     }
     // 019: satış istihbaratı özeti (supabase/migrations/20261029001900_leonx_radar_sales.sql radar_sales_overview ile aynı tanımlar)
+    // 020: özel sektör özeti — supabase/migrations/20261116002000_leonx_radar_private.sql (sadeleştirilmiş)
+    if (p === '/rest/v1/rpc/radar_private_overview' || p === '/rest/v1/rpc/radar_district_coverage') {
+      if (!this.privateRadar) return json(404, { code: 'PGRST202', message: 'Could not find the function' })
+      if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
+      if (p.endsWith('radar_district_coverage')) return json(200, [])
+      const open = this.db.radar_opportunities.filter((o) => !['ilgisiz', 'kaybedildi'].includes(o.status ?? 'yeni'))
+      const seg = (k) => open.filter((o) => (o.segments ?? []).includes(k)).length
+      const st = this.db.radar_settings[0] ?? {}
+      return json(200, {
+        segments: { ozel_proje: seg('ozel_proje'), yeni_baslayan: seg('yeni_baslayan'), aktif_santiye: seg('aktif_santiye'), teklif_firsati: seg('teklif_firsati'), kamu_ihale: open.filter((o) => o.sector === 'kamu').length, firmalar: this.db.radar_companies.filter((c) => c.discovery_source).length },
+        unverified_stage: open.filter((o) => o.sector !== 'kamu' && !o.stage_active).length,
+        quota: { month_used: 0, month_limit: 900, month_remaining: 900, day_used: 0, day_limit: 30 },
+        discovery_source: null,
+        settings: { discovery_enabled: !!st.discovery_enabled, search_api_enabled: !!st.search_api_enabled, queries_per_run: 1, company_monitoring_enabled: false, outreach_auto_send: false, gmail_verified_at: null, gmail_last_check: null, outreach_legal_confirmed_at: null },
+        runs: [],
+        performance: { emails_sent: 0, emails_failed: 0, drafts_review: 0, drafts_manual_sent: 0, replies: 0, quote_requests: 0, meetings: 0, quotes_sent: 0, won: 0, lost: 0 },
+      })
+    }
     if (p === '/rest/v1/rpc/radar_sales_overview') {
       if (!this.isOwner(user)) return json(403, { code: '42501', message: 'Yetkisiz' })
       const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Istanbul' }).split(',')[0]).getTime()

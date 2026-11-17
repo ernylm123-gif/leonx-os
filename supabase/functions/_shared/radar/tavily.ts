@@ -78,8 +78,18 @@ export function parseTavilyResponse(json: unknown, max = 10): TavilyResult[] {
 }
 
 /** Tek Tavily araması (bütçe ayırma çağıran tarafından ÖNCE yapılmış olmalıdır) */
-export async function tavilySearch(query: string, apiKey: string, deps: SafeFetchDeps, maxResults = 5): Promise<{ status: number; results: TavilyResult[] }> {
-  const body = JSON.stringify({ query: query.slice(0, 400), max_results: Math.max(1, Math.min(10, maxResults)), search_depth: 'basic', topic: 'general', country: 'turkey' })
+export interface TavilyOptions {
+  /** Sonuçlardan çıkarılacak alan adları (ör. özel sektör keşfinde kamu ilan siteleri) */
+  excludeDomains?: string[]
+  /** Yalnız son dönemin sonuçları (Tavily time_range) */
+  timeRange?: 'day' | 'week' | 'month' | 'year'
+}
+
+export async function tavilySearch(query: string, apiKey: string, deps: SafeFetchDeps, maxResults = 5, opts: TavilyOptions = {}): Promise<{ status: number; results: TavilyResult[] }> {
+  const req: Record<string, unknown> = { query: query.slice(0, 400), max_results: Math.max(1, Math.min(10, maxResults)), search_depth: 'basic', topic: 'general', country: 'turkey' }
+  if (opts.excludeDomains?.length) req.exclude_domains = opts.excludeDomains.slice(0, 20)
+  if (opts.timeRange) req.time_range = opts.timeRange
+  const body = JSON.stringify(req)
   const res = await safeFetch(
     TAVILY_ENDPOINT,
     { policy: { allowedHosts: [TAVILY_HOST] }, accept: JSON_TYPES, method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body, maxBytes: 512 * 1024 },

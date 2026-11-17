@@ -402,6 +402,8 @@ export async function runScan(deps: RunnerDeps): Promise<ScanSummary> {
     }
     // Savunma: veritabanı yalnız izinli+etkin kaynak kiralar; yine de burada tekrar denetlenir
     if (!src.active || src.permission_status !== 'izinli' || src.kind === 'manual') continue
+    // 020: özel sektör keşif kaynağı kendi saatlik keşif döngüsünde çalışır (discoveryRunner)
+    if (src.kind === 'search_api' && src.sector_hint === 'ozel') continue
     summary.sources++
     const started = deps.now().toISOString()
     const ctx: SourceContext = { id: src.id, kind: src.kind, sectorHint: src.sector_hint, permission: src.permission_status }

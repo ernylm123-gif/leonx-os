@@ -35,6 +35,17 @@ export interface RadarSettings {
   search_queries_per_run: number
   /** 019: önerilmeyecek firmalar */
   excluded_companies?: string[]
+  /** 020: özel sektör keşfi ve e-posta kuyruğu (otomatik gönderim varsayılan KAPALI) */
+  discovery_enabled?: boolean
+  discovery_queries_per_run?: number
+  company_monitoring_enabled?: boolean
+  company_pages_per_run?: number
+  outreach_min_score?: number
+  outreach_auto_send?: boolean
+  outreach_daily_limit?: number
+  outreach_legal_note?: string | null
+  outreach_legal_confirmed_at?: string | null
+  gmail_verified_at?: string | null
   updated_at: string
   version: number
 }
@@ -146,6 +157,81 @@ export interface RadarOpportunity {
   product_groups?: string[]
   recommended_action?: string | null
   excluded_company?: string | null
+  /** 020: özel sektör keşfi (sunucuda yazılır) */
+  private_score?: number | null
+  private_score_breakdown?: PrivateScorePart[]
+  segments?: PrivateSegment[]
+  stage_display?: string | null
+  stage_confidence?: 'yuksek' | 'orta' | 'dusuk' | null
+  stage_active?: boolean | null
+  stage_new_start?: boolean
+  stage_evidence_url?: string | null
+  stage_evidence_at?: string | null
+  stage_verified_at?: string | null
+  stage_explanation?: string | null
+  unit_count?: number | null
+  unit_text?: string | null
+  size_band?: SizeBandKey | null
+  page_kind?: string | null
+  procurement_status?: 'dogrulanmis_talep' | 'tedarikci_daveti' | 'potansiyel' | null
+  relevance_explanation?: string | null
+  discovered_via?: 'kaynak' | 'arama' | 'firma_sitesi' | null
+}
+
+export type PrivateSegment = 'ozel_proje' | 'yeni_baslayan' | 'aktif_santiye' | 'teklif_firsati' | 'kamu_ihale'
+export type SizeBandKey = 'kucuk' | 'yerel' | 'orta' | 'buyuk' | 'bilinmiyor'
+export interface PrivateScorePart { key: string; label: string; weight: number; factor: number; points: number; reason: string }
+
+export interface PrivateRun {
+  id: string
+  started_at: string
+  finished_at: string | null
+  status: 'basarili' | 'basarili_yeni_yok' | 'eksik' | 'basarisiz' | 'kaynak_yok' | 'yapilandirma_eksik' | 'kota_doldu'
+  queries: string[]
+  districts: string[]
+  results_seen: number
+  results_new: number
+  results_rejected: number
+  companies_found: number
+  companies_new: number
+  company_pages: number
+  projects_new: number
+  projects_updated: number
+  contacts_verified: number
+  outreach_candidates: number
+  errors: string[]
+  api_calls: number
+  quota_used: number | null
+  quota_limit: number | null
+  quota_remaining: number | null
+  diversity: { distinctDomains: number; top3Share: number } | null
+  note: string | null
+}
+
+export interface PrivateOverview {
+  segments: Record<PrivateSegment | 'firmalar', number>
+  unverified_stage: number
+  quota: { month_used: number; month_limit: number; month_remaining: number; day_used: number; day_limit: number } | null
+  discovery_source: { id: string; name: string; permission_status: Permission; active: boolean } | null
+  settings: { discovery_enabled: boolean; search_api_enabled: boolean; queries_per_run: number; company_monitoring_enabled: boolean; outreach_auto_send: boolean; gmail_verified_at: string | null; gmail_last_check: { ok: boolean; error: string | null } | null; outreach_legal_confirmed_at: string | null } | null
+  runs: PrivateRun[]
+  performance: { emails_sent: number; emails_failed: number; drafts_review: number; drafts_manual_sent: number; replies: number; quote_requests: number; meetings: number; quotes_sent: number; won: number; lost: number }
+}
+
+export interface DistrictCoverage {
+  city: string
+  district: string
+  queries30d: number
+  results30d: number
+  last_searched_at: string | null
+  companies: number
+  private_projects: number
+  active_sites: number
+}
+
+export type ReplyStatus = 'yok' | 'yanit' | 'olumlu' | 'olumsuz' | 'teklif_talebi' | 'toplanti' | 'listeden_cikar'
+export const REPLY_LABEL: Record<ReplyStatus, string> = {
+  yok: 'Yanıt yok', yanit: 'Yanıt geldi', olumlu: 'Olumlu yanıt', olumsuz: 'Olumsuz yanıt', teklif_talebi: 'Teklif talebi', toplanti: 'Toplantı', listeden_cikar: 'Listeden çıkmak istedi',
 }
 
 export type SalesClass = 'A' | 'B' | 'C' | 'D'
@@ -212,6 +298,24 @@ export interface RadarCompany {
   last_outreach_at?: string | null
   next_action?: string | null
   next_action_at?: string | null
+  /** 020: yüklenici dizini */
+  sector?: 'kamu' | 'ozel' | 'bilinmiyor' | null
+  size_band?: SizeBandKey | null
+  contractor_kind?: string | null
+  districts?: string[]
+  cities?: string[]
+  name_basis?: 'metin' | 'alan_adi' | 'sahip' | null
+  discovery_source?: string | null
+  discovery_url?: string | null
+  first_discovered_at?: string | null
+  projects_page_url?: string | null
+  monitor_active?: boolean
+  monitor_priority?: number
+  last_research_at?: string | null
+  next_research_at?: string | null
+  research_status?: string | null
+  research_note?: string | null
+  opted_out?: boolean
 }
 
 export interface RadarOppCompany {
@@ -249,7 +353,15 @@ export interface RadarDraft {
   contact_id: string | null
   subject: string
   body: string
-  status: 'taslak' | 'onaylandi' | 'gonderildi_elle'
+  status: 'taslak' | 'inceleme' | 'onaylandi' | 'gonderildi_elle'
+  /** 020 */
+  brands?: string[]
+  services?: string[]
+  blocked_reasons?: string[]
+  generated_by?: 'sahip' | 'sistem'
+  reply_status?: ReplyStatus
+  reply_at?: string | null
+  reply_note?: string | null
   created_at: string
   updated_at: string
   version: number

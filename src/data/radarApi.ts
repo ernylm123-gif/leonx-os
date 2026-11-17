@@ -25,6 +25,9 @@ import type {
   RadarSource,
   RadarSourceInput,
   OppStatus,
+  DistrictCoverage,
+  PrivateOverview,
+  ReplyStatus,
 } from './radarTypes'
 
 /**
@@ -117,6 +120,25 @@ export async function loadSalesOverview(db: SupabaseClient): Promise<RadarSalesO
   const r = await db.rpc('radar_sales_overview')
   if (r.error) return null
   return r.data as RadarSalesOverview
+}
+
+/** 020: özel sektör paneli özeti, ilçe kapsamı ve e-posta kuyruğu (migration uygulanmamışsa null) */
+export async function loadPrivateOverview(db: SupabaseClient): Promise<PrivateOverview | null> {
+  const r = await db.rpc('radar_private_overview')
+  return r.error ? null : (r.data as PrivateOverview)
+}
+export async function loadDistrictCoverage(db: SupabaseClient): Promise<DistrictCoverage[]> {
+  const r = await db.rpc('radar_district_coverage')
+  return r.error ? [] : (r.data as DistrictCoverage[])
+}
+export async function loadOutreachDrafts(db: SupabaseClient): Promise<RadarDraft[]> {
+  return fetchAllPages<RadarDraft>((f, t) => db.from('radar_outreach_drafts').select('*').order('created_at', { ascending: false }).order('id').range(f, t))
+}
+export function setDraftReply(db: SupabaseClient, d: Pick<RadarDraft, 'id' | 'version'>, reply: ReplyStatus) {
+  return versionedUpdate<RadarDraft>(db, 'radar_outreach_drafts', d.id, d.version, { reply_status: reply, reply_at: reply === 'yok' ? null : new Date().toISOString() } as Partial<RadarDraft>)
+}
+export function updateCompanyMonitoring(db: SupabaseClient, c: Pick<RadarCompany, 'id' | 'version'>, patch: Partial<Pick<RadarCompany, 'monitor_active' | 'monitor_priority' | 'opted_out'>>) {
+  return versionedUpdate<RadarCompany>(db, 'radar_companies', c.id, c.version, patch)
 }
 
 export async function loadOps(db: SupabaseClient): Promise<RadarOps> {

@@ -16,7 +16,7 @@ returns jsonb language sql as $$
   select jsonb_build_object(
     'url', p_url, 'canonical_url', p_url, 'url_hash', encode(sha256(convert_to(p_url, 'UTF8')), 'hex'),
     'content_hash', encode(sha256(convert_to(p_title, 'UTF8')), 'hex'),
-    'title', p_title, 'summary', 'sentetik metin', 'published_at', now() - interval '1 hour',
+    'title', p_title, 'summary', 'sentetik metin', 'published_at', now() - interval '1 hour' + case when p_verified then interval '1 minute' else interval '0' end, -- talep öğesi daha yeni kanıt (aynı zaman damgası sırayı belirsiz bırakır)
     'classification', jsonb_build_object('version', 1, 'intel', p_intel), 'analyzer', 'kural-v1',
     'cluster_key', p_cluster, 'cluster_tokens', jsonb_build_array('sentetik'),
     'city', p_city, 'district', null, 'is_ankara', p_city = 'Ankara', 'sector', 'ozel', 'project_type', 'konut', 'stage', 'yapim',
